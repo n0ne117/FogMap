@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
 # Local development on the Fedora workstation. Builds from source.
 # Production uses docker-compose.prod.yml, which pulls from ghcr.io instead.
 #

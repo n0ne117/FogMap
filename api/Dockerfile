@@ -32,5 +32,8 @@ FROM testdeps AS test
 COPY api/pyproject.toml ./pyproject.toml
 COPY api/fogmap ./fogmap
 COPY api/tests ./tests
+# The release guard and the changelog it checks, so CI's gate is itself tested.
+COPY scripts ./scripts
+COPY CHANGELOG.md ./CHANGELOG.md
 COPY VERSION ./VERSION
 CMD ["pytest"]

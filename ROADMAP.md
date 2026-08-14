@@ -33,7 +33,7 @@ Current status is in [CHANGELOG.md](CHANGELOG.md).
 - PNG tile pyramid rendered at ingest, both themes
 - PNG tile endpoint, file read only
 - Trail intensity colourmap
-- Protomaps PMTiles basemap
+- Protomaps PMTiles basemap, fetched by a first-run setup screen
 - MapLibre map: basemap, trails, fog
 - Client-side overzoom above z14
 - Light and dark themes, UI and map independently
@@ -46,6 +46,7 @@ Current status is in [CHANGELOG.md](CHANGELOG.md).
 - Release notes published from `CHANGELOG.md`
 - Production compose file
 - README, LICENSE (AGPL-3.0)
+- Release guard: the tag, `VERSION` and `CHANGELOG.md` must agree
 
 ## Phase 3 — Time → `0.3.0`
 
@@ -115,5 +116,5 @@ Deliberately out of scope. Listed so nobody has to ask.
 ## Under consideration
 
 - Wider brush for points tagged as driving
-- Collapsing dual-theme rendering to one neutral raster, if MapLibre gains a `raster-color` equivalent
+- Collapsing dual-theme rendering to one neutral raster, if MapLibre gains a `raster-color` equivalent. Checked against maplibre-gl 6.3.0 in August 2026: not present, so both themes are rendered.
 - Fog growth animation across year layers

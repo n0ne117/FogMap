@@ -15,6 +15,7 @@ Entries are written for someone reading the release page, not for someone readin
 - A `render` command to rebuild the tile pyramid on demand, reporting how long each view took.
 - An actual map. Basemap, trails and fog, with independent light and dark themes for the interface and the map, each remembered between visits.
 - First-run setup screen. FogMap now fetches its own basemap - pick one of the recent Protomaps planet builds or give it a URL, and watch the progress. The download resumes if it is interrupted, and the archive is checked before it is installed.
+- Tagged releases now build and publish themselves to GitHub Container Registry, with the release notes on the GitHub release page taken straight from this file. A release whose version, tag and notes disagree fails to build rather than shipping.
 
 ### Fixed
 - A new version of the web interface now reaches the browser on reload instead of being masked by a cached page.
