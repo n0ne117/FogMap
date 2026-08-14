@@ -11,11 +11,16 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
-### Fixed
-- Release notes no longer carry a leftover "Nothing yet." placeholder from the unreleased section. Cutting a release is now a command rather than a hand edit, and a release with a placeholder still in it fails to build.
+## [0.4.0] - 2026-08-14
+
+Manual editing. Draw the routes GPS never recorded, and rub out the
+fog it cleared by mistake.
 
 ### Added
 - Manual editing. Draw a route freehand or point to point, reveal ground you know you have been to, erase fog that GPS drift cleared by mistake, and undo any stroke. A stroke can be assigned to a year or a range of years such as 1994..2002, which writes it to each year it covers.
+
+### Fixed
+- Release notes no longer carry a leftover "Nothing yet." placeholder from the unreleased section. Cutting a release is now a command rather than a hand edit, and a release with a placeholder still in it fails to build.
 
 ## [0.3.0] - 2026-08-14
 
@@ -64,7 +69,8 @@ get the same bytes back.
 - Upload endpoints for GPX and TCX files, reporting how many events were created, how many points were stamped and how many tiles changed.
 - Command line tools to rebuild every bitmap from the event log, import a file from disk, and dump a single tile to a PNG for inspection. `selfcheck` now reports a digest over all stored bitmaps.
 
-[Unreleased]: https://github.com/n0ne117/FogMap/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/n0ne117/FogMap/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.4.0
 [0.3.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.3.0
 [0.2.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.2.0
 [0.1.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.1.0
