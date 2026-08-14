@@ -11,6 +11,11 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.6.0] - 2026-08-14
+
+Live tracking. The map can now fill itself in as you go, from
+whichever tracker you already use, or from none at all.
+
 ### Fixed
 - A basemap download now picks itself up after a restart instead of stopping silently, and reports an honest speed and time remaining when it resumes rather than counting bytes fetched days ago against the current run.
 - Downloading one of the offered basemaps no longer asks for an API token. Fetching published map data is not a change to your history, and needing a token before the app would fetch its own basemap made the first run harder than it should be. A basemap URL of your own still needs one.
@@ -84,7 +89,8 @@ get the same bytes back.
 - Upload endpoints for GPX and TCX files, reporting how many events were created, how many points were stamped and how many tiles changed.
 - Command line tools to rebuild every bitmap from the event log, import a file from disk, and dump a single tile to a PNG for inspection. `selfcheck` now reports a digest over all stored bitmaps.
 
-[Unreleased]: https://github.com/n0ne117/FogMap/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/n0ne117/FogMap/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.6.0
 [0.5.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.5.0
 [0.4.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.4.0
 [0.3.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.3.0
