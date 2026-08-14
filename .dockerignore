@@ -1,0 +1,12 @@
+.git/
+.github/
+data/
+**/node_modules/
+**/dist/
+**/__pycache__/
+**/.pytest_cache/
+*.pmtiles
+*.db
+*.db-wal
+*.db-shm
+.env

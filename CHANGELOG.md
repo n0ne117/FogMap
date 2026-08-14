@@ -10,14 +10,6 @@ Entries are written for someone reading the release page, not for someone readin
 ## [Unreleased]
 
 ### Added
-- Nothing yet.
+- Repository hygiene: data files, secrets and build output are excluded from version control from the first commit onward.
 
-## [0.0.1] - YYYY-MM-DD
-
-### Added
-- Initial project scaffolding: FastAPI backend, SQLite schema, Docker Compose setup for local development.
-- Web-Mercator coordinate math with test coverage.
-- `selfcheck` command reporting version, coordinate fixtures and data inventory.
-
-[Unreleased]: https://github.com/<owner>/fogmap/compare/v0.0.1...HEAD
-[0.0.1]: https://github.com/<owner>/fogmap/releases/tag/v0.0.1
+[Unreleased]: https://github.com/n0ne117/FogMap/commits/main

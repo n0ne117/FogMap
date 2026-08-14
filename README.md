@@ -43,18 +43,18 @@ Requires Docker and Docker Compose. Both machines this was developed against are
 ### Run from published images
 
 ```bash
-curl -O https://raw.githubusercontent.com/<owner>/fogmap/main/docker-compose.prod.yml
+curl -O https://raw.githubusercontent.com/n0ne117/FogMap/main/docker-compose.prod.yml
 cp .env.example .env    # edit it
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-Images are published to GitHub Container Registry as `ghcr.io/<owner>/fogmap-api` and `ghcr.io/<owner>/fogmap-web`. Pin an explicit version tag rather than `latest`.
+Images are published to GitHub Container Registry as `ghcr.io/n0ne117/fogmap-api` and `ghcr.io/n0ne117/fogmap-web`. Pin an explicit version tag rather than `latest`.
 
 ### Build from source
 
 ```bash
-git clone https://github.com/<owner>/fogmap.git
+git clone https://github.com/n0ne117/FogMap.git
 cd fogmap
 cp .env.example .env
 docker compose build

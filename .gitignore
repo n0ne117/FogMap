@@ -1,0 +1,17 @@
+data/
+*.db
+*.db-wal
+*.db-shm
+*.pmtiles
+.env
+tiles/
+blobs/
+*.gpx
+*.tcx
+node_modules/
+__pycache__/
+
+# Build and test artefacts
+dist/
+.pytest_cache/
+*.py[cod]
