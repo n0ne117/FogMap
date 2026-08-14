@@ -15,3 +15,10 @@ __pycache__/
 dist/
 .pytest_cache/
 *.py[cod]
+
+# Per-machine editor and agent settings. Ignored here rather than relying on
+# a global gitignore, so the protection travels with the repository instead
+# of living on one developer's machine.
+.claude/settings.local.json
+.vscode/
+.idea/

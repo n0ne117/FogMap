@@ -11,6 +11,9 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+### Fixed
+- Per-machine editor and agent settings are now ignored by the repository itself rather than relying on a global ignore file, so the protection travels with a clone.
+
 ## [0.8.3] - 2026-08-14
 
 A settings screen you can actually read, and proper control over the
