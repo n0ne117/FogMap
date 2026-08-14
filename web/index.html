@@ -35,6 +35,13 @@
         </div>
       </section>
 
+      <section>
+        <h2>Basemap</h2>
+        <button id="setup-open" type="button" class="wide" hidden>
+          Set up basemap
+        </button>
+      </section>
+
       <dl class="status">
         <dt>web build</dt>
         <dd id="web-version">unknown</dd>
@@ -43,11 +50,62 @@
       </dl>
     </aside>
 
-    <p id="basemap-warning" class="notice" hidden>
-      No basemap archive found. Fog and trails render, but there is nothing
-      underneath them. Put a Protomaps PMTiles file in the data directory as
-      <code>planet.pmtiles</code>.
-    </p>
+    <section id="setup" class="setup" hidden aria-label="First run setup">
+      <div class="setup-card">
+        <h2>Set up the basemap</h2>
+        <p class="setup-lede">
+          FogMap draws your fog and trails over a map of the world. That map is
+          a Protomaps PMTiles archive, which is far too large to ship in a
+          container, so it is downloaded once into the data directory and
+          served from there.
+        </p>
+
+        <p id="setup-state" class="setup-state">Checking.</p>
+
+        <label class="field">
+          <span>Source</span>
+          <select id="setup-url"></select>
+        </label>
+
+        <label class="field">
+          <span>Or a URL of your own</span>
+          <input
+            id="setup-custom"
+            type="url"
+            placeholder="https://example.org/regional.pmtiles"
+          />
+        </label>
+
+        <label class="field">
+          <span>API token</span>
+          <input
+            id="setup-token"
+            type="password"
+            autocomplete="off"
+            placeholder="value of FOGMAP_TOKEN"
+          />
+        </label>
+
+        <div id="setup-progress-row" class="setup-progress" hidden>
+          <progress id="setup-progress" max="100" value="0"></progress>
+          <p id="setup-progress-text" class="setup-progress-text"></p>
+        </div>
+
+        <p id="setup-message" class="setup-message" hidden></p>
+
+        <div class="setup-actions">
+          <button id="setup-start" type="button" class="primary">Download</button>
+          <button id="setup-cancel" type="button" hidden>Cancel</button>
+          <button id="setup-skip" type="button">Continue without one</button>
+        </div>
+
+        <p class="setup-note">
+          The planet archive is around 128 GB. The download resumes if it is
+          interrupted, and FogMap is fully usable while it runs — only the map
+          underneath your trails is missing.
+        </p>
+      </div>
+    </section>
 
     <p id="map-error" class="notice notice-bad" hidden>
       The map could not start. Check the browser console.

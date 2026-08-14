@@ -234,6 +234,157 @@ body {
   color: var(--fg);
 }
 
+/* First-run setup. */
+
+.setup {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  backdrop-filter: blur(6px);
+  overflow-y: auto;
+}
+
+.setup-card {
+  width: min(30rem, 100%);
+  padding: 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.setup-card h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.25rem;
+}
+
+.setup-lede {
+  margin: 0 0 1rem;
+  color: var(--muted);
+}
+
+.setup-state {
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.7rem;
+  border-left: 3px solid var(--line);
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+  font-size: 0.85rem;
+}
+
+.setup-state[data-state='good'] {
+  border-left-color: var(--good);
+}
+
+.setup-state[data-state='warn'] {
+  border-left-color: var(--warn);
+}
+
+.setup-state[data-state='bad'] {
+  border-left-color: var(--bad);
+}
+
+.field {
+  display: block;
+  margin-bottom: 0.75rem;
+}
+
+.field span {
+  display: block;
+  margin-bottom: 0.2rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.field select,
+.field input {
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.3rem;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.field select:focus,
+.field input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.setup-progress {
+  margin: 1rem 0;
+}
+
+.setup-progress progress {
+  width: 100%;
+  height: 0.5rem;
+}
+
+.setup-progress-text {
+  margin: 0.4rem 0 0;
+  color: var(--muted);
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 0.75rem;
+}
+
+.setup-message {
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--bad);
+  border-radius: 0.3rem;
+  color: var(--bad);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.setup-actions button,
+button.wide {
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.3rem;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+button.wide {
+  width: 100%;
+}
+
+.setup-actions button:hover,
+button.wide:hover {
+  border-color: var(--accent);
+}
+
+.setup-actions .primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.setup-note {
+  margin: 1rem 0 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
 /* MapLibre's own controls, nudged to match the panel. */
 .maplibregl-ctrl-attrib {
   font-size: 0.7rem;

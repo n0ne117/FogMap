@@ -14,6 +14,7 @@ Entries are written for someone reading the release page, not for someone readin
 - Tiles are served straight from disk, and a Protomaps basemap can be served from the data directory over range requests.
 - A `render` command to rebuild the tile pyramid on demand, reporting how long each view took.
 - An actual map. Basemap, trails and fog, with independent light and dark themes for the interface and the map, each remembered between visits.
+- First-run setup screen. FogMap now fetches its own basemap - pick one of the recent Protomaps planet builds or give it a URL, and watch the progress. The download resumes if it is interrupted, and the archive is checked before it is installed.
 
 ### Fixed
 - A new version of the web interface now reaches the browser on reload instead of being masked by a cached page.

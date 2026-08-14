@@ -11,6 +11,7 @@ import {
   createMap,
   type MapSetup,
 } from './map'
+import { Setup } from './setup'
 import {
   applyUiTheme,
   getMapTheme,
@@ -90,9 +91,6 @@ async function start(): Promise<void> {
   watchSystemTheme(() => applyUiTheme())
 
   const hasBasemap = await basemapAvailable()
-  if (!hasBasemap) {
-    element('basemap-warning').hidden = false
-  }
 
   const options: MapSetup = {
     container: 'map',
@@ -136,6 +134,16 @@ async function start(): Promise<void> {
     const panel = element('panel')
     panel.hidden = !panel.hidden
   })
+
+  // Once the archive lands, rebuild the style so the basemap appears without
+  // the user having to reload.
+  const setup = new Setup(() => {
+    if (options.hasBasemap) return
+    options.hasBasemap = true
+    applyMapTheme(map, options)
+  })
+  setup.wire()
+  void setup.maybeShow()
 }
 
 void start()

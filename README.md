@@ -67,7 +67,13 @@ On Fedora or any SELinux-enforcing host, bind mounts need a `:z` label. The bund
 
 ### Basemap
 
-The map needs a [Protomaps](https://protomaps.com) PMTiles basemap. The full planet at z0–15 is roughly 120 GB; regional extracts are much smaller. PMTiles is served over HTTP range requests, so it doesn't have to sit on the same machine.
+The map needs a [Protomaps](https://protomaps.com) PMTiles basemap. It is far too large to ship in a container, so FogMap fetches it on first run: open the web interface and a setup screen offers the recent Protomaps daily planet builds, or takes a URL of your own if you'd rather use a regional extract.
+
+The full planet is around 128 GB, which is hours of downloading. It resumes if interrupted — restarting picks up from wherever it stopped rather than starting again — and the rest of FogMap works throughout. Only the map underneath your trails is missing until it finishes. The archive is verified before it is installed, so a URL that returns an error page is rejected rather than left sitting there looking like a basemap.
+
+Starting a download needs the API token, the same `FOGMAP_TOKEN` the write endpoints use. The setup screen has a field for it and remembers it in the browser.
+
+PMTiles is read over HTTP range requests, so the archive doesn't have to sit on the same machine — point the basemap at any host that serves ranges.
 
 ## Live tracking (optional)
 

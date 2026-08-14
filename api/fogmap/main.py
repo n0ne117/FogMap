@@ -14,7 +14,7 @@ from typing import Iterator
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from fogmap import __version__, composite, db, raster
+from fogmap import __version__, basemap, composite, db, raster
 from fogmap.ingest import common, gpx, tcx
 
 MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -225,7 +225,7 @@ def tile(
 
 
 @app.api_route("/api/basemap/{name}", methods=["GET", "HEAD"])
-def basemap(request: Request, name: str) -> Response:
+def serve_basemap(request: Request, name: str) -> Response:
     """Serve a PMTiles archive, honouring HTTP range requests.
 
     MapLibre reads PMTiles by asking for byte ranges rather than downloading
@@ -317,6 +317,50 @@ def basemap(request: Request, name: str) -> Response:
             "Content-Length": str(length),
         },
     )
+
+
+@app.get("/api/setup")
+def setup_status() -> dict[str, object]:
+    """What first-run setup still needs. Readable without a token."""
+    from datetime import date
+
+    return {
+        "version": __version__,
+        "basemap": basemap.basemap_status(),
+        "suggested_urls": basemap.suggested_planet_urls(
+            date.today().strftime("%Y%m%d")
+        ),
+        "data_dir": str(db.data_dir()),
+    }
+
+
+@app.post("/api/setup/basemap")
+def setup_basemap(payload: dict) -> dict[str, object]:
+    """Begin downloading a basemap archive into the data directory."""
+    url = str(payload.get("url", "")).strip()
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{url!r} is not an http or https URL.",
+        )
+
+    filename = str(payload.get("filename", "planet.pmtiles")).strip()
+    if not BASEMAP_NAME.match(filename):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{filename!r} is not a valid PMTiles filename.",
+        )
+
+    try:
+        return basemap.downloader.start(url, filename)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.delete("/api/setup/basemap")
+def cancel_basemap() -> dict[str, object]:
+    """Stop the running download. The partial file is kept so it can resume."""
+    return basemap.downloader.cancel()
 
 
 @app.post("/api/admin/rebuild")
