@@ -17,5 +17,6 @@ Entries are written for someone reading the release page, not for someone readin
 - A `selfcheck` command reporting the running version, every coordinate fixture as expected versus actual, and what is currently in the data directory.
 - Web interface showing the running version in the corner, linked to its release notes, alongside the version the API reports.
 - Local development stack: one command builds and runs the API and web interface, with a separate service for the test suite.
+- Brush stamping: a track is painted into a persistent bitmap once, at import, with the brush width converted from metres to pixels at the latitude of each point.
 
 [Unreleased]: https://github.com/n0ne117/FogMap/commits/main
