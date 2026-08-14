@@ -11,6 +11,12 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.3.0] - 2026-08-14
+
+Time. The map can be stepped through year by year, or seen all at once.
+
+Nothing yet.
+
 ### Added
 - A year slider. Step through the map one year at a time, or see everything at once, with undated routes gathered under their own stop. Every period was rendered at import, so moving the slider is a change of image rather than a wait.
 
@@ -54,6 +60,7 @@ get the same bytes back.
 - Upload endpoints for GPX and TCX files, reporting how many events were created, how many points were stamped and how many tiles changed.
 - Command line tools to rebuild every bitmap from the event log, import a file from disk, and dump a single tile to a PNG for inspection. `selfcheck` now reports a digest over all stored bitmaps.
 
-[Unreleased]: https://github.com/n0ne117/FogMap/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/n0ne117/FogMap/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.3.0
 [0.2.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.2.0
 [0.1.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.1.0
