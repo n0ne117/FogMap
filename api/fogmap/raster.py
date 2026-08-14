@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import sqlite3
 from functools import lru_cache
 from typing import Iterable, Iterator, Sequence
@@ -33,6 +34,28 @@ MIN_STEP_PX = 0.5
 # Erase applies to every layer, not just the one it was drawn in. A stroke that
 # fixes GPS drift is fixing it for all time.
 ERASE_LAYER = "*"
+
+# Fog and trail are stamped at different widths on purpose. Fog clears a
+# corridor wide enough to read the map inside; the trail is a line drawn down
+# the middle of it. Stamping both at the fog radius made the cleared ground and
+# the trail exactly the same shape, so the basemap never showed through.
+#
+# This is a ceiling, not a radius. The per-event radius still governs the fog,
+# which is what invariant 4 is about.
+DEFAULT_TRAIL_MAX_RADIUS_M = 5.0
+
+
+def trail_max_radius_m() -> float:
+    raw = os.environ.get("FOGMAP_TRAIL_MAX_RADIUS_M", "").strip()
+    if not raw:
+        return DEFAULT_TRAIL_MAX_RADIUS_M
+    try:
+        return float(raw)
+    except ValueError:
+        raise ValueError(
+            f"FOGMAP_TRAIL_MAX_RADIUS_M must be a number, got {raw!r}. Unset it "
+            f"to use the default of {DEFAULT_TRAIL_MAX_RADIUS_M} m."
+        ) from None
 
 Tiles = dict[tuple[int, int], np.ndarray]
 
@@ -284,7 +307,8 @@ def stamp_event(conn: sqlite3.Connection, event: sqlite3.Row) -> set[tuple[int, 
     """
     event_id = int(event["id"])
     points = geometry_points(event["geometry"], event_id)
-    tiles = stamp_path(points, float(event["radius_m"]))
+    radius_m = float(event["radius_m"])
+    tiles = stamp_path(points, radius_m)
     if not tiles:
         return set()
 
@@ -295,9 +319,15 @@ def stamp_event(conn: sqlite3.Connection, event: sqlite3.Row) -> set[tuple[int, 
         # Erase ignores the layer it was drawn in, by design.
         merge_mask(conn, "erase", source, ERASE_LAYER, tiles)
     elif op == "add":
+        trail_radius_m = min(radius_m, trail_max_radius_m())
+        trail_tiles = (
+            tiles
+            if trail_radius_m >= radius_m
+            else stamp_path(points, trail_radius_m)
+        )
         for layer in parse_layers(event["layers"], event_id):
             merge_mask(conn, "fog", source, layer, tiles)
-            merge_trail(conn, source, layer, tiles)
+            merge_trail(conn, source, layer, trail_tiles)
     else:
         raise ValueError(
             f"Event {event_id} has op {op!r}. FogMap stores only 'add' and 'erase'."

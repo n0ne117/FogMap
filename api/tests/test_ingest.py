@@ -303,7 +303,7 @@ class TestIngestResults:
 
     def test_every_documented_source_has_a_default_radius(self):
         assert common.RADIUS_DEFAULTS_M == {
-            "workout": 15.0,
+            "workout": 20.0,
             "ha": 30.0,
             "overland": 20.0,
             "owntracks": 20.0,

@@ -21,8 +21,12 @@ from fogmap import raster
 
 # Section 5. Radius is stored per event, never read from a global at render
 # time - these are only the defaults used when an event is created.
+#
+# `workout` is 20 m rather than the 15 m in section 5, tuned by eye against a
+# rendered map. The fog corridor has to be wide enough to read the basemap
+# inside it, while the trail down the middle stays thin.
 RADIUS_DEFAULTS_M = {
-    "workout": 15.0,
+    "workout": 20.0,
     "ha": 30.0,
     "overland": 20.0,
     "owntracks": 20.0,

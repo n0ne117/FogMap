@@ -185,6 +185,72 @@ class TestBlobStorage:
         assert stored[10, 10] == 255
 
 
+class TestFogAndTrailWidths:
+    """Fog clears a corridor; the trail is a thin line down the middle of it."""
+
+    def _stamp(self, conn, radius_m):
+        import json
+
+        cursor = conn.execute(
+            "INSERT INTO events "
+            "(source, op, geometry, radius_m, layers, external_id, created_at, meta) "
+            "VALUES ('workout', 'add', ?, ?, '[\"2024\"]', NULL, '2024-01-01', NULL)",
+            (
+                json.dumps(
+                    {
+                        "type": "LineString",
+                        "coordinates": [
+                            [lon, lat] for lon, lat in synthetic.straight_line(40)
+                        ],
+                    }
+                ),
+                radius_m,
+            ),
+        )
+        row = conn.execute(
+            "SELECT * FROM events WHERE id = ?", (cursor.lastrowid,)
+        ).fetchone()
+        raster.stamp_event(conn, row)
+
+    def _painted(self, conn, kind):
+        return sum(
+            int((raster.decode(row["data"], kind, "workout", "2024", 0, 0) > 0).sum())
+            for row in conn.execute("SELECT data FROM blobs WHERE kind = ?", (kind,))
+        )
+
+    def test_fog_is_stamped_wider_than_the_trail(self, conn):
+        self._stamp(conn, 20.0)
+        assert self._painted(conn, "fog") > self._painted(conn, "trail")
+
+    def test_the_trail_is_capped_rather_than_scaled(self, conn):
+        self._stamp(conn, 20.0)
+        wide = self._painted(conn, "trail")
+
+        conn.execute("DELETE FROM blobs")
+        conn.execute("DELETE FROM events")
+        self._stamp(conn, 60.0)
+        # Tripling the fog radius must not widen the trail at all.
+        assert self._painted(conn, "trail") == wide
+
+    def test_a_narrow_brush_leaves_the_trail_matching_the_fog(self, conn):
+        self._stamp(conn, 3.0)
+        assert self._painted(conn, "fog") == self._painted(conn, "trail")
+
+    def test_the_cap_is_configurable_by_environment(self, monkeypatch):
+        monkeypatch.setenv("FOGMAP_TRAIL_MAX_RADIUS_M", "9")
+        assert raster.trail_max_radius_m() == 9.0
+
+    def test_a_nonsense_cap_is_refused_loudly(self, monkeypatch):
+        monkeypatch.setenv("FOGMAP_TRAIL_MAX_RADIUS_M", "thin")
+        with pytest.raises(
+            ValueError, match="FOGMAP_TRAIL_MAX_RADIUS_M must be a number"
+        ):
+            raster.trail_max_radius_m()
+
+    def test_the_default_cap_is_five_metres(self):
+        assert raster.DEFAULT_TRAIL_MAX_RADIUS_M == 5.0
+
+
 class TestGeometryParsing:
     def test_a_linestring_reads_back_as_points(self):
         assert raster.geometry_points(

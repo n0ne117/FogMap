@@ -18,6 +18,9 @@ Entries are written for someone reading the release page, not for someone readin
 ### Fixed
 - A new version of the web interface now reaches the browser on reload instead of being masked by a cached page.
 
+### Changed
+- Trails are drawn as a thin line down the middle of a wider cleared corridor, so the map underneath stays readable, and are shaded on a warm ramp from magenta for a single pass to pale yellow for a daily route.
+
 ## [0.1.0] - 2026-08-14
 
 First release with a working ingest and raster core. Import a GPX or TCX file
