@@ -287,6 +287,93 @@ body {
   color: var(--bad);
 }
 
+/* Places. */
+
+.field-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+}
+
+.place-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0.4rem 0;
+}
+
+.place-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.place-name {
+  flex: 1 1 auto;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid transparent;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.place-name:hover {
+  border-color: var(--accent);
+}
+
+.place-delete {
+  flex: 0 0 auto;
+  width: 1.3rem;
+  height: 1.3rem;
+  border: 1px solid var(--line);
+  border-radius: 0.2rem;
+  background: transparent;
+  color: var(--muted);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.place-delete:hover {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.place-form {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.place-popup {
+  color: #1a1a1c;
+  font: 13px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+.place-popup .pill {
+  display: inline-block;
+  margin-top: 0.2rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 0.6rem;
+  background: #e6e6e2;
+  font-size: 0.72em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.place-popup .place-dates,
+.place-popup .place-people {
+  margin-top: 0.25rem;
+  color: #5d5d66;
+  font-size: 0.85em;
+}
+
 /* Year slider. */
 
 .timeline {

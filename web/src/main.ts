@@ -14,6 +14,7 @@ import {
   createMap,
   type MapSetup,
 } from './map'
+import { Places } from './places'
 import { Setup } from './setup'
 import { Timeline } from './timeline'
 import {
@@ -233,6 +234,15 @@ async function start(): Promise<void> {
 
   wireDrawing(map, options, timeline)
 
+  const places = new Places(map, () => {
+    // A place clears fog, so the tiles behind this view just changed.
+    bustTileCache()
+    applyView(map, options)
+    void timeline.load()
+  })
+  places.wire()
+  void places.load()
+
   // Once the archive lands, rebuild the style so the basemap appears without
   // the user having to reload.
   const setup = new Setup(() => {
@@ -244,8 +254,9 @@ async function start(): Promise<void> {
   setup.wire()
   void setup.maybeShow()
 
-  ;(window as unknown as { fogmap: Record<string, unknown> }).fogmap.timeline =
-    timeline
+  const handle = (window as unknown as { fogmap: Record<string, unknown> }).fogmap
+  handle.timeline = timeline
+  handle.places = places
 }
 
 void start()

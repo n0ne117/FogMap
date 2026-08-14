@@ -16,7 +16,7 @@ from typing import Iterator
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from fogmap import __version__, basemap, composite, db, raster
+from fogmap import __version__, basemap, composite, db, places, raster
 from fogmap.ingest import common, gpx, tcx
 
 MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -519,6 +519,74 @@ def list_events(
             for row in rows
         ],
     }
+
+
+@app.get("/api/places")
+def get_places(
+    person: str | None = None, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    return {
+        "places": places.listing(conn, person),
+        "people": places.people(conn),
+        "categories": list(places.CATEGORIES),
+    }
+
+
+@app.post("/api/places", status_code=201)
+def post_place(
+    payload: dict, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    """Add a place. Creating one clears the fog around it."""
+    try:
+        with db.transaction(conn):
+            place, layers = places.create(conn, payload)
+    except places.PlaceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    _render_views(conn, _views_for_layers(layers))
+    return place
+
+
+@app.patch("/api/places/{place_id}")
+def patch_place(
+    place_id: int, payload: dict, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    try:
+        with db.transaction(conn):
+            place, layers, dirty = places.update(conn, place_id, payload)
+            if dirty:
+                raster.rebuild_tiles(conn, dirty)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404, detail=f"No place with id {place_id}."
+        ) from exc
+    except places.PlaceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Moving a place or changing its dates can empty the tiles it used to
+    # cover, so render everything and let the pruning sort it out.
+    if dirty:
+        composite.render_all(conn, tiles_root())
+    else:
+        _render_views(conn, _views_for_layers(layers))
+    return place
+
+
+@app.delete("/api/places/{place_id}")
+def remove_place(
+    place_id: int, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    try:
+        with db.transaction(conn):
+            place, tiles = places.delete(conn, place_id)
+            raster.rebuild_tiles(conn, tiles)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404, detail=f"No place with id {place_id}."
+        ) from exc
+
+    composite.render_all(conn, tiles_root())
+    return {"deleted": place["id"], "name": place["name"]}
 
 
 @app.get("/api/setup")

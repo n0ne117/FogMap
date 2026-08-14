@@ -66,6 +66,60 @@
       </section>
 
       <section>
+        <h2>Places</h2>
+        <div id="place-filter-row" class="field compact" hidden>
+          <span>Who was there</span>
+          <select id="place-person"></select>
+        </div>
+
+        <div id="place-list" class="place-list"></div>
+        <p id="place-empty" class="draw-hint">No places yet.</p>
+
+        <button id="place-add" type="button" class="wide">Add a place</button>
+
+        <div id="place-form" class="place-form" hidden>
+          <label class="field compact">
+            <span>Name</span>
+            <input id="place-name" type="text" placeholder="Grandparents' flat" />
+          </label>
+          <label class="field compact">
+            <span>Category</span>
+            <select id="place-category"></select>
+          </label>
+          <label class="field compact">
+            <span>Who was there</span>
+            <input id="place-people" type="text" placeholder="comma separated" />
+          </label>
+          <div class="field-pair">
+            <label class="field compact">
+              <span>From</span>
+              <input id="place-from" type="text" placeholder="1994" />
+            </label>
+            <label class="field compact">
+              <span>To</span>
+              <input id="place-to" type="text" placeholder="1997" />
+            </label>
+          </div>
+          <div class="field-pair">
+            <label class="field compact">
+              <span>Latitude</span>
+              <input id="place-lat" type="text" />
+            </label>
+            <label class="field compact">
+              <span>Longitude</span>
+              <input id="place-lon" type="text" />
+            </label>
+          </div>
+          <p class="draw-hint">Click the map to move the pin.</p>
+          <p id="place-message" class="draw-status" hidden></p>
+          <div class="setup-actions">
+            <button id="place-save" type="button" class="primary">Save</button>
+            <button id="place-cancel" type="button">Cancel</button>
+          </div>
+        </div>
+      </section>
+
+      <section>
         <h2>Basemap</h2>
         <button id="setup-open" type="button" class="wide" hidden>
           Set up basemap

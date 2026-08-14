@@ -11,6 +11,9 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+### Added
+- Named places. Mark somewhere you lived, went to school or visited, with who was there and when, and the fog clears around it for exactly the years it covers. Markers carry the details, and the map can be filtered down to one person.
+
 ## [0.4.0] - 2026-08-14
 
 Manual editing. Draw the routes GPS never recorded, and rub out the
