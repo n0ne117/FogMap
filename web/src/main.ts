@@ -224,9 +224,15 @@ async function start(): Promise<void> {
     applyMapTheme(map, options)
   })
 
+  const panel = element('panel')
   element('panel-toggle').addEventListener('click', () => {
-    const panel = element('panel')
     panel.hidden = !panel.hidden
+  })
+  element('panel-close').addEventListener('click', () => {
+    panel.hidden = true
+  })
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') panel.hidden = true
   })
 
   const trails = new Trails(map, (message) => {

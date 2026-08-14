@@ -169,12 +169,34 @@ class Downloader:
         self.start(state.url, state.filename)
         return True
 
-    def cancel(self) -> dict[str, object]:
+    def cancel(self, discard: bool = False) -> dict[str, object]:
+        """Stop the download.
+
+        Pausing keeps the partial file, so resuming picks up where it stopped -
+        which after several hours and tens of gigabytes is the difference
+        between an interruption and a disaster. Discarding throws those bytes
+        away and is the only way to start over from nothing.
+        """
         self._cancel.set()
+
+        thread = self._thread
+        if discard and thread is not None and thread.is_alive():
+            # Wait for the writer to let go before removing the file.
+            thread.join(timeout=10.0)
+
         with self._lock:
             if self._state.state == "running":
-                self._state.state = "cancelled"
-                self._persist()
+                self._state.state = "cancelled" if discard else "paused"
+
+            if discard:
+                filename = self._state.filename
+                if filename:
+                    self.partial(filename).unlink(missing_ok=True)
+                self._state = DownloadState(
+                    url=self._state.url, filename=filename, state="cancelled"
+                )
+
+            self._persist()
             return self._state.as_dict()
 
     # -- the work ------------------------------------------------------------

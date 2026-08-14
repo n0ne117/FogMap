@@ -932,9 +932,14 @@ def setup_basemap(request: Request, payload: dict) -> dict[str, object]:
 
 
 @app.delete("/api/setup/basemap")
-def cancel_basemap() -> dict[str, object]:
-    """Stop the running download. The partial file is kept so it can resume."""
-    return basemap.downloader.cancel()
+def cancel_basemap(discard: bool = False) -> dict[str, object]:
+    """Stop the running download.
+
+    By default this is a pause: the partial file stays, so starting again
+    resumes from where it stopped. `discard=true` throws those bytes away,
+    which after several hours of downloading is worth being deliberate about.
+    """
+    return basemap.downloader.cancel(discard=discard)
 
 
 @app.post("/api/admin/rebuild")

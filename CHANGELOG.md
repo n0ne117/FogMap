@@ -11,6 +11,18 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.8.3] - 2026-08-14
+
+A settings screen you can actually read, and proper control over the
+basemap download.
+
+### Changed
+- Settings is now a full screen of cards instead of a narrow column. The old panel ran off the bottom of the window with no way to scroll, so the data sources and their descriptions could not be reached at all.
+- The version badge moved to the bottom left, where it no longer sits on top of the map attribution.
+
+### Added
+- Pause, resume and cancel for the basemap download, in Settings. Pausing keeps what has been downloaded so far; cancelling throws it away and asks twice before doing so.
+
 ## [0.8.2] - 2026-08-14
 
 Fixes the setup screen refusing to go away.
@@ -121,7 +133,8 @@ get the same bytes back.
 - Upload endpoints for GPX and TCX files, reporting how many events were created, how many points were stamped and how many tiles changed.
 - Command line tools to rebuild every bitmap from the event log, import a file from disk, and dump a single tile to a PNG for inspection. `selfcheck` now reports a digest over all stored bitmaps.
 
-[Unreleased]: https://github.com/n0ne117/FogMap/compare/v0.8.2...HEAD
+[Unreleased]: https://github.com/n0ne117/FogMap/compare/v0.8.3...HEAD
+[0.8.3]: https://github.com/n0ne117/FogMap/releases/tag/v0.8.3
 [0.8.2]: https://github.com/n0ne117/FogMap/releases/tag/v0.8.2
 [0.8.1]: https://github.com/n0ne117/FogMap/releases/tag/v0.8.1
 [0.8.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.8.0

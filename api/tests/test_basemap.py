@@ -364,3 +364,65 @@ class TestDownloadStateMaths:
         reported = basemap.DownloadState().as_dict()
         assert reported["percent"] == 0.0
         assert reported["seconds_remaining"] is None
+
+
+class TestPauseAndCancel:
+    @pytest.fixture
+    def client(self):
+        with TestClient(app) as test_client:
+            yield test_client
+
+    """Pausing keeps the bytes; cancelling throws them away."""
+
+    def test_pausing_keeps_the_partial_file(self, downloader, server):
+        partial = db.data_dir() / "test-m.pmtiles.part"
+        partial.write_bytes(PAYLOAD[:60])
+
+        status = downloader.cancel(discard=False)
+        assert status["state"] in ("paused", "idle")
+        assert partial.exists()
+        partial.unlink()
+
+    def test_a_paused_download_is_not_resumed_automatically(self, server):
+        """A restart must not undo a deliberate pause."""
+        restarted = basemap.Downloader()
+        restarted._state_path().write_text(
+            f'{{"url": "{server}", "filename": "test-n.pmtiles", '
+            '"state": "paused"}',
+            encoding="utf-8",
+        )
+        assert restarted.resume_if_interrupted() is False
+
+    def test_cancelling_discards_the_partial_file(self, downloader, server):
+        downloader.start(server, "test-o.pmtiles")
+        wait_for(downloader)
+        (db.data_dir() / "test-o.pmtiles").unlink(missing_ok=True)
+
+        partial = db.data_dir() / "test-o.pmtiles.part"
+        partial.write_bytes(PAYLOAD[:60])
+        downloader._state.filename = "test-o.pmtiles"
+
+        status = downloader.cancel(discard=True)
+        assert status["state"] == "cancelled"
+        assert not partial.exists()
+
+    def test_pausing_and_starting_again_resumes(self, downloader, server):
+        partial = db.data_dir() / "test-p.pmtiles.part"
+        partial.write_bytes(PAYLOAD[:60])
+
+        downloader.start(server, "test-p.pmtiles")
+        assert wait_for(downloader)["state"] == "done"
+        target = db.data_dir() / "test-p.pmtiles"
+        assert target.read_bytes() == PAYLOAD
+        target.unlink()
+
+    def test_the_endpoint_passes_discard_through(self, client, monkeypatch):
+        monkeypatch.setenv("FOGMAP_TOKEN", "a-token")
+        assert client.delete("/api/setup/basemap").json()["state"] in (
+            "paused",
+            "idle",
+            "cancelled",
+        )
+        assert client.delete("/api/setup/basemap?discard=true").json()["state"] == (
+            "cancelled"
+        )

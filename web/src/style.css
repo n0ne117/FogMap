@@ -104,28 +104,74 @@ body {
   border-color: var(--accent);
 }
 
+/* Settings fills the screen. The panel used to be a narrow column that ran
+ * off the bottom with no way to scroll, so anything below the fold - the data
+ * sources among them - simply could not be reached. */
 .panel {
   position: absolute;
-  top: 3.5rem;
-  left: 0.75rem;
-  z-index: 2;
-  width: 15rem;
+  inset: 0;
+  z-index: 4;
+  padding: 1.25rem clamp(1rem, 4vw, 3rem) 2rem;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(10px);
+  overflow-y: auto;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  max-width: 84rem;
+  margin: 0 auto 1.25rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.panel h1 {
+  margin: 0;
+  font-size: 1.4rem;
+  letter-spacing: -0.01em;
+}
+
+.panel-close {
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid var(--line);
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--fg);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.panel-close:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Cards reflow from one column to four depending on the width available. */
+.panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  gap: 1rem;
+  align-items: start;
+  max-width: 84rem;
+  margin: 0 auto;
+}
+
+.panel section {
+  margin: 0;
   padding: 1rem;
   border: 1px solid var(--line);
   border-radius: 0.5rem;
   background: var(--panel);
-  backdrop-filter: blur(8px);
   box-shadow: var(--shadow);
 }
 
-.panel h1 {
-  margin: 0 0 1rem;
-  font-size: 1.1rem;
-  letter-spacing: -0.01em;
-}
-
 .panel h2 {
-  margin: 0 0 0.4rem;
+  margin: 0 0 0.6rem;
   color: var(--muted);
   font-size: 0.75rem;
   font-weight: 600;
@@ -133,8 +179,27 @@ body {
   letter-spacing: 0.06em;
 }
 
-.panel section {
-  margin-bottom: 1rem;
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
+}
+
+.button-row button {
+  flex: 1 1 auto;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.3rem;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.button-row button:hover {
+  border-color: var(--accent);
 }
 
 .segmented {
@@ -229,7 +294,7 @@ body {
 
 .version-corner {
   position: absolute;
-  right: 0.75rem;
+  left: 0.75rem;
   bottom: 0.75rem;
   z-index: 2;
   padding: 0.2rem 0.5rem;

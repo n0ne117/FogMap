@@ -16,8 +16,14 @@
     </button>
 
     <aside id="panel" class="panel" hidden>
-      <h1>FogMap</h1>
+      <header class="panel-head">
+        <h1>FogMap settings</h1>
+        <button id="panel-close" type="button" class="panel-close" aria-label="Close settings">
+          &times;
+        </button>
+      </header>
 
+      <div class="panel-grid">
       <section>
         <h2>Interface</h2>
         <div id="ui-theme" class="segmented" role="group" aria-label="Interface theme">
@@ -149,19 +155,25 @@
           <progress id="basemap-progress" max="100" value="0"></progress>
           <p id="basemap-progress-text" class="setup-progress-text"></p>
         </div>
+        <div class="button-row">
+          <button id="basemap-pause" type="button" hidden>Pause</button>
+          <button id="basemap-resume" type="button" hidden>Resume</button>
+          <button id="basemap-cancel" type="button" hidden>Cancel</button>
+        </div>
         <button id="setup-open" type="button" class="wide">Set up basemap</button>
         <button id="basemap-update" type="button" class="wide">Update basemap</button>
-        <button id="basemap-cancel" type="button" class="wide" hidden>
-          Cancel download
-        </button>
       </section>
 
-      <dl class="status">
-        <dt>web build</dt>
-        <dd id="web-version">unknown</dd>
-        <dt>api</dt>
-        <dd id="api-version">checking</dd>
-      </dl>
+      <section>
+        <h2>Version</h2>
+        <dl class="status">
+          <dt>web build</dt>
+          <dd id="web-version">unknown</dd>
+          <dt>api</dt>
+          <dd id="api-version">checking</dd>
+        </dl>
+      </section>
+      </div>
     </aside>
 
     <section id="setup" class="setup" hidden aria-label="First run setup">

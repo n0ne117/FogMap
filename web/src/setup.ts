@@ -117,9 +117,13 @@ export class Setup {
       })
     })
 
-    for (const id of ['setup-cancel', 'basemap-cancel']) {
-      element(id).addEventListener('click', () => void this.cancel())
+    // Pausing keeps the partial file. Cancelling throws it away, which after
+    // several hours of downloading takes two clicks.
+    for (const id of ['setup-cancel', 'basemap-pause']) {
+      element(id).addEventListener('click', () => void this.cancel(false))
     }
+    element('basemap-resume').addEventListener('click', () => void this.start())
+    element('basemap-cancel').addEventListener('click', () => void this.confirmCancel())
 
     element('setup-skip').addEventListener('click', () => {
       dismiss()
@@ -196,13 +200,35 @@ export class Setup {
     }
   }
 
-  private async cancel(): Promise<void> {
+  private async cancel(discard: boolean): Promise<void> {
     try {
-      await apiSend('DELETE', '/api/setup/basemap', undefined, { tokenOptional: true })
+      await apiSend(
+        'DELETE',
+        `/api/setup/basemap${discard ? '?discard=true' : ''}`,
+        undefined,
+        { tokenOptional: true },
+      )
       await this.refresh()
     } catch (error) {
       this.say(error instanceof Error ? error.message : String(error))
     }
+  }
+
+  /** Discarding a part-finished download throws away hours of work. */
+  private async confirmCancel(): Promise<void> {
+    const button = element<HTMLButtonElement>('basemap-cancel')
+    if (button.dataset.armed !== 'true') {
+      button.dataset.armed = 'true'
+      button.textContent = 'Discard progress?'
+      window.setTimeout(() => {
+        button.dataset.armed = 'false'
+        button.textContent = 'Cancel'
+      }, 5000)
+      return
+    }
+    button.dataset.armed = 'false'
+    button.textContent = 'Cancel'
+    await this.cancel(true)
   }
 
   private say(message: string): void {
@@ -271,8 +297,12 @@ export class Setup {
       ? `${download.percent.toFixed(1)}% · ${formatBytes(download.bytes_per_second)}/s`
       : ''
 
-    element('basemap-update').hidden = running
-    element('basemap-cancel').hidden = !running
+    const paused = !running && basemap.partial_bytes > 0
+
+    element('basemap-pause').hidden = !running
+    element('basemap-resume').hidden = !paused
+    element('basemap-cancel').hidden = !running && !paused
+    element('basemap-update').hidden = running || paused
   }
 
   private render(status: SetupStatus): void {
