@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="system">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -9,18 +9,49 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <main id="app">
+    <div id="map"></div>
+
+    <button id="panel-toggle" class="panel-toggle" title="Settings" aria-label="Settings">
+      &#9881;
+    </button>
+
+    <aside id="panel" class="panel" hidden>
       <h1>FogMap</h1>
-      <p class="lede">
-        Foundation only. The map arrives in phase 2.
-      </p>
-      <dl id="status" class="status">
+
+      <section>
+        <h2>Interface</h2>
+        <div id="ui-theme" class="segmented" role="group" aria-label="Interface theme">
+          <button type="button" data-value="light" aria-pressed="false">Light</button>
+          <button type="button" data-value="dark" aria-pressed="false">Dark</button>
+          <button type="button" data-value="system" aria-pressed="false">System</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Map</h2>
+        <div id="map-theme" class="segmented" role="group" aria-label="Map theme">
+          <button type="button" data-value="light" aria-pressed="false">Light</button>
+          <button type="button" data-value="dark" aria-pressed="false">Dark</button>
+        </div>
+      </section>
+
+      <dl class="status">
         <dt>web build</dt>
         <dd id="web-version">unknown</dd>
         <dt>api</dt>
         <dd id="api-version">checking</dd>
       </dl>
-    </main>
+    </aside>
+
+    <p id="basemap-warning" class="notice" hidden>
+      No basemap archive found. Fog and trails render, but there is nothing
+      underneath them. Put a Protomaps PMTiles file in the data directory as
+      <code>planet.pmtiles</code>.
+    </p>
+
+    <p id="map-error" class="notice notice-bad" hidden>
+      The map could not start. Check the browser console.
+    </p>
 
     <a id="version-corner" class="version-corner" rel="noreferrer">v0.0.0</a>
 

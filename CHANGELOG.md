@@ -15,6 +15,7 @@ Nothing yet.
 - The map is now drawn. Fog covers ground you have never visited and lifts where you have been, and trails are shaded by how often you passed - a daily commute reads brighter than a one-off detour.
 - Tiles are served straight from disk, and a Protomaps basemap can be served from the data directory over range requests.
 - A `render` command to rebuild the tile pyramid on demand, reporting how long each view took.
+- An actual map. Basemap, trails and fog, with independent light and dark themes for the interface and the map, each remembered between visits.
 
 ## [0.1.0] - 2026-08-14
 

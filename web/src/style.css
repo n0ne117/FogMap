@@ -2,39 +2,51 @@
  *
  * Theming is custom properties only. One block per theme, selected by the
  * data-theme attribute on <html>. No per-component theme logic, ever.
- * The theme toggles themselves arrive in phase 2.
+ * The interface theme is independent of the map theme by design.
  */
 
 :root,
 :root[data-theme='light'] {
   --bg: #f6f6f4;
+  --panel: #ffffffee;
   --fg: #1a1a1c;
   --muted: #5d5d66;
   --line: #d9d9d4;
+  --accent: #1f5fa8;
+  --accent-fg: #ffffff;
   --good: #1f7a3d;
   --warn: #8a5a00;
   --bad: #a11f1f;
+  --shadow: 0 2px 12px #00000022;
 }
 
 :root[data-theme='dark'] {
   --bg: #121214;
+  --panel: #1a1a1eee;
   --fg: #e8e8ea;
   --muted: #9a9aa4;
-  --line: #2a2a2e;
+  --line: #32323a;
+  --accent: #4d8fd6;
+  --accent-fg: #0d0d10;
   --good: #57c47c;
   --warn: #d8a13a;
   --bad: #e0645c;
+  --shadow: 0 2px 12px #00000066;
 }
 
 @media (prefers-color-scheme: dark) {
   :root[data-theme='system'] {
     --bg: #121214;
+    --panel: #1a1a1eee;
     --fg: #e8e8ea;
     --muted: #9a9aa4;
-    --line: #2a2a2e;
+    --line: #32323a;
+    --accent: #4d8fd6;
+    --accent-fg: #0d0d10;
     --good: #57c47c;
     --warn: #d8a13a;
     --bad: #e0645c;
+    --shadow: 0 2px 12px #00000066;
   }
 }
 
@@ -42,38 +54,117 @@
   box-sizing: border-box;
 }
 
+html,
+body {
+  height: 100%;
+}
+
 body {
   margin: 0;
-  min-height: 100vh;
   background: var(--bg);
   color: var(--fg);
-  font: 16px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font: 14px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  overflow: hidden;
 }
 
-#app {
-  max-width: 40rem;
-  padding: 3rem 1.5rem;
-  margin: 0 auto;
+#map {
+  position: absolute;
+  inset: 0;
 }
 
-h1 {
-  margin: 0 0 0.25rem;
-  font-size: 1.75rem;
+.panel-toggle {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 2;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid var(--line);
+  border-radius: 0.375rem;
+  background: var(--panel);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.panel-toggle:hover {
+  border-color: var(--accent);
+}
+
+.panel {
+  position: absolute;
+  top: 3.5rem;
+  left: 0.75rem;
+  z-index: 2;
+  width: 15rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--panel);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow);
+}
+
+.panel h1 {
+  margin: 0 0 1rem;
+  font-size: 1.1rem;
   letter-spacing: -0.01em;
 }
 
-.lede {
-  margin: 0 0 2rem;
+.panel h2 {
+  margin: 0 0 0.4rem;
   color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.panel section {
+  margin-bottom: 1rem;
+}
+
+.segmented {
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: 0.375rem;
+  overflow: hidden;
+}
+
+.segmented button {
+  flex: 1;
+  padding: 0.35rem 0.25rem;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.segmented button:last-child {
+  border-right: 0;
+}
+
+.segmented button:hover {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.segmented button[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--accent-fg);
 }
 
 .status {
   display: grid;
-  grid-template-columns: 8rem 1fr;
-  gap: 0.5rem 1rem;
+  grid-template-columns: 5rem 1fr;
+  gap: 0.3rem 0.5rem;
   margin: 0;
-  padding-top: 1.5rem;
+  padding-top: 0.75rem;
   border-top: 1px solid var(--line);
+  font-size: 0.75rem;
 }
 
 .status dt {
@@ -97,20 +188,53 @@ h1 {
   color: var(--bad);
 }
 
+.notice {
+  position: absolute;
+  bottom: 0.75rem;
+  left: 50%;
+  z-index: 2;
+  transform: translateX(-50%);
+  max-width: min(34rem, calc(100vw - 2rem));
+  margin: 0;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.375rem;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.notice code {
+  color: var(--fg);
+  font-size: 0.95em;
+}
+
+.notice-bad {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
 .version-corner {
-  position: fixed;
+  position: absolute;
   right: 0.75rem;
   bottom: 0.75rem;
+  z-index: 2;
   padding: 0.2rem 0.5rem;
   border: 1px solid var(--line);
   border-radius: 0.25rem;
-  background: var(--bg);
+  background: var(--panel);
   color: var(--muted);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   text-decoration: none;
 }
 
 .version-corner:hover {
   color: var(--fg);
+}
+
+/* MapLibre's own controls, nudged to match the panel. */
+.maplibregl-ctrl-attrib {
+  font-size: 0.7rem;
 }
