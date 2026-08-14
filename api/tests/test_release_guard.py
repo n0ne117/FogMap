@@ -117,6 +117,119 @@ class TestChangelogSection:
         assert "Ingest and raster core." in load_guard(repo).changelog_section("0.1.0")
 
 
+class TestPlaceholderGuard:
+    """A placeholder must never reach a release page.
+
+    This exists because one did: cutting 0.3.0 by hand left 'Nothing yet.'
+    sitting inside the released section, and it was published before anyone
+    noticed. Now it fails the build.
+    """
+
+    @pytest.fixture
+    def with_placeholder(self, tmp_path):
+        (tmp_path / "VERSION").write_text("0.4.0\n", encoding="utf-8")
+        (tmp_path / "CHANGELOG.md").write_text(
+            "# Changelog\n"
+            "\n"
+            "## [Unreleased]\n"
+            "\n"
+            "Nothing yet.\n"
+            "\n"
+            "## [0.4.0] - 2026-09-01\n"
+            "\n"
+            "A summary line.\n"
+            "\n"
+            "Nothing yet.\n"
+            "\n"
+            "### Added\n"
+            "- Something real.\n",
+            encoding="utf-8",
+        )
+        return tmp_path
+
+    def test_a_stray_placeholder_fails_the_build(self, with_placeholder):
+        with pytest.raises(SystemExit, match="still contains a placeholder line"):
+            load_guard(with_placeholder).changelog_section("0.4.0")
+
+    def test_the_message_says_where_it_belongs(self, with_placeholder):
+        with pytest.raises(SystemExit, match="belongs under\nUnreleased|belongs under"):
+            load_guard(with_placeholder).changelog_section("0.4.0")
+
+    def test_check_refuses_the_release_too(self, with_placeholder):
+        with pytest.raises(SystemExit, match="placeholder"):
+            load_guard(with_placeholder).check("0.4.0")
+
+
+class TestCut:
+    @pytest.fixture
+    def pending(self, tmp_path):
+        (tmp_path / "CHANGELOG.md").write_text(
+            "# Changelog\n"
+            "\n"
+            "## [Unreleased]\n"
+            "\n"
+            "Nothing yet.\n"
+            "\n"
+            "### Added\n"
+            "- A year slider.\n"
+            "\n"
+            "### Fixed\n"
+            "- A caching bug.\n"
+            "\n"
+            "## [0.2.0] - 2026-08-01\n"
+            "\n"
+            "### Added\n"
+            "- Tiles.\n",
+            encoding="utf-8",
+        )
+        return tmp_path
+
+    def test_entries_move_into_the_new_version(self, pending):
+        guard = load_guard(pending)
+        guard.cut("0.3.0", "2026-08-14")
+
+        section = guard.changelog_section("0.3.0")
+        assert "A year slider." in section
+        assert "A caching bug." in section
+        assert "Tiles." not in section
+
+    def test_the_placeholder_does_not_follow_the_entries(self, pending):
+        guard = load_guard(pending)
+        guard.cut("0.3.0", "2026-08-14")
+        # The exact bug this command exists to prevent.
+        assert "Nothing yet." not in guard.changelog_section("0.3.0")
+
+    def test_a_fresh_unreleased_section_is_left_behind(self, pending):
+        guard = load_guard(pending)
+        guard.cut("0.3.0", "2026-08-14")
+
+        text = (pending / "CHANGELOG.md").read_text(encoding="utf-8")
+        unreleased = text.split("## [Unreleased]")[1].split("## [")[0]
+        assert "Nothing yet." in unreleased
+        assert "A year slider." not in unreleased
+
+    def test_a_summary_is_placed_above_the_entries(self, pending):
+        guard = load_guard(pending)
+        guard.cut("0.3.0", "2026-08-14", "Time, at last.")
+
+        section = guard.changelog_section("0.3.0")
+        assert section.splitlines()[0] == "Time, at last."
+
+    def test_the_older_release_is_left_untouched(self, pending):
+        guard = load_guard(pending)
+        guard.cut("0.3.0", "2026-08-14")
+        assert "Tiles." in guard.changelog_section("0.2.0")
+
+    def test_cutting_with_nothing_to_release_is_refused(self, tmp_path):
+        (tmp_path / "CHANGELOG.md").write_text(
+            "# Changelog\n\n## [Unreleased]\n\nNothing yet.\n\n## [0.1.0] - 2026-01-01\n"
+            "\n### Added\n- Things.\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(SystemExit, match="Nothing to release"):
+            load_guard(tmp_path).cut("0.2.0", "2026-08-14")
+
+
 class TestAgainstTheRealRepository:
     def test_the_shipped_changelog_has_notes_for_the_released_version(self):
         section = load_guard(REPO_ROOT).changelog_section("0.1.0")

@@ -10,6 +10,7 @@ by /healthz becomes a lie.
 Usage
   release_guard.py check <version>          verify VERSION and CHANGELOG
   release_guard.py section <version>        print that version's release notes
+  release_guard.py cut <version> [--date D] rename Unreleased to a release
 """
 
 from __future__ import annotations
@@ -19,6 +20,14 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+UNRELEASED = "## [Unreleased]"
+
+# Placeholder text that means "no entries here yet". It belongs under
+# Unreleased and must never survive into a published release, so releasing
+# with one still in the section is a hard failure rather than a wart on the
+# release page.
+PLACEHOLDERS = {"nothing yet.", "- nothing yet.", "tbd", "todo"}
 
 
 def repo_version() -> str:
@@ -67,6 +76,14 @@ def changelog_section(version: str) -> str:
             f"CHANGELOG.md has a section for {version} but it is empty. "
             "Release notes are written for a reader, not left blank."
         )
+
+    stray = [line for line in body if line.strip().lower() in PLACEHOLDERS]
+    if stray:
+        raise SystemExit(
+            f"CHANGELOG.md's section for {version} still contains a "
+            f"placeholder line ({stray[0].strip()!r}). That belongs under "
+            "Unreleased, not on a release page. Remove it before tagging."
+        )
     return "\n".join(body)
 
 
@@ -82,6 +99,52 @@ def check(version: str) -> None:
     print(f"version {version} matches VERSION and has release notes")
 
 
+def cut(version: str, date: str, summary: str = "") -> None:
+    """Turn the Unreleased section into a dated release section.
+
+    Doing this by hand is how a placeholder line ends up on a release page:
+    inserting a heading above Unreleased leaves whatever was under it sitting
+    beneath the new version instead. This moves the entries and leaves a clean
+    Unreleased behind.
+    """
+    changelog = ROOT / "CHANGELOG.md"
+    lines = changelog.read_text(encoding="utf-8").splitlines()
+
+    try:
+        start = next(i for i, line in enumerate(lines) if line.startswith(UNRELEASED))
+    except StopIteration:
+        raise SystemExit("CHANGELOG.md has no '## [Unreleased]' section to cut.") from None
+
+    end = start + 1
+    while end < len(lines) and not lines[end].startswith("## "):
+        end += 1
+
+    entries = [
+        line
+        for line in lines[start + 1 : end]
+        if line.strip().lower() not in PLACEHOLDERS
+    ]
+    while entries and not entries[0].strip():
+        entries.pop(0)
+    while entries and not entries[-1].strip():
+        entries.pop()
+
+    if not entries:
+        raise SystemExit(
+            f"Nothing to release. CHANGELOG.md's Unreleased section has no "
+            f"entries, so {version} would ship with blank release notes."
+        )
+
+    body = [UNRELEASED, "", "Nothing yet.", "", f"## [{version}] - {date}", ""]
+    if summary:
+        body += [summary, ""]
+    body += entries + [""]
+
+    lines[start:end] = body
+    changelog.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"cut {version} with {len([e for e in entries if e.startswith('- ')])} entries")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="FogMap release checks")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -90,9 +153,16 @@ def main() -> int:
         one = sub.add_parser(name)
         one.add_argument("version")
 
+    cutter = sub.add_parser("cut")
+    cutter.add_argument("version")
+    cutter.add_argument("--date", required=True)
+    cutter.add_argument("--summary", default="")
+
     args = parser.parse_args()
     if args.command == "check":
         check(args.version)
+    elif args.command == "cut":
+        cut(args.version, args.date, args.summary)
     else:
         print(changelog_section(args.version))
     return 0

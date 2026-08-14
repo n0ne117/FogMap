@@ -11,11 +11,12 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+### Fixed
+- Release notes no longer carry a leftover "Nothing yet." placeholder from the unreleased section. Cutting a release is now a command rather than a hand edit, and a release with a placeholder still in it fails to build.
+
 ## [0.3.0] - 2026-08-14
 
 Time. The map can be stepped through year by year, or seen all at once.
-
-Nothing yet.
 
 ### Added
 - A year slider. Step through the map one year at a time, or see everything at once, with undated routes gathered under their own stop. Every period was rendered at import, so moving the slider is a change of image rather than a wait.
