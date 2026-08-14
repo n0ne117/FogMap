@@ -11,5 +11,6 @@ Entries are written for someone reading the release page, not for someone readin
 
 ### Added
 - Repository hygiene: data files, secrets and build output are excluded from version control from the first commit onward.
+- Web-Mercator coordinate math on the native z14 grid, covering projection round trips, ground resolution by latitude, the Mercator latitude clamp and antimeridian crossings.
 
 [Unreleased]: https://github.com/n0ne117/FogMap/commits/main
