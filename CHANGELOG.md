@@ -11,6 +11,11 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.5.0] - 2026-08-14
+
+Places. The map now holds the ones you can name, not only the ones a
+satellite happened to watch you walk through.
+
 ### Added
 - Named places. Mark somewhere you lived, went to school or visited, with who was there and when, and the fog clears around it for exactly the years it covers. Markers carry the details, and the map can be filtered down to one person.
 
@@ -72,7 +77,8 @@ get the same bytes back.
 - Upload endpoints for GPX and TCX files, reporting how many events were created, how many points were stamped and how many tiles changed.
 - Command line tools to rebuild every bitmap from the event log, import a file from disk, and dump a single tile to a PNG for inspection. `selfcheck` now reports a digest over all stored bitmaps.
 
-[Unreleased]: https://github.com/n0ne117/FogMap/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/n0ne117/FogMap/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.5.0
 [0.4.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.4.0
 [0.3.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.3.0
 [0.2.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.2.0
