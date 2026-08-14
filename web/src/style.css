@@ -54,6 +54,18 @@
   box-sizing: border-box;
 }
 
+/* The `hidden` attribute has to win.
+ *
+ * Browsers implement it as `[hidden] { display: none }` in the user agent
+ * stylesheet, which any author rule setting `display` outranks. Every panel
+ * here that is shown and hidden from TypeScript also sets a display - grid
+ * for the setup screen, flex for the timeline - so hiding them silently did
+ * nothing: the element reported hidden while still filling the screen.
+ * Nothing that toggles `hidden` may rely on the user agent rule. */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   height: 100%;

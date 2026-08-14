@@ -11,6 +11,13 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.8.2] - 2026-08-14
+
+Fixes the setup screen refusing to go away.
+
+### Fixed
+- Panels that are meant to disappear now actually disappear. "Continue download in the background" and "Continue without a basemap" left the setup screen on top of the map, so both looked like they had done nothing even though the download was running underneath.
+
 ## [0.8.1] - 2026-08-14
 
 Setup screen tidying: start the basemap downloading and carry on,
@@ -114,7 +121,8 @@ get the same bytes back.
 - Upload endpoints for GPX and TCX files, reporting how many events were created, how many points were stamped and how many tiles changed.
 - Command line tools to rebuild every bitmap from the event log, import a file from disk, and dump a single tile to a PNG for inspection. `selfcheck` now reports a digest over all stored bitmaps.
 
-[Unreleased]: https://github.com/n0ne117/FogMap/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/n0ne117/FogMap/compare/v0.8.2...HEAD
+[0.8.2]: https://github.com/n0ne117/FogMap/releases/tag/v0.8.2
 [0.8.1]: https://github.com/n0ne117/FogMap/releases/tag/v0.8.1
 [0.8.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.8.0
 [0.6.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.6.0
