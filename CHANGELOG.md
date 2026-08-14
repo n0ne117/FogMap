@@ -13,5 +13,6 @@ Entries are written for someone reading the release page, not for someone readin
 - Repository hygiene: data files, secrets and build output are excluded from version control from the first commit onward.
 - Web-Mercator coordinate math on the native z14 grid, covering projection round trips, ground resolution by latitude, the Mercator latitude clamp and antimeridian crossings.
 - SQLite schema for the event log, raster blobs, places and settings, created on first start and safe to re-run against a populated database.
+- HTTP API reporting its own version at `/healthz` and `/api/meta`, so the running build can be identified without shell access.
 
 [Unreleased]: https://github.com/n0ne117/FogMap/commits/main
