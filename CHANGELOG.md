@@ -11,6 +11,12 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+### Added
+- Fog now fades out where it meets ground you have been, instead of stopping at a hard pixel edge.
+- Zoomed in past z14, the individual tracks are drawn over the fog and can be clicked to see what they were, when, and from which source.
+- Import GPX and TCX files from the web interface, with progress and a per-file result, rather than only from the command line.
+- Backup guidance in the README: the event log is the only thing worth keeping, and everything else rebuilds from it.
+
 ## [0.6.0] - 2026-08-14
 
 Live tracking. The map can now fill itself in as you go, from

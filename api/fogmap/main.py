@@ -692,6 +692,112 @@ def list_events(
     }
 
 
+TRAIL_FEATURE_CAP = 500
+
+# The trail endpoint is for a zoomed-in viewport. Section 1 is explicit that
+# no response may scale with point count except this one, and only because it
+# is bounded by the viewport - so a request for half the planet is refused
+# rather than quietly answered with whatever fits under the cap.
+TRAIL_MAX_SPAN_DEG = 2.0
+
+
+@app.get("/api/trails")
+def trails(
+    bbox: str,
+    layer: str | None = None,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> dict[str, object]:
+    """Individual tracks in a viewport, as GeoJSON, for click-to-identify.
+
+    Above z14 the raster has less detail than the geometry behind it, so the
+    lines themselves are worth sending. Hard capped, and only over an area
+    small enough to be a real viewport.
+    """
+    parts = bbox.split(",")
+    if len(parts) != 4:
+        raise HTTPException(
+            status_code=400,
+            detail=f"bbox must be 'west,south,east,north', got {bbox!r}.",
+        )
+    try:
+        west, south, east, north = (float(part) for part in parts)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"bbox values must be numbers, got {bbox!r}.",
+        ) from None
+
+    if west > east or south > north:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"bbox {bbox!r} is inside out. Expected west,south,east,north "
+                "with west below east and south below north."
+            ),
+        )
+
+    if (east - west) > TRAIL_MAX_SPAN_DEG or (north - south) > TRAIL_MAX_SPAN_DEG:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"bbox spans {east - west:.2f} by {north - south:.2f} degrees. "
+                f"Trails are served for viewports up to {TRAIL_MAX_SPAN_DEG} "
+                "degrees across, which is why zooming in is required - the "
+                "raster tiles cover everything wider."
+            ),
+        )
+
+    features: list[dict[str, object]] = []
+    truncated = False
+
+    for row in conn.execute(
+        "SELECT * FROM events WHERE op = 'add' ORDER BY id DESC"
+    ):
+        if layer and layer not in raster.parse_layers(row["layers"], int(row["id"])):
+            continue
+
+        try:
+            points = raster.geometry_points(row["geometry"], int(row["id"]))
+        except ValueError:
+            continue
+        if not points:
+            continue
+
+        lons = [lon for lon, _ in points]
+        lats = [lat for _, lat in points]
+        if max(lons) < west or min(lons) > east:
+            continue
+        if max(lats) < south or min(lats) > north:
+            continue
+
+        if len(features) >= TRAIL_FEATURE_CAP:
+            truncated = True
+            break
+
+        features.append(
+            {
+                "type": "Feature",
+                "id": int(row["id"]),
+                "geometry": json.loads(row["geometry"]),
+                "properties": {
+                    "id": int(row["id"]),
+                    "source": row["source"],
+                    "layers": json.loads(row["layers"]),
+                    "radius_m": row["radius_m"],
+                    "created_at": row["created_at"],
+                    "meta": json.loads(row["meta"]) if row["meta"] else None,
+                },
+            }
+        )
+
+    return {
+        "type": "FeatureCollection",
+        "features": features,
+        "truncated": truncated,
+        "cap": TRAIL_FEATURE_CAP,
+    }
+
+
 @app.get("/api/places")
 def get_places(
     person: str | None = None, conn: sqlite3.Connection = Depends(get_conn)

@@ -183,6 +183,41 @@ Treat HA as ambient coverage — "I was in this city, this neighbourhood" — no
 - **Use a hostname reachable from the tracker**, not `localhost`. If FogMap and HA both run in containers on one host, use the LAN address or a shared Docker network alias.
 - **Token.** Every live endpoint needs the shared token as `X-FogMap-Token`. Overland cannot send arbitrary headers, so it may use its own `Authorization: Bearer <token>` instead — both are accepted on that endpoint.
 
+## Backups
+
+Almost everything in the data directory is derived and disposable. Back up the small part and let the rest rebuild.
+
+**Back this up:**
+
+| | |
+|---|---|
+| `data/fogmap.db` | the event log, places and settings — the only thing that cannot be recreated |
+| your original GPX and TCX files | wherever you keep them; FogMap stores the events it derived, not the files |
+
+**Do not back this up:**
+
+| | |
+|---|---|
+| `data/planet.pmtiles` | ~128 GB of public map data, re-downloadable from the setup screen |
+| `data/tiles/` | rendered PNGs, rebuilt by `render` |
+| the `blobs` table inside `fogmap.db` | bitmaps, rebuilt by `rebuild` |
+
+The blobs live inside the database, so a plain file copy takes them along. That is harmless — it just makes the backup larger than it needs to be. To make it small, vacuum them out of a copy:
+
+```bash
+sqlite3 data/fogmap.db ".backup /tmp/fogmap-backup.db"
+sqlite3 /tmp/fogmap-backup.db "DELETE FROM blobs; VACUUM;"
+```
+
+To restore: put the database back, then rebuild what was thrown away.
+
+```bash
+docker compose exec api python -m fogmap.cli rebuild
+docker compose exec api python -m fogmap.cli render
+```
+
+`rebuild` replays the event log into bitmaps and `render` redraws the tiles. Both are deterministic — the same event log always produces the same bytes — so a restored backup is indistinguishable from the original.
+
 ## A note on privacy
 
 This application stores a detailed record of where you and your family have been. Run it on an internal network. Don't expose it to the internet without an identity-aware proxy in front of it. Write endpoints require a shared token, which is a doorstop, not a security model.

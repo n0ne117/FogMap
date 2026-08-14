@@ -87,6 +87,10 @@ All sources optional, off by default, independently toggleable.
 
 ## Phase 7 — Workout API sync → `0.7.0`
 
+**Deferred.** Needs the workout app's API shape, which has not been specified.
+Files can be imported by hand in the meantime, and duplicates are ignored, so
+nothing is blocked by this.
+
 - Periodic pull from an external workout API
 - Dedup by activity ID
 - Bulk backfill of existing archive

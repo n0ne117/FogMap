@@ -287,6 +287,34 @@ body {
   color: var(--bad);
 }
 
+/* Import progress. */
+
+.import-log {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-top: 0.4rem;
+}
+
+.import-row {
+  padding: 0.15rem 0.3rem;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+  font-size: 0.68rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-row[data-state='good'] {
+  border-left-color: var(--good);
+}
+
+.import-row[data-state='bad'] {
+  border-left-color: var(--bad);
+  color: var(--bad);
+}
+
 /* Live tracking sources. */
 
 .source-list {

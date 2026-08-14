@@ -120,6 +120,19 @@
       </section>
 
       <section>
+        <h2>Import</h2>
+        <input id="import-file" type="file" accept=".gpx,.tcx" multiple hidden />
+        <button id="import-button" type="button" class="wide">
+          Import GPX or TCX
+        </button>
+        <div id="import-progress-row" class="setup-progress" hidden>
+          <progress id="import-progress" max="1" value="0"></progress>
+          <p id="import-progress-text" class="setup-progress-text"></p>
+        </div>
+        <div id="import-log" class="import-log"></div>
+      </section>
+
+      <section>
         <h2>Data sources</h2>
         <div id="source-list" class="source-list"></div>
         <p class="draw-hint">
@@ -200,6 +213,8 @@
         </p>
       </div>
     </section>
+
+    <p id="trail-notice" class="notice" hidden></p>
 
     <p id="map-error" class="notice notice-bad" hidden>
       The map could not start. Check the browser console.

@@ -14,10 +14,12 @@ import {
   createMap,
   type MapSetup,
 } from './map'
+import { Imports } from './imports'
 import { Places } from './places'
 import { Setup } from './setup'
 import { Sources } from './sources'
 import { Timeline } from './timeline'
+import { Trails } from './trails'
 import {
   applyUiTheme,
   getMapTheme,
@@ -227,9 +229,28 @@ async function start(): Promise<void> {
     panel.hidden = !panel.hidden
   })
 
+  const trails = new Trails(map, (message) => {
+    const notice = element('trail-notice')
+    notice.textContent = message
+    notice.hidden = !message
+  })
+  const attachTrails = () => {
+    try {
+      trails.attach()
+      void trails.refresh()
+    } catch (error) {
+      // Never let the trail layer take the rest of the interface down with it.
+      console.error('FogMap could not attach the trail layer', error)
+    }
+  }
+  map.on('style.load', attachTrails)
+  if (map.isStyleLoaded()) attachTrails()
+
   const timeline = new Timeline((view) => {
     options.view = view
     applyView(map, options)
+    trails.view = view
+    void trails.refresh()
   })
   void timeline.load()
 
@@ -247,6 +268,14 @@ async function start(): Promise<void> {
   const sources = new Sources()
   void sources.load()
 
+  const imports = new Imports(() => {
+    bustTileCache()
+    applyView(map, options)
+    void timeline.load()
+    void trails.refresh()
+  })
+  imports.wire()
+
   // Once the archive lands, rebuild the style so the basemap appears without
   // the user having to reload.
   const setup = new Setup(() => {
@@ -262,6 +291,8 @@ async function start(): Promise<void> {
   handle.timeline = timeline
   handle.places = places
   handle.sources = sources
+  handle.trails = trails
+  handle.imports = imports
 }
 
 void start()

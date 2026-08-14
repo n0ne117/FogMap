@@ -18,13 +18,14 @@ full rebuild and a re-import of the file that drew the fog underneath it.
 from __future__ import annotations
 
 import io
-import shutil
 import math
+import os
+import shutil
 import sqlite3
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 
 from fogmap import geo, raster
 
@@ -38,9 +39,13 @@ YEAR_PREFIX = "year:"
 THEMES = ("light", "dark")
 KINDS = ("fog", "trail")
 
+# How far the fog fades out from explored ground. The build plan calls edge
+# softening the difference between "a map" and Fog of World, and warns that
+# tuning it is an evening on its own - hence the environment override.
+DEFAULT_FOG_EDGE_PX = 2.5
+
 # Fog is drawn where the ground is UNEXPLORED, so this is the colour of the
-# unknown. Alpha is the single most subjective number in the project - the
-# build plan warns that tuning it is an evening on its own.
+# unknown. Alpha is the single most subjective number in the project.
 FOG_COLOUR = {
     "dark": (9, 11, 15, 255),
     "light": (236, 236, 231, 255),
@@ -240,7 +245,41 @@ def trail_lut(theme: str) -> np.ndarray:
     return lut
 
 
-def render_fog(fog: np.ndarray, theme: str) -> np.ndarray:
+def fog_edge_px() -> float:
+    """How far the fog fades out from explored ground, in pixels."""
+    raw = os.environ.get("FOGMAP_FOG_EDGE_PX", "").strip()
+    if not raw:
+        return DEFAULT_FOG_EDGE_PX
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        raise ValueError(
+            f"FOGMAP_FOG_EDGE_PX must be a number, got {raw!r}. Unset it to "
+            f"use the default of {DEFAULT_FOG_EDGE_PX} px, or set 0 for a hard "
+            "edge."
+        ) from None
+
+
+def soften(explored: np.ndarray, radius: float) -> np.ndarray:
+    """Fade the fog outwards from explored ground.
+
+    The fade only ever runs into the fog: explored pixels stay completely
+    clear. Blurring the mask itself would leave a one-pixel trail half hidden
+    under its own haze, which is worse than a hard edge, not better.
+    """
+    if radius <= 0.0 or not explored.any():
+        return np.where(explored, 0.0, 1.0).astype(np.float32)
+
+    blurred = Image.fromarray(
+        np.where(explored, 255, 0).astype(np.uint8), mode="L"
+    ).filter(ImageFilter.GaussianBlur(radius))
+
+    opacity = 1.0 - np.asarray(blurred, dtype=np.float32) / 255.0
+    opacity[explored] = 0.0
+    return opacity
+
+
+def render_fog(fog: np.ndarray, theme: str, edge_px: float | None = None) -> np.ndarray:
     """Paint the unexplored ground, leaving explored ground transparent."""
     try:
         colour = FOG_COLOUR[theme]
@@ -249,11 +288,14 @@ def render_fog(fog: np.ndarray, theme: str) -> np.ndarray:
             f"Unknown theme {theme!r}. FogMap renders {' and '.join(THEMES)}."
         ) from None
 
+    radius = fog_edge_px() if edge_px is None else edge_px
+    opacity = soften(fog, radius)
+
     rgba = np.empty((TILE, TILE, 4), dtype=np.uint8)
     rgba[..., 0] = colour[0]
     rgba[..., 1] = colour[1]
     rgba[..., 2] = colour[2]
-    rgba[..., 3] = np.where(fog, 0, colour[3]).astype(np.uint8)
+    rgba[..., 3] = np.clip(opacity * colour[3], 0, 255).astype(np.uint8)
     return rgba
 
 
