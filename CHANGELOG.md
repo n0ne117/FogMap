@@ -11,6 +11,9 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+### Fixed
+- A basemap download now picks itself up after a restart instead of stopping silently, and reports an honest speed and time remaining when it resumes rather than counting bytes fetched days ago against the current run.
+
 ## [0.5.0] - 2026-08-14
 
 Places. The map now holds the ones you can name, not only the ones a

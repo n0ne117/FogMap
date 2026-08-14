@@ -137,6 +137,72 @@ class TestDownload:
             RangeHandler.fail_with = None
 
 
+class TestResumeAfterRestart:
+    """A download that a restart cut off has to pick itself up.
+
+    This exists because it did not: rebuilding the api container during
+    development silently stopped a 137 GB download, and nothing said so.
+    """
+
+    def test_an_interrupted_download_is_reported_as_interrupted_not_idle(
+        self, downloader, server
+    ):
+        downloader.start(server, "test-h.pmtiles")
+        wait_for(downloader)
+        (db.data_dir() / "test-h.pmtiles").unlink(missing_ok=True)
+
+        # A fresh Downloader is what a restarted process gets.
+        restarted = basemap.Downloader()
+        restarted._state_path().write_text(
+            '{"url": "http://example.invalid/x.pmtiles", "filename": '
+            '"test-i.pmtiles", "state": "running", "total_bytes": 100, '
+            '"downloaded_bytes": 10}',
+            encoding="utf-8",
+        )
+        assert restarted.status()["state"] == "interrupted"
+
+    def test_it_starts_again_on_its_own(self, server):
+        restarted = basemap.Downloader()
+        restarted._state_path().write_text(
+            f'{{"url": "{server}", "filename": "test-j.pmtiles", '
+            '"state": "running", "total_bytes": 100, "downloaded_bytes": 10}',
+            encoding="utf-8",
+        )
+
+        assert restarted.resume_if_interrupted() is True
+        assert wait_for(restarted)["state"] == "done"
+        assert (db.data_dir() / "test-j.pmtiles").read_bytes() == PAYLOAD
+        (db.data_dir() / "test-j.pmtiles").unlink()
+
+    def test_a_finished_download_is_not_started_again(self, server, downloader):
+        target = db.data_dir() / "test-k.pmtiles"
+        target.write_bytes(PAYLOAD)
+        try:
+            restarted = basemap.Downloader()
+            restarted._state_path().write_text(
+                f'{{"url": "{server}", "filename": "test-k.pmtiles", '
+                '"state": "running", "total_bytes": 100, "downloaded_bytes": 100}',
+                encoding="utf-8",
+            )
+            assert restarted.resume_if_interrupted() is False
+        finally:
+            target.unlink()
+
+    def test_a_cancelled_download_stays_cancelled(self, server):
+        restarted = basemap.Downloader()
+        restarted._state_path().write_text(
+            f'{{"url": "{server}", "filename": "test-l.pmtiles", '
+            '"state": "cancelled"}',
+            encoding="utf-8",
+        )
+        assert restarted.resume_if_interrupted() is False
+
+    def test_nothing_to_resume_is_not_an_error(self):
+        fresh = basemap.Downloader()
+        fresh._state_path().unlink(missing_ok=True)
+        assert fresh.resume_if_interrupted() is False
+
+
 class TestValidation:
     def test_a_valid_header_is_accepted(self, downloader, tmp_path):
         archive = tmp_path / "ok.pmtiles"
@@ -238,6 +304,22 @@ class TestDownloadStateMaths:
         assert reported["percent"] == 25.0
         assert reported["bytes_per_second"] == 25
         assert reported["seconds_remaining"] == 30
+
+    def test_speed_after_a_resume_counts_only_this_run(self):
+        # 200 bytes already on disk, 50 fetched in 10 seconds. Reporting 25 B/s
+        # here would be wrong by a factor of five, and the ETA with it.
+        state = basemap.DownloadState(
+            state="running",
+            total_bytes=1000,
+            downloaded_bytes=250,
+            resumed_from=200,
+            started_at=100.0,
+            updated_at=110.0,
+        )
+        reported = state.as_dict()
+
+        assert reported["bytes_per_second"] == 5
+        assert reported["seconds_remaining"] == 150
 
     def test_an_unstarted_download_reports_no_estimate(self):
         reported = basemap.DownloadState().as_dict()

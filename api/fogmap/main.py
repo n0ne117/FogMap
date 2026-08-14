@@ -43,6 +43,12 @@ async def lifespan(app: FastAPI):
         for theme in composite.THEMES
         for kind in composite.KINDS
     }
+
+    # A basemap download runs for hours, so a restart during one is the normal
+    # way it ends rather than an edge case. Pick it up again.
+    if basemap.downloader.resume_if_interrupted():
+        print("resuming interrupted basemap download", flush=True)
+
     yield
 
 

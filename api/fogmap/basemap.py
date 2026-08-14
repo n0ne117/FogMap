@@ -43,11 +43,16 @@ class DownloadState:
     started_at: float = 0.0
     updated_at: float = 0.0
     error: str = ""
+    # Bytes already on disk when this run began. Speed is measured from here,
+    # not from zero - otherwise resuming a 13 GB partial reports a couple of
+    # gigabytes a second and an ETA of nothing.
+    resumed_from: int = 0
 
     def as_dict(self) -> dict[str, object]:
         out: dict[str, object] = dict(asdict(self))
         elapsed = max(self.updated_at - self.started_at, 1e-6)
-        speed = self.downloaded_bytes / elapsed if self.state == "running" else 0.0
+        this_run = max(self.downloaded_bytes - self.resumed_from, 0)
+        speed = this_run / elapsed if self.state == "running" else 0.0
         remaining = max(self.total_bytes - self.downloaded_bytes, 0)
 
         out["percent"] = (
@@ -103,8 +108,10 @@ class Downloader:
         known = {f for f in DownloadState.__dataclass_fields__}
         self._state = DownloadState(**{k: v for k, v in stored.items() if k in known})
         if self._state.state == "running":
-            # Nothing is running after a restart, whatever the file says.
-            self._state.state = "idle"
+            # Nothing is running after a restart, whatever the file says. This
+            # is distinct from idle: it means a download was cut off mid-flight
+            # and should be picked up again, not that nothing was happening.
+            self._state.state = "interrupted"
 
     def status(self) -> dict[str, object]:
         with self._lock:
@@ -137,6 +144,25 @@ class Downloader:
             self._thread.start()
             return self._state.as_dict()
 
+    def resume_if_interrupted(self) -> bool:
+        """Pick up a download that a restart cut off.
+
+        A planet archive takes hours, so a container restart during one is not
+        an edge case - it is the normal way it ends. Without this the download
+        simply stops and nothing says so, which is exactly what happened while
+        the containers were being rebuilt during development.
+        """
+        with self._lock:
+            self._restore()
+            state = self._state
+            if state.state != "interrupted" or not state.url or not state.filename:
+                return False
+            if self.target(state.filename).exists():
+                return False
+
+        self.start(state.url, state.filename)
+        return True
+
     def cancel(self) -> dict[str, object]:
         self._cancel.set()
         with self._lock:
@@ -162,6 +188,8 @@ class Downloader:
             with self._lock:
                 self._state.total_bytes = total
                 self._state.downloaded_bytes = already
+                self._state.resumed_from = already
+                self._state.started_at = time.time()
                 self._persist()
 
             request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
