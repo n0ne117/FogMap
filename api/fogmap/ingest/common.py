@@ -97,6 +97,7 @@ class IngestResult:
     points: int = 0
     points_dropped: int = 0
     tiles_touched: set[tuple[int, int]] = field(default_factory=set)
+    layers: set[str] = field(default_factory=set)
 
     def as_dict(self) -> dict[str, int]:
         return {
@@ -106,6 +107,18 @@ class IngestResult:
             "points_dropped": self.points_dropped,
             "tiles_touched": len(self.tiles_touched),
         }
+
+    def affected_views(self) -> list[str]:
+        """Canonical views this import changed, and only those.
+
+        The cumulative view always changes; the year views only change for
+        years the import actually put points in.
+        """
+        views = ["all"]
+        views += sorted(f"year:{layer}" for layer in self.layers if layer.isdigit())
+        if PREHISTORY in self.layers:
+            views.append(PREHISTORY)
+        return views
 
 
 def haversine_m(lon_a: float, lat_a: float, lon_b: float, lat_b: float) -> float:
@@ -272,12 +285,13 @@ def ingest_tracks(
             if not part:
                 continue
 
+            layer = layer_for(part)
             event_id = store_segment(
                 conn,
                 source=source,
                 fixes=part,
                 radius_m=radius,
-                layers=[layer_for(part)],
+                layers=[layer],
                 external_id=external_id_for(track, part, index),
                 meta=_meta_for(track, part),
             )
@@ -291,6 +305,7 @@ def ingest_tracks(
             result.tiles_touched |= raster.stamp_event(conn, row)
             result.events_created += 1
             result.points += len(part)
+            result.layers.add(layer)
 
     return result
 

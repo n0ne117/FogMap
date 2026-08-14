@@ -4,19 +4,26 @@
 from __future__ import annotations
 
 import os
+import re
 import secrets
 import sqlite3
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Iterator
 
-from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from fogmap import __version__, composite, db
+from fogmap import __version__, composite, db, raster
 from fogmap.ingest import common, gpx, tcx
 
 MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 TOKEN_HEADER = "X-FogMap-Token"
+
+TILE_CACHE_CONTROL = "public, max-age=300, must-revalidate"
+BASEMAP_NAME = re.compile(r"^[A-Za-z0-9._-]+\.pmtiles$")
+RANGE_HEADER = re.compile(r"^bytes=(\d*)-(\d*)$")
+BASEMAP_CHUNK = 1024 * 256
 
 
 @asynccontextmanager
@@ -26,6 +33,14 @@ async def lifespan(app: FastAPI):
     # a SQLite connection belongs to the thread that made it.
     conn = db.open_initialised()
     conn.close()
+
+    # Held in memory so a tile miss is answered without rendering anything in
+    # the request path. Invariant 3 allows a file read and nothing else.
+    app.state.placeholders = {
+        (theme, kind): composite.placeholder_tile(theme, kind)
+        for theme in composite.THEMES
+        for kind in composite.KINDS
+    }
     yield
 
 
@@ -139,6 +154,15 @@ def _ingest_upload(
     with db.transaction(conn):
         result = common.ingest_tracks(conn, source, tracks)
 
+    if result.events_created:
+        # Re-render now rather than at request time, so the tile endpoint
+        # stays a file read. Only the views this import changed are touched.
+        root = tiles_root()
+        root.mkdir(parents=True, exist_ok=True)
+        composite.write_placeholders(root)
+        for view in result.affected_views():
+            composite.render_view(conn, root, view)
+
     return result.as_dict()
 
 
@@ -154,3 +178,175 @@ def ingest_tcx(
     file: UploadFile, conn: sqlite3.Connection = Depends(get_conn)
 ) -> dict[str, int]:
     return _ingest_upload(conn, tcx, file, "workout")
+
+
+def tiles_root() -> Path:
+    return db.data_dir() / "tiles"
+
+
+@app.get("/api/tiles/{theme}/{view}/{kind}/{z}/{x}/{y}.png")
+def tile(
+    request: Request, theme: str, view: str, kind: str, z: int, x: int, y: int
+) -> Response:
+    """Serve one pre-rendered tile.
+
+    A file read and nothing else - no rasterising, no compositing, no database
+    query. Every bit of that work happened at ingest. This is invariant 3, and
+    it is the reason the map does not care how large the archive is.
+    """
+    if theme not in composite.THEMES:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown theme {theme!r}. Tiles exist for "
+            f"{' and '.join(composite.THEMES)}.",
+        )
+    if kind not in composite.KINDS:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown tile kind {kind!r}. Tiles exist for "
+            f"{' and '.join(composite.KINDS)}.",
+        )
+
+    path = composite.tile_path(tiles_root(), theme, view, kind, z, x, y)
+    if path.is_file():
+        return FileResponse(
+            path,
+            media_type="image/png",
+            headers={"Cache-Control": TILE_CACHE_CONTROL},
+        )
+
+    # Not a miss in the usual sense. Ground nobody has visited is not missing
+    # data, it is unexplored, and unexplored ground is solid fog.
+    return Response(
+        content=request.app.state.placeholders[(theme, kind)],
+        media_type="image/png",
+        headers={"Cache-Control": TILE_CACHE_CONTROL},
+    )
+
+
+@app.api_route("/api/basemap/{name}", methods=["GET", "HEAD"])
+def basemap(request: Request, name: str) -> Response:
+    """Serve a PMTiles archive, honouring HTTP range requests.
+
+    MapLibre reads PMTiles by asking for byte ranges rather than downloading
+    the archive, which is the only reason a planet-sized basemap is usable at
+    all. Without 206 support the client would pull the whole file.
+    """
+    if not BASEMAP_NAME.match(name):
+        raise HTTPException(
+            status_code=404,
+            detail=f"{name!r} is not a PMTiles archive name.",
+        )
+
+    path = db.data_dir() / name
+    if not path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No basemap at {path}. Download a Protomaps PMTiles archive "
+                f"and place it in the data directory as {name}. The map renders "
+                "fog and trails without one, but there will be nothing "
+                "underneath them."
+            ),
+        )
+
+    size = path.stat().st_size
+    common_headers = {
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "public, max-age=86400",
+        "Content-Type": "application/octet-stream",
+    }
+
+    if request.method == "HEAD":
+        return Response(
+            headers={**common_headers, "Content-Length": str(size)},
+            media_type="application/octet-stream",
+        )
+
+    requested = request.headers.get("range")
+    if not requested:
+        return FileResponse(
+            path, media_type="application/octet-stream", headers=common_headers
+        )
+
+    matched = RANGE_HEADER.match(requested.strip())
+    if not matched:
+        raise HTTPException(
+            status_code=416,
+            detail=f"Cannot parse Range header {requested!r}. Only "
+            "'bytes=start-end' is supported.",
+        )
+
+    first, last = matched.group(1), matched.group(2)
+    if first:
+        start = int(first)
+        end = int(last) if last else size - 1
+    elif last:
+        start = max(0, size - int(last))  # a suffix range, the last N bytes
+        end = size - 1
+    else:
+        raise HTTPException(status_code=416, detail=f"Empty range {requested!r}.")
+
+    end = min(end, size - 1)
+    if start > end or start >= size:
+        return Response(
+            status_code=416,
+            headers={**common_headers, "Content-Range": f"bytes */{size}"},
+        )
+
+    length = end - start + 1
+
+    def stream():
+        with path.open("rb") as handle:
+            handle.seek(start)
+            remaining = length
+            while remaining > 0:
+                chunk = handle.read(min(BASEMAP_CHUNK, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                yield chunk
+
+    return StreamingResponse(
+        stream(),
+        status_code=206,
+        media_type="application/octet-stream",
+        headers={
+            **common_headers,
+            "Content-Range": f"bytes {start}-{end}/{size}",
+            "Content-Length": str(length),
+        },
+    )
+
+
+@app.post("/api/admin/rebuild")
+def admin_rebuild(
+    payload: dict | None = None, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    """Replay the event log and re-render the tile pyramid."""
+    scope = (payload or {}).get("scope", "all")
+
+    with db.transaction(conn):
+        replayed, touched = raster.rebuild(conn)
+
+    if scope == "all":
+        views = composite.available_views(conn)
+    elif isinstance(scope, str) and scope.startswith("view:"):
+        views = [scope[len("view:") :]]
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Scope {scope!r} is not understood. Use 'all' or "
+            "'view:<name>'.",
+        )
+
+    root = tiles_root()
+    root.mkdir(parents=True, exist_ok=True)
+    composite.write_placeholders(root)
+    rendered = {view: composite.render_view(conn, root, view) for view in views}
+
+    return {
+        "events_replayed": replayed,
+        "tiles_touched": len(touched),
+        "tiles_rendered": rendered,
+    }

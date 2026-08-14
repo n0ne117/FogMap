@@ -13,6 +13,7 @@ Nothing yet.
 
 ### Added
 - The map is now drawn. Fog covers ground you have never visited and lifts where you have been, and trails are shaded by how often you passed - a daily commute reads brighter than a one-off detour.
+- Tiles are served straight from disk, and a Protomaps basemap can be served from the data directory over range requests.
 
 ## [0.1.0] - 2026-08-14
 
