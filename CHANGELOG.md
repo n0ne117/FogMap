@@ -19,5 +19,6 @@ Entries are written for someone reading the release page, not for someone readin
 - Local development stack: one command builds and runs the API and web interface, with a separate service for the test suite.
 - Brush stamping: a track is painted into a persistent bitmap once, at import, with the brush width converted from metres to pixels at the latitude of each point.
 - Erase now works as a subtract mask applied when a view is drawn, so erased ground stays erased through a rebuild and through re-importing the file that drew the fog underneath it.
+- GPX and TCX import. Tracks are split where the trace jumps in time or distance, so a flight no longer draws a line across the map, and importing the same file twice changes nothing.
 
 [Unreleased]: https://github.com/n0ne117/FogMap/commits/main
