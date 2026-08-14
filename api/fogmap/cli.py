@@ -10,10 +10,14 @@ is actually in the data directory.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import sqlite3
 import sys
 from pathlib import Path
 
-from fogmap import __version__, db, geo
+import numpy as np
+
+from fogmap import __version__, composite, db, geo, raster
 
 # St Stephen's Cathedral, Vienna. A public landmark, used because the ground
 # resolution there is quoted in the build plan.
@@ -79,6 +83,24 @@ def geo_fixtures() -> list[Fixture]:
     ]
 
 
+def blob_digest(conn: sqlite3.Connection) -> str:
+    """A stable hash over every blob, in key order.
+
+    This is the number to compare after a re-import or a rebuild. Invariant 1
+    says both must leave it unchanged.
+    """
+    digest = hashlib.sha256()
+    for row in conn.execute(
+        "SELECT kind, source, layer, x, y, data FROM blobs "
+        "ORDER BY kind, source, layer, x, y"
+    ):
+        digest.update(
+            f"{row['kind']}/{row['source']}/{row['layer']}/{row['x']}/{row['y']}".encode()
+        )
+        digest.update(row["data"])
+    return digest.hexdigest()
+
+
 def count_tiles(root: Path) -> int:
     """Rendered PNG tiles on disk. Zero until the tile pyramid exists."""
     if not root.is_dir():
@@ -121,6 +143,8 @@ def selfcheck() -> int:
         table_counts = db.counts(conn)
         by_kind = db.blob_counts_by_kind(conn)
         layers = db.layer_inventory(conn)
+        digest = blob_digest(conn)
+        views = composite.available_views(conn)
     finally:
         conn.close()
 
@@ -131,7 +155,7 @@ def selfcheck() -> int:
     out(f"  total          {table_counts['blobs']}\n")
     for kind in ("fog", "trail", "erase"):
         out(f"  {kind.ljust(14)} {by_kind.get(kind, 0)}\n")
-    out("\n")
+    out(f"  digest         {digest}\n\n")
 
     out("tiles\n")
     out(f"  rendered png   {count_tiles(data_root / 'tiles')}\n\n")
@@ -144,11 +168,129 @@ def selfcheck() -> int:
         out(f"  {str(layer['layer']).ljust(14)} {layer['blobs']} blobs from {sources}\n")
     out("\n")
 
+    out("views\n")
+    for view in views:
+        out(f"  {view}\n")
+    out("\n")
+
     if failures:
         out(f"selfcheck FAILED with {failures} bad fixtures\n")
         return 1
 
     out("selfcheck passed\n")
+    return 0
+
+
+def rebuild() -> int:
+    """Wipe every blob and replay the event log."""
+    out = sys.stdout.write
+    conn = db.open_initialised()
+    try:
+        before = blob_digest(conn)
+        events = db.counts(conn)["events"]
+        out(f"replaying {events} events\n")
+
+        replayed, touched = raster.rebuild(conn)
+        after = blob_digest(conn)
+        blobs = db.counts(conn)["blobs"]
+    finally:
+        conn.close()
+
+    out(f"  events replayed  {replayed}\n")
+    out(f"  z14 tiles        {len(touched)}\n")
+    out(f"  blobs written    {blobs}\n")
+    out(f"  digest before    {before}\n")
+    out(f"  digest after     {after}\n")
+    out(
+        "rebuild reproduced the previous blobs exactly\n"
+        if before == after
+        else "rebuild CHANGED the blobs\n"
+    )
+    return 0
+
+
+def dump_blob(args: argparse.Namespace) -> int:
+    """Write one z14 tile to a PNG for visual inspection.
+
+    Deliberately plain greyscale, not the themed colourmap - this is for
+    eyeballing whether a track looks coherent, not for the map.
+    """
+    from PIL import Image
+
+    out = sys.stdout.write
+    conn = db.open_initialised()
+    try:
+        if args.source and args.layer:
+            array = raster.read_blob(
+                conn, args.kind, args.source, args.layer, args.x, args.y
+            )
+            if array is None:
+                out(
+                    f"no {args.kind} blob at x {args.x} y {args.y} for source "
+                    f"{args.source} layer {args.layer}\n"
+                )
+                return 1
+            source_note = f"{args.source} {args.layer}"
+        else:
+            fog, trail = composite.composite_tile(conn, args.view, args.x, args.y)
+            if args.kind == "trail":
+                array = trail
+            elif args.kind == "fog":
+                array = np.where(fog, 255, 0).astype(np.uint8)
+            else:
+                array = np.where(
+                    composite.erase_mask(conn, args.x, args.y), 255, 0
+                ).astype(np.uint8)
+            source_note = f"view {args.view}"
+    finally:
+        conn.close()
+
+    painted = int((array > 0).sum())
+    if args.kind == "trail" and array.max() > 0:
+        # Stretch the pass count so a one-pass track is visible rather than
+        # a single grey level away from black.
+        array = (array.astype(np.float64) / float(array.max()) * 255).astype(np.uint8)
+
+    destination = Path(args.out)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(array, mode="L").save(destination)
+
+    out(f"wrote {destination}\n")
+    out(f"  tile           z14 x {args.x} y {args.y}\n")
+    out(f"  kind           {args.kind}\n")
+    out(f"  from           {source_note}\n")
+    out(f"  painted px     {painted} of {geo.TILE_PX * geo.TILE_PX}\n")
+    return 0
+
+
+def import_file(args: argparse.Namespace) -> int:
+    """Import a GPX or TCX file straight from disk."""
+    from fogmap.ingest import common, gpx, tcx
+
+    out = sys.stdout.write
+    path = Path(args.file)
+    if not path.is_file():
+        raise SystemExit(f"No such file {path}")
+
+    payload = path.read_bytes()
+    parser = tcx if path.suffix.lower() == ".tcx" else gpx
+    tracks = parser.parse(payload, filename=path.name)
+
+    conn = db.open_initialised()
+    try:
+        result = common.ingest_tracks(conn, args.source, tracks)
+        digest = blob_digest(conn)
+    finally:
+        conn.close()
+
+    out(f"imported {path.name}\n")
+    out(f"  tracks parsed    {len(tracks)}\n")
+    out(f"  events created   {result.events_created}\n")
+    out(f"  events skipped   {result.events_skipped}\n")
+    out(f"  points stamped   {result.points}\n")
+    out(f"  points dropped   {result.points_dropped}\n")
+    out(f"  z14 tiles        {len(result.tiles_touched)}\n")
+    out(f"  digest           {digest}\n")
     return 0
 
 
@@ -159,11 +301,35 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--version", action="version", version=__version__)
     sub = parser.add_subparsers(dest="command", required=True)
+
     sub.add_parser("selfcheck", help="report version, geo fixtures and data inventory")
+    sub.add_parser("rebuild", help="wipe every blob and replay the event log")
+
+    dump = sub.add_parser("dump-blob", help="write one z14 tile to a PNG")
+    dump.add_argument("--x", type=int, required=True, help="z14 tile x")
+    dump.add_argument("--y", type=int, required=True, help="z14 tile y")
+    dump.add_argument(
+        "--kind", choices=["fog", "trail", "erase"], required=True
+    )
+    dump.add_argument("--out", required=True, help="destination PNG path")
+    dump.add_argument("--source", help="one source only, requires --layer")
+    dump.add_argument("--layer", help="one layer only, requires --source")
+    dump.add_argument("--view", default="all", help="composited view, default all")
+
+    load = sub.add_parser("import", help="import a GPX or TCX file from disk")
+    load.add_argument("--file", required=True)
+    load.add_argument("--source", default="workout")
 
     args = parser.parse_args(argv)
+
     if args.command == "selfcheck":
         return selfcheck()
+    if args.command == "rebuild":
+        return rebuild()
+    if args.command == "dump-blob":
+        return dump_blob(args)
+    if args.command == "import":
+        return import_file(args)
 
     parser.error(f"unknown command {args.command}")
     return 2
