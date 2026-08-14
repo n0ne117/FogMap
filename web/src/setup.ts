@@ -130,7 +130,9 @@ export class Setup {
 
     this.say('')
     try {
-      await apiSend('POST', '/api/setup/basemap', { url })
+      // The offered builds need no token; a custom URL does, and the
+      // server says so if one is missing.
+      await apiSend('POST', '/api/setup/basemap', { url }, { tokenOptional: true })
       this.poll()
     } catch (error) {
       this.say(error instanceof Error ? error.message : String(error))
@@ -139,7 +141,7 @@ export class Setup {
 
   private async cancel(): Promise<void> {
     try {
-      await apiSend('DELETE', '/api/setup/basemap')
+      await apiSend('DELETE', '/api/setup/basemap', undefined, { tokenOptional: true })
       await this.refresh()
     } catch (error) {
       this.say(error instanceof Error ? error.message : String(error))

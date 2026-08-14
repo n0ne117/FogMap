@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
+from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -26,6 +27,18 @@ TILE_CACHE_CONTROL = "public, max-age=300, must-revalidate"
 BASEMAP_NAME = re.compile(r"^[A-Za-z0-9._-]+\.pmtiles$")
 RANGE_HEADER = re.compile(r"^bytes=(\d*)-(\d*)$")
 BASEMAP_CHUNK = 1024 * 256
+
+# These check the token themselves rather than being gated on the HTTP verb,
+# because whether they need one depends on what is being asked for.
+SELF_GUARDED_PATHS = frozenset({"/api/setup/basemap"})
+
+# Fetching a published basemap from a known public source changes nobody's
+# history - it downloads public map data into a cache. Asking someone to go
+# and find a token in a .env file before the app will fetch its own basemap
+# makes the first five minutes worse for no gain. A URL of the user's own is
+# different: that makes this server fetch an address someone else supplied,
+# which is worth gating.
+TRUSTED_BASEMAP_HOSTS = frozenset({"build.protomaps.com"})
 
 
 @asynccontextmanager
@@ -68,6 +81,34 @@ def get_conn() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+def token_error(request: Request) -> tuple[int, str] | None:
+    """Check the shared token. Returns (status, detail) when it is not right."""
+    expected = os.environ.get("FOGMAP_TOKEN", "").strip()
+    if not expected:
+        return (
+            503,
+            "FOGMAP_TOKEN is not set on the server, so every mutating request "
+            "is refused. Set FOGMAP_TOKEN in the api environment and restart "
+            "the container.",
+        )
+
+    presented = request.headers.get(TOKEN_HEADER, "")
+    if not presented:
+        return (
+            401,
+            f"Missing {TOKEN_HEADER} header. Every POST, PATCH and DELETE "
+            "request must present the shared token.",
+        )
+
+    if not secrets.compare_digest(presented, expected):
+        return (
+            401,
+            f"The {TOKEN_HEADER} header does not match the token configured "
+            "on this server.",
+        )
+    return None
+
+
 @app.middleware("http")
 async def require_token_on_mutations(request: Request, call_next):
     """Shared-token gate on every mutating route.
@@ -77,42 +118,12 @@ async def require_token_on_mutations(request: Request, call_next):
     """
     if request.method not in MUTATING_METHODS:
         return await call_next(request)
+    if request.url.path in SELF_GUARDED_PATHS:
+        return await call_next(request)
 
-    expected = os.environ.get("FOGMAP_TOKEN", "").strip()
-    if not expected:
-        return JSONResponse(
-            status_code=503,
-            content={
-                "detail": (
-                    "FOGMAP_TOKEN is not set on the server, so every mutating "
-                    "request is refused. Set FOGMAP_TOKEN in the api "
-                    "environment and restart the container."
-                )
-            },
-        )
-
-    presented = request.headers.get(TOKEN_HEADER, "")
-    if not presented:
-        return JSONResponse(
-            status_code=401,
-            content={
-                "detail": (
-                    f"Missing {TOKEN_HEADER} header. Every POST, PATCH and "
-                    "DELETE request must present the shared token."
-                )
-            },
-        )
-
-    if not secrets.compare_digest(presented, expected):
-        return JSONResponse(
-            status_code=401,
-            content={
-                "detail": (
-                    f"The {TOKEN_HEADER} header does not match the token "
-                    "configured on this server."
-                )
-            },
-        )
+    failure = token_error(request)
+    if failure is not None:
+        return JSONResponse(status_code=failure[0], content={"detail": failure[1]})
 
     return await call_next(request)
 
@@ -610,15 +621,42 @@ def setup_status() -> dict[str, object]:
     }
 
 
+def is_trusted_basemap(url: str) -> bool:
+    """Is this one of the published builds FogMap offers by name?"""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    return parsed.scheme == "https" and parsed.hostname in TRUSTED_BASEMAP_HOSTS
+
+
 @app.post("/api/setup/basemap")
-def setup_basemap(payload: dict) -> dict[str, object]:
-    """Begin downloading a basemap archive into the data directory."""
+def setup_basemap(request: Request, payload: dict) -> dict[str, object]:
+    """Begin downloading a basemap archive into the data directory.
+
+    One of the offered public builds needs no token: it fetches public map
+    data on first run, before the user has had a chance to configure anything.
+    A URL of their own does need one, because that points this server at an
+    address it was given.
+    """
     url = str(payload.get("url", "")).strip()
     if not url.startswith(("http://", "https://")):
         raise HTTPException(
             status_code=400,
             detail=f"{url!r} is not an http or https URL.",
         )
+
+    if not is_trusted_basemap(url):
+        failure = token_error(request)
+        if failure is not None:
+            raise HTTPException(
+                status_code=failure[0],
+                detail=(
+                    f"{failure[1]} A basemap URL of your own points this "
+                    "server at an address you supplied, so it needs the token. "
+                    "The offered Protomaps builds do not."
+                ),
+            )
 
     filename = str(payload.get("filename", "planet.pmtiles")).strip()
     if not BASEMAP_NAME.match(filename):

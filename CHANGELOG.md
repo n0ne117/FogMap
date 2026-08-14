@@ -13,6 +13,7 @@ Nothing yet.
 
 ### Fixed
 - A basemap download now picks itself up after a restart instead of stopping silently, and reports an honest speed and time remaining when it resumes rather than counting bytes fetched days ago against the current run.
+- Downloading one of the offered basemaps no longer asks for an API token. Fetching published map data is not a change to your history, and needing a token before the app would fetch its own basemap made the first run harder than it should be. A basemap URL of your own still needs one.
 
 ## [0.5.0] - 2026-08-14
 

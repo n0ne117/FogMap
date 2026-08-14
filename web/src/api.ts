@@ -63,9 +63,10 @@ export async function apiSend<T>(
   method: 'POST' | 'PATCH' | 'DELETE',
   path: string,
   body?: unknown,
+  options: { tokenOptional?: boolean } = {},
 ): Promise<T> {
   const token = getToken()
-  if (!token) {
+  if (!token && !options.tokenOptional) {
     throw new ApiError(
       401,
       'No API token set. Paste the value of FOGMAP_TOKEN from the server ' +
@@ -76,7 +77,9 @@ export async function apiSend<T>(
   const response = await fetch(path, {
     method,
     headers: {
-      'X-FogMap-Token': token,
+      // Sent when there is one. Some routes decide for themselves whether
+      // they need it, so refusing here would pre-empt the server's answer.
+      ...(token ? { 'X-FogMap-Token': token } : {}),
       accept: 'application/json',
       ...(body === undefined ? {} : { 'content-type': 'application/json' }),
     },
