@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import sqlite3
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -209,6 +210,36 @@ def rebuild() -> int:
     return 0
 
 
+def render(args: argparse.Namespace) -> int:
+    """Render the PNG tile pyramid for every canonical view, both themes."""
+    out = sys.stdout.write
+    root = db.data_dir() / "tiles"
+
+    conn = db.open_initialised()
+    try:
+        views = (
+            [args.view] if args.view else composite.available_views(conn)
+        )
+        root.mkdir(parents=True, exist_ok=True)
+        composite.write_placeholders(root)
+
+        out(f"rendering {len(views)} views into {root}\n")
+        total = 0
+        for view in views:
+            started = time.monotonic()
+            written = composite.render_view(conn, root, view)
+            total += written
+            out(
+                f"  {view.ljust(16)} {written} tiles in "
+                f"{time.monotonic() - started:.1f}s\n"
+            )
+    finally:
+        conn.close()
+
+    out(f"wrote {total} tiles\n")
+    return 0
+
+
 def dump_blob(args: argparse.Namespace) -> int:
     """Write one z14 tile to a PNG for visual inspection.
 
@@ -305,6 +336,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("selfcheck", help="report version, geo fixtures and data inventory")
     sub.add_parser("rebuild", help="wipe every blob and replay the event log")
 
+    draw = sub.add_parser("render", help="render the PNG tile pyramid")
+    draw.add_argument("--view", help="one view only, default every view")
+
     dump = sub.add_parser("dump-blob", help="write one z14 tile to a PNG")
     dump.add_argument("--x", type=int, required=True, help="z14 tile x")
     dump.add_argument("--y", type=int, required=True, help="z14 tile y")
@@ -326,6 +360,8 @@ def main(argv: list[str] | None = None) -> int:
         return selfcheck()
     if args.command == "rebuild":
         return rebuild()
+    if args.command == "render":
+        return render(args)
     if args.command == "dump-blob":
         return dump_blob(args)
     if args.command == "import":
