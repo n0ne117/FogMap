@@ -11,6 +11,14 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.8.0] - 2026-08-14
+
+Polish. Soft fog edges, clickable tracks when you zoom right in, and
+importing from the browser instead of the command line.
+
+Version 0.7.0 is deliberately skipped: phase 7, syncing from a workout app's
+API, is deferred until that API is specified.
+
 ### Added
 - Fog now fades out where it meets ground you have been, instead of stopping at a hard pixel edge.
 - Zoomed in past z14, the individual tracks are drawn over the fog and can be clicked to see what they were, when, and from which source.
@@ -95,7 +103,8 @@ get the same bytes back.
 - Upload endpoints for GPX and TCX files, reporting how many events were created, how many points were stamped and how many tiles changed.
 - Command line tools to rebuild every bitmap from the event log, import a file from disk, and dump a single tile to a PNG for inspection. `selfcheck` now reports a digest over all stored bitmaps.
 
-[Unreleased]: https://github.com/n0ne117/FogMap/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/n0ne117/FogMap/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.8.0
 [0.6.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.6.0
 [0.5.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.5.0
 [0.4.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.4.0
