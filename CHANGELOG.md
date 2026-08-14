@@ -16,5 +16,6 @@ Entries are written for someone reading the release page, not for someone readin
 - HTTP API reporting its own version at `/healthz` and `/api/meta`, so the running build can be identified without shell access.
 - A `selfcheck` command reporting the running version, every coordinate fixture as expected versus actual, and what is currently in the data directory.
 - Web interface showing the running version in the corner, linked to its release notes, alongside the version the API reports.
+- Local development stack: one command builds and runs the API and web interface, with a separate service for the test suite.
 
 [Unreleased]: https://github.com/n0ne117/FogMap/commits/main

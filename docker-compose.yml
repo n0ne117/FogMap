@@ -1,0 +1,57 @@
+# Local development on the Fedora workstation. Builds from source.
+# Production uses docker-compose.prod.yml, which pulls from ghcr.io instead.
+#
+# Every bind mount carries the :z SELinux label. Without it Fedora denies the
+# container access to ./data. It is harmless on non-SELinux hosts, so it is
+# set unconditionally.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+      target: runtime
+    image: fogmap-api:dev
+    environment:
+      FOGMAP_TOKEN: ${FOGMAP_TOKEN:-}
+      FOGMAP_DATA_DIR: /data
+    volumes:
+      - ${FOGMAP_DATA_HOST:-./data}:/data:z
+    ports:
+      - "${FOGMAP_API_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/healthz").read()
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+      target: runtime
+    image: fogmap-web:dev
+    ports:
+      - "${FOGMAP_WEB_PORT:-8080}:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # Not started by `up`. Run it explicitly with `docker compose run --rm test`.
+  test:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+      target: test
+    image: fogmap-api-test:dev
+    profiles:
+      - test
+    environment:
+      FOGMAP_DATA_DIR: /tmp/fogmap-test
+    command: ["pytest"]
