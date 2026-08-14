@@ -15,10 +15,11 @@ from typing import Iterator
 from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from fogmap import __version__, basemap, composite, db, places, raster
-from fogmap.ingest import common, gpx, tcx
+from fogmap.ingest import common, gpx, live, tcx
 
 MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 TOKEN_HEADER = "X-FogMap-Token"
@@ -29,8 +30,17 @@ RANGE_HEADER = re.compile(r"^bytes=(\d*)-(\d*)$")
 BASEMAP_CHUNK = 1024 * 256
 
 # These check the token themselves rather than being gated on the HTTP verb,
-# because whether they need one depends on what is being asked for.
-SELF_GUARDED_PATHS = frozenset({"/api/setup/basemap"})
+# because whether they need one, and which header carries it, depends on the
+# request. The live endpoints also have to answer 503 when their source is
+# switched off before authentication is considered at all.
+SELF_GUARDED_PATHS = frozenset(
+    {
+        "/api/setup/basemap",
+        "/api/ingest/overland",
+        "/api/ingest/owntracks",
+        "/api/ingest/ha",
+    }
+)
 
 # Fetching a published basemap from a known public source changes nobody's
 # history - it downloads public map data into a cache. Asking someone to go
@@ -197,6 +207,150 @@ def ingest_tcx(
     file: UploadFile, conn: sqlite3.Connection = Depends(get_conn)
 ) -> dict[str, int]:
     return _ingest_upload(conn, tcx, file, "workout")
+
+
+def _live_token_ok(request: Request) -> bool:
+    """Overland sends a bearer token; everything else sends the header.
+
+    Overland has no way to add an arbitrary header, so its own mechanism is
+    accepted as well rather than making the app unusable with it.
+    """
+    expected = os.environ.get("FOGMAP_TOKEN", "").strip()
+    if not expected:
+        return False
+
+    presented = request.headers.get(TOKEN_HEADER, "")
+    if presented and secrets.compare_digest(presented, expected):
+        return True
+
+    authorization = request.headers.get("authorization", "")
+    if authorization.lower().startswith("bearer "):
+        return secrets.compare_digest(authorization[7:].strip(), expected)
+    return False
+
+
+def _ingest_live(
+    request: Request, conn: sqlite3.Connection, source: str, payload: object
+) -> dict[str, object]:
+    """Shared body of the three live endpoints."""
+    if not live.is_enabled(conn, source):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"The {source} ingest endpoint is switched off. Enable it under "
+                "Settings, data sources, in the FogMap web interface. Nothing "
+                "was recorded."
+            ),
+        )
+
+    if not _live_token_ok(request):
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                f"Live ingest needs the shared token, as {TOKEN_HEADER} or as "
+                "an Authorization bearer token."
+            ),
+        )
+
+    try:
+        # Lower-cased because OwnTracks identifies the user and device in
+        # X-Limit-U and X-Limit-D headers rather than in the body.
+        headers = {name.lower(): value for name, value in request.headers.items()}
+        fixes, meta = live.PARSERS[source](payload, headers)
+    except live.LiveError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    with db.transaction(conn):
+        result = live.append(conn, source, fixes, meta)
+
+    if result.accepted:
+        _render_views(conn, _views_for_layers(_live_layers(conn, result.event_id)))
+
+    return result.as_dict()
+
+
+def _live_layers(conn: sqlite3.Connection, event_id: int | None) -> list[str]:
+    if event_id is None:
+        return ["all"]
+    row = conn.execute(
+        "SELECT layers FROM events WHERE id = ?", (event_id,)
+    ).fetchone()
+    return json.loads(row["layers"]) if row else []
+
+
+@app.post("/api/ingest/overland")
+async def ingest_overland(
+    request: Request, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    payload = await _json_body(request)
+    return await run_in_threadpool(_ingest_live, request, conn, "overland", payload)
+
+
+@app.post("/api/ingest/owntracks")
+async def ingest_owntracks(
+    request: Request, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    # A zero-length body, which OwnTracks posts when a friend is deleted,
+    # parses to no fixes and is accepted quietly. It is handled down in the
+    # worker thread with everything else: the database connection belongs to
+    # that thread, so touching it from the event loop here would fail.
+    payload = await _json_body(request)
+    return await run_in_threadpool(_ingest_live, request, conn, "owntracks", payload)
+
+
+@app.post("/api/ingest/ha")
+async def ingest_ha(
+    request: Request, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    payload = await _json_body(request)
+    return await run_in_threadpool(_ingest_live, request, conn, "ha", payload)
+
+
+async def _json_body(request: Request) -> object:
+    raw = await request.body()
+    if not raw.strip():
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Body is not valid JSON ({exc})."
+        ) from exc
+
+
+@app.get("/api/settings")
+def get_settings(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, object]:
+    return {
+        "settings": db.get_settings(conn),
+        "sources": [
+            {
+                "source": source,
+                "enabled": live.is_enabled(conn, source),
+                "has_events": live.has_events(conn, source),
+            }
+            for source in live.LIVE_SOURCES
+        ],
+    }
+
+
+@app.patch("/api/settings")
+def patch_settings(
+    payload: dict, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    if not isinstance(payload, dict) or not payload:
+        raise HTTPException(
+            status_code=400, detail="Send an object of settings to change."
+        )
+
+    with db.transaction(conn):
+        for key, value in payload.items():
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (str(key), str(value)),
+            )
+
+    return get_settings(conn)
 
 
 def tiles_root() -> Path:

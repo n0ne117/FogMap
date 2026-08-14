@@ -16,6 +16,7 @@ import {
 } from './map'
 import { Places } from './places'
 import { Setup } from './setup'
+import { Sources } from './sources'
 import { Timeline } from './timeline'
 import {
   applyUiTheme,
@@ -243,6 +244,9 @@ async function start(): Promise<void> {
   places.wire()
   void places.load()
 
+  const sources = new Sources()
+  void sources.load()
+
   // Once the archive lands, rebuild the style so the basemap appears without
   // the user having to reload.
   const setup = new Setup(() => {
@@ -257,6 +261,7 @@ async function start(): Promise<void> {
   const handle = (window as unknown as { fogmap: Record<string, unknown> }).fogmap
   handle.timeline = timeline
   handle.places = places
+  handle.sources = sources
 }
 
 void start()

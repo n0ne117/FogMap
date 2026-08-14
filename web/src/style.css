@@ -287,6 +287,37 @@ body {
   color: var(--bad);
 }
 
+/* Live tracking sources. */
+
+.source-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-bottom: 0.5rem;
+}
+
+.source-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  cursor: pointer;
+}
+
+.source-row input {
+  margin-top: 0.15rem;
+  accent-color: var(--accent);
+}
+
+.source-row strong {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.source-row small {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
 /* Places. */
 
 .field-pair {

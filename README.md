@@ -174,9 +174,14 @@ Treat HA as ambient coverage — "I was in this city, this neighbourhood" — no
 
 ### Shared behaviour
 
+- **Off by default, and refused clearly while off.** A disabled endpoint answers `503` with a message naming the toggle. It never accepts a fix silently and never returns a bare `404`, so a misconfigured tracker tells you what is wrong instead of appearing to work.
 - **Accuracy filtering is server-side and authoritative.** Fixes worse than 50 m are dropped regardless of what the client sent. Indoor and underground positions routinely report 100 m or worse and would otherwise produce fog blobs where you sat still.
 - **Sparse fixes are interpolated** as straight lines between consecutive points, so tracks cut corners rather than tracing your exact path.
+- **One track per source per day, not one event per fix.** Fixes append to that day's open track, so a day of tracking is a single event holding a growing line rather than several thousand rows and a map made of dots.
+- **Late and repeated batches are handled.** Points are held in time order and deduplicated on their timestamp, so a phone that spent an hour in a tunnel can deliver what it recorded in any order and still produce one continuous track. Redelivering a batch changes nothing.
+- **Appending rebuilds rather than paints on top.** A day's tiles are rebuilt from the event log each time it grows, so what live tracking produces is byte for byte what a full rebuild produces.
 - **Use a hostname reachable from the tracker**, not `localhost`. If FogMap and HA both run in containers on one host, use the LAN address or a shared Docker network alias.
+- **Token.** Every live endpoint needs the shared token as `X-FogMap-Token`. Overland cannot send arbitrary headers, so it may use its own `Authorization: Bearer <token>` instead — both are accepted on that endpoint.
 
 ## A note on privacy
 

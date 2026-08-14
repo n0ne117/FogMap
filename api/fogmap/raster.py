@@ -299,6 +299,43 @@ def geometry_points(geometry: str, event_id: int) -> list[tuple[float, float]]:
     )
 
 
+def event_tile_bounds(event: sqlite3.Row) -> tuple[int, int, int, int] | None:
+    """A cheap tile bounding box for an event, without rasterising it.
+
+    Used to skip events that cannot possibly touch the tiles being rebuilt.
+    Without it a targeted rebuild pays the full stamping cost for every event
+    in the archive just to throw the result away, which is the difference
+    between a live fix landing in milliseconds and in minutes.
+    """
+    try:
+        points = geometry_points(event["geometry"], int(event["id"]))
+    except ValueError:
+        return None
+    if not points:
+        return None
+
+    radius_m = float(event["radius_m"])
+    lons = [lon for lon, _ in points]
+    lats = [lat for _, lat in points]
+
+    # An antimeridian-crossing track spans the world once projected, so no
+    # box is worth trusting; let it through and stamp it properly.
+    if max(lons) - min(lons) > 180.0:
+        return None
+
+    # Pad by the brush, in tiles, using the widest pixel scale in the span.
+    pad_px = geo.radius_px(radius_m, max(abs(min(lats)), abs(max(lats)))) + 2.0
+    west, north = geo.lonlat_to_px(min(lons), max(lats))
+    east, south = geo.lonlat_to_px(max(lons), min(lats))
+
+    return (
+        int((west - pad_px) // TILE),
+        int((north - pad_px) // TILE),
+        int((east + pad_px) // TILE),
+        int((south + pad_px) // TILE),
+    )
+
+
 def event_tiles(event: sqlite3.Row) -> set[tuple[int, int]]:
     """Which z14 tiles an event covers, without writing anything.
 
@@ -400,8 +437,18 @@ def rebuild_tiles(
         params.extend((tile_x, tile_y))
     conn.execute(f"DELETE FROM blobs WHERE (x, y) IN ({placeholders})", params)
 
+    min_x = min(x for x, _ in tiles)
+    max_x = max(x for x, _ in tiles)
+    min_y = min(y for _, y in tiles)
+    max_y = max(y for _, y in tiles)
+
     touched: set[tuple[int, int]] = set()
     for event in iter_events(conn):
+        bounds = event_tile_bounds(event)
+        if bounds is not None:
+            west, north, east, south = bounds
+            if east < min_x or west > max_x or south < min_y or north > max_y:
+                continue
         touched |= stamp_event(conn, event, restrict=tiles)
     return touched
 
