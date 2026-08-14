@@ -1,5 +1,7 @@
 # Runtime dependencies. Every version pinned exactly.
 fastapi==0.115.6
+# Required by FastAPI to accept the multipart uploads in section 7.
+python-multipart==0.0.20
 uvicorn[standard]==0.34.0
 numpy==2.2.1
 Pillow==11.1.0

@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 DEFAULT_DATA_DIR = Path("/data")
 DB_FILENAME = "fogmap.db"
@@ -122,6 +124,23 @@ def open_initialised(path: Path | str | None = None) -> sqlite3.Connection:
     conn = connect(path)
     init(conn)
     return conn
+
+
+@contextmanager
+def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
+    """Run a block as one transaction.
+
+    Connections are opened in autocommit mode, so an import that fails halfway
+    would otherwise leave half its events in the log. Rolling back keeps the
+    event log consistent with what the user was told happened.
+    """
+    conn.execute("BEGIN")
+    try:
+        yield conn
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
+    conn.execute("COMMIT")
 
 
 def get_settings(conn: sqlite3.Connection) -> dict[str, str]:
