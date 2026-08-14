@@ -287,6 +287,53 @@ body {
   color: var(--bad);
 }
 
+/* Basemap status in the settings panel. */
+
+.basemap-status {
+  margin: 0 0 0.5rem;
+  padding-left: 0.5rem;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.basemap-status[data-state='good'] {
+  border-left-color: var(--good);
+}
+
+.basemap-status[data-state='warn'] {
+  border-left-color: var(--warn);
+}
+
+.basemap-status[data-state='bad'] {
+  border-left-color: var(--bad);
+}
+
+#basemap-update,
+#basemap-cancel {
+  margin-top: 0.35rem;
+}
+
+/* A button that reads as a quiet aside rather than an action. */
+.linky {
+  display: block;
+  width: 100%;
+  margin-top: 0.9rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  text-align: center;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.linky:hover {
+  color: var(--fg);
+}
+
 /* Import progress. */
 
 .import-log {

@@ -144,8 +144,15 @@
 
       <section>
         <h2>Basemap</h2>
-        <button id="setup-open" type="button" class="wide" hidden>
-          Set up basemap
+        <p id="basemap-status" class="basemap-status">Checking.</p>
+        <div id="basemap-progress-row" class="setup-progress" hidden>
+          <progress id="basemap-progress" max="100" value="0"></progress>
+          <p id="basemap-progress-text" class="setup-progress-text"></p>
+        </div>
+        <button id="setup-open" type="button" class="wide">Set up basemap</button>
+        <button id="basemap-update" type="button" class="wide">Update basemap</button>
+        <button id="basemap-cancel" type="button" class="wide" hidden>
+          Cancel download
         </button>
       </section>
 
@@ -202,15 +209,22 @@
 
         <div class="setup-actions">
           <button id="setup-start" type="button" class="primary">Download</button>
-          <button id="setup-cancel" type="button" hidden>Cancel</button>
-          <button id="setup-skip" type="button">Continue without one</button>
+          <button id="setup-background" type="button">
+            Continue download in the background
+          </button>
+          <button id="setup-cancel" type="button" hidden>Cancel download</button>
         </div>
 
         <p class="setup-note">
           The planet archive is around 128 GB. The download resumes if it is
           interrupted, and FogMap is fully usable while it runs — only the map
-          underneath your trails is missing.
+          underneath your trails is missing. Progress and a re-download button
+          live under Settings, Basemap.
         </p>
+
+        <button id="setup-skip" type="button" class="linky">
+          Continue without a basemap
+        </button>
       </div>
     </section>
 

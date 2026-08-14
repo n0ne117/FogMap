@@ -157,7 +157,13 @@ class Downloader:
             state = self._state
             if state.state != "interrupted" or not state.url or not state.filename:
                 return False
-            if self.target(state.filename).exists():
+            # A partial file means a download was in flight. During an update
+            # the previous archive is still installed, so the target existing
+            # is not on its own a reason to stop.
+            if (
+                self.target(state.filename).exists()
+                and not self.partial(state.filename).exists()
+            ):
                 return False
 
         self.start(state.url, state.filename)

@@ -11,6 +11,17 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.8.1] - 2026-08-14
+
+Setup screen tidying: start the basemap downloading and carry on,
+and watch or replace it later from the settings panel.
+
+### Changed
+- The setup screen now offers "Continue download in the background", which starts the basemap downloading and gets out of the way. Carrying on without a basemap at all is still there, as a quieter link underneath.
+
+### Added
+- Basemap progress, a cancel button and a re-download button now live under Settings, Basemap, so a download can be watched or replaced without reopening the setup screen.
+
 ## [0.8.0] - 2026-08-14
 
 Polish. Soft fog edges, clickable tracks when you zoom right in, and
@@ -103,7 +114,8 @@ get the same bytes back.
 - Upload endpoints for GPX and TCX files, reporting how many events were created, how many points were stamped and how many tiles changed.
 - Command line tools to rebuild every bitmap from the event log, import a file from disk, and dump a single tile to a PNG for inspection. `selfcheck` now reports a digest over all stored bitmaps.
 
-[Unreleased]: https://github.com/n0ne117/FogMap/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/n0ne117/FogMap/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/n0ne117/FogMap/releases/tag/v0.8.1
 [0.8.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.8.0
 [0.6.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.6.0
 [0.5.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.5.0

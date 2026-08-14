@@ -4,7 +4,15 @@
 // render - so this never blocks the app, it just makes the one thing that
 // cannot be shipped in a container easy to fetch.
 
-import { apiGet, apiSend, formatBytes, formatDuration, getToken, setToken } from './api'
+import {
+  ApiError,
+  apiGet,
+  apiSend,
+  formatBytes,
+  formatDuration,
+  getToken,
+  setToken,
+} from './api'
 
 const DISMISSED_KEY = 'fogmap.setup.dismissed'
 
@@ -77,13 +85,15 @@ export class Setup {
     element<HTMLInputElement>('setup-token').value = getToken()
 
     const busy = status.basemap.download.state === 'running'
-    if (status.basemap.present || (dismissed() && !busy)) {
-      this.render(status)
-      return
-    }
+    this.render(status)
+
+    // Keep polling while a download runs even with the screen closed, so the
+    // panel stays live.
+    if (busy) this.poll()
+
+    if (status.basemap.present || dismissed() || busy) return
 
     this.open()
-    this.render(status)
     this.poll()
   }
 
@@ -97,7 +107,20 @@ export class Setup {
 
   wire(): void {
     element('setup-start').addEventListener('click', () => void this.start())
-    element('setup-cancel').addEventListener('click', () => void this.cancel())
+
+    // Start it, then get out of the way. The download runs in the api
+    // container, so closing this screen - or the browser - does not stop it.
+    element('setup-background').addEventListener('click', () => {
+      void this.start().then(() => {
+        dismiss()
+        this.close()
+      })
+    })
+
+    for (const id of ['setup-cancel', 'basemap-cancel']) {
+      element(id).addEventListener('click', () => void this.cancel())
+    }
+
     element('setup-skip').addEventListener('click', () => {
       dismiss()
       this.close()
@@ -107,9 +130,36 @@ export class Setup {
       void this.refresh()
       this.poll()
     })
+    element('basemap-update').addEventListener('click', () => void this.update())
     element<HTMLInputElement>('setup-token').addEventListener('change', (event) => {
       setToken((event.target as HTMLInputElement).value.trim())
     })
+  }
+
+  /**
+   * Re-download the basemap, for a newer planet build or a corrupt archive.
+   *
+   * Two clicks, because it is 128 GB. The existing archive keeps serving the
+   * map throughout: the new one lands in a .part file and only replaces it
+   * once it has been downloaded and checked.
+   */
+  private async update(): Promise<void> {
+    const button = element<HTMLButtonElement>('basemap-update')
+
+    if (button.dataset.armed !== 'true') {
+      button.dataset.armed = 'true'
+      button.textContent = 'Re-download 128 GB?'
+      window.setTimeout(() => {
+        button.dataset.armed = 'false'
+        button.textContent = 'Update basemap'
+      }, 5000)
+      return
+    }
+
+    button.dataset.armed = 'false'
+    button.textContent = 'Update basemap'
+    await this.start()
+    this.poll()
   }
 
   private fillSources(status: SetupStatus): void {
@@ -135,7 +185,14 @@ export class Setup {
       await apiSend('POST', '/api/setup/basemap', { url }, { tokenOptional: true })
       this.poll()
     } catch (error) {
-      this.say(error instanceof Error ? error.message : String(error))
+      // Already running is not a failure here: both the background button and
+      // the panel are ways of saying "get on with it", and it already is.
+      const message = error instanceof ApiError ? error.message : String(error)
+      if (!message.includes('already running')) {
+        this.say(message)
+        throw error
+      }
+      this.poll()
     }
   }
 
@@ -173,21 +230,59 @@ export class Setup {
     }
     this.render(status)
 
+    // An update runs with the previous archive still installed, so "present"
+    // alone is not a reason to stop watching - only a settled download is.
     const state = status.basemap.download.state
+    if (state === 'running') return
+
+    this.stopPolling()
     if (state === 'done' || status.basemap.present) {
-      this.stopPolling()
       this.onBasemapReady()
-    } else if (state === 'error' || state === 'cancelled' || state === 'idle') {
-      this.stopPolling()
     }
   }
 
-  private render(status: SetupStatus): void {
+  /** The same picture, in the settings panel, for when the screen is closed. */
+  private renderPanel(status: SetupStatus): void {
     const { basemap } = status
     const download = basemap.download
     const running = download.state === 'running'
 
-    element('setup-open').hidden = basemap.present && !running
+    const status_ = element('basemap-status')
+    if (running) {
+      status_.textContent =
+        `Downloading ${formatBytes(download.downloaded_bytes)} of ` +
+        `${formatBytes(download.total_bytes)}, ` +
+        `${formatDuration(download.seconds_remaining)} remaining.`
+      status_.dataset.state = 'warn'
+    } else if (basemap.present) {
+      status_.textContent = `Installed, ${formatBytes(basemap.bytes)}.`
+      status_.dataset.state = 'good'
+    } else if (basemap.partial_bytes) {
+      status_.textContent = `Paused at ${formatBytes(basemap.partial_bytes)}.`
+      status_.dataset.state = 'warn'
+    } else {
+      status_.textContent = 'Not installed.'
+      status_.dataset.state = 'bad'
+    }
+
+    element('basemap-progress-row').hidden = !running
+    element<HTMLProgressElement>('basemap-progress').value = download.percent
+    element('basemap-progress-text').textContent = running
+      ? `${download.percent.toFixed(1)}% · ${formatBytes(download.bytes_per_second)}/s`
+      : ''
+
+    element('basemap-update').hidden = running
+    element('basemap-cancel').hidden = !running
+  }
+
+  private render(status: SetupStatus): void {
+    this.renderPanel(status)
+
+    const { basemap } = status
+    const download = basemap.download
+    const running = download.state === 'running'
+
+    element('setup-background').hidden = basemap.present
 
     const summary = element('setup-state')
     if (basemap.present) {
