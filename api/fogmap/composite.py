@@ -17,9 +17,13 @@ full rebuild and a re-import of the file that drew the fog underneath it.
 
 from __future__ import annotations
 
+import io
+import math
 import sqlite3
+from pathlib import Path
 
 import numpy as np
+from PIL import Image
 
 from fogmap import geo, raster
 
@@ -29,6 +33,39 @@ HALF = TILE // 2
 VIEW_ALL = "all"
 VIEW_PREHISTORY = "prehistory"
 YEAR_PREFIX = "year:"
+
+THEMES = ("light", "dark")
+KINDS = ("fog", "trail")
+
+# Fog is drawn where the ground is UNEXPLORED, so this is the colour of the
+# unknown. Alpha is the single most subjective number in the project - the
+# build plan warns that tuning it is an evening on its own.
+FOG_COLOUR = {
+    "dark": (9, 11, 15, 255),
+    "light": (236, 236, 231, 255),
+}
+
+# Pass count to colour. Counts are heavily skewed - most pixels are crossed
+# once - so the ramp is walked on a log scale, otherwise every trail but the
+# daily commute renders as the same dim first step.
+TRAIL_RAMPS = {
+    "dark": [
+        (0.00, (56, 120, 220, 0)),
+        (0.01, (56, 120, 220, 200)),
+        (0.35, (86, 200, 210, 225)),
+        (0.65, (150, 230, 150, 240)),
+        (0.85, (250, 215, 105, 250)),
+        (1.00, (255, 250, 235, 255)),
+    ],
+    "light": [
+        (0.00, (30, 90, 190, 0)),
+        (0.01, (30, 90, 190, 190)),
+        (0.35, (10, 150, 165, 215)),
+        (0.65, (200, 130, 40, 235)),
+        (0.85, (200, 60, 40, 245)),
+        (1.00, (120, 10, 30, 255)),
+    ],
+}
 
 
 def view_layers(view: str) -> set[str] | None:
@@ -173,6 +210,186 @@ def parent_tile(
         ] = shrink(child)
 
     return parent
+
+
+def trail_lut(theme: str) -> np.ndarray:
+    """A 256-entry pass-count to RGBA lookup table.
+
+    Counts are mapped through log1p before the ramp is walked, so the
+    difference between one pass and four is visible rather than being crushed
+    into the bottom of a linear scale.
+    """
+    try:
+        anchors = TRAIL_RAMPS[theme]
+    except KeyError:
+        raise ValueError(
+            f"Unknown theme {theme!r}. FogMap renders {' and '.join(THEMES)}."
+        ) from None
+
+    counts = np.arange(256, dtype=np.float64)
+    position = np.log1p(counts) / math.log1p(255.0)
+
+    stops = np.array([stop for stop, _ in anchors])
+    lut = np.zeros((256, 4), dtype=np.uint8)
+    for channel in range(4):
+        values = np.array([colour[channel] for _, colour in anchors], dtype=np.float64)
+        lut[:, channel] = np.interp(position, stops, values).round().astype(np.uint8)
+
+    lut[0] = (0, 0, 0, 0)  # never crossed, never drawn
+    return lut
+
+
+def render_fog(fog: np.ndarray, theme: str) -> np.ndarray:
+    """Paint the unexplored ground, leaving explored ground transparent."""
+    try:
+        colour = FOG_COLOUR[theme]
+    except KeyError:
+        raise ValueError(
+            f"Unknown theme {theme!r}. FogMap renders {' and '.join(THEMES)}."
+        ) from None
+
+    rgba = np.empty((TILE, TILE, 4), dtype=np.uint8)
+    rgba[..., 0] = colour[0]
+    rgba[..., 1] = colour[1]
+    rgba[..., 2] = colour[2]
+    rgba[..., 3] = np.where(fog, 0, colour[3]).astype(np.uint8)
+    return rgba
+
+
+def render_trail(trail: np.ndarray, theme: str) -> np.ndarray:
+    return trail_lut(theme)[trail]
+
+
+def encode_png(rgba: np.ndarray) -> bytes:
+    buffer = io.BytesIO()
+    Image.fromarray(rgba, mode="RGBA").save(buffer, format="PNG", optimize=True)
+    return buffer.getvalue()
+
+
+def tile_path(
+    root: Path, theme: str, view: str, kind: str, zoom: int, x: int, y: int
+) -> Path:
+    """Where a rendered tile lives on disk.
+
+    The view name goes in a path segment, so `year:2024` becomes `year-2024` -
+    a colon in a path works on Linux but breaks the moment anything touches it
+    from Windows or a URL that has not been escaped.
+    """
+    return root / theme / view.replace(":", "-") / kind / str(zoom) / str(x) / f"{y}.png"
+
+
+def placeholder_tile(theme: str, kind: str) -> bytes:
+    """The tile served where nothing has been rendered.
+
+    Fog covers the whole world, so a tile with no data is not missing - it is
+    entirely unexplored, and must come back as solid fog. Returning 404 here
+    would punch a hole in the fog over every part of the world the user has
+    never been, which is most of it.
+    """
+    if kind == "fog":
+        return encode_png(render_fog(np.zeros((TILE, TILE), dtype=bool), theme))
+    return encode_png(render_trail(np.zeros((TILE, TILE), dtype=np.uint8), theme))
+
+
+def write_placeholders(root: Path) -> list[Path]:
+    written = []
+    for theme in THEMES:
+        for kind in KINDS:
+            destination = root / theme / f"empty-{kind}.png"
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(placeholder_tile(theme, kind))
+            written.append(destination)
+    return written
+
+
+def tiles_with_data(conn: sqlite3.Connection, layers: set[str] | None) -> set[tuple[int, int]]:
+    """z14 tiles holding fog or trail for the given layers."""
+    sql = "SELECT DISTINCT x, y FROM blobs WHERE kind IN ('fog', 'trail')"
+    params: list[object] = []
+    if layers is not None:
+        sql += f" AND layer IN ({','.join('?' * len(layers))})"
+        params.extend(sorted(layers))
+    return {(int(row["x"]), int(row["y"])) for row in conn.execute(sql, params)}
+
+
+def pyramid_levels(
+    native: set[tuple[int, int]],
+) -> dict[int, set[tuple[int, int]]]:
+    """Which tiles exist at every zoom, folding z14 upwards.
+
+    A tile exists at a zoom if anything beneath it does. This is what lets the
+    render walk only the populated part of the world instead of 2**28 tiles.
+    """
+    levels = {geo.NATIVE_Z: set(native)}
+    for zoom in range(geo.NATIVE_Z - 1, -1, -1):
+        levels[zoom] = {(x // 2, y // 2) for x, y in levels[zoom + 1]}
+    return levels
+
+
+def render_view(
+    conn: sqlite3.Connection, root: Path, view: str, themes: tuple[str, ...] = THEMES
+) -> int:
+    """Render one view's whole PNG pyramid, both themes. Returns tiles written.
+
+    Walks depth first from z0, so at most four tiles per zoom are held at once
+    and memory stays flat however large the archive grows.
+    """
+    native = tiles_with_data(conn, view_layers(view))
+    if not native:
+        return 0
+
+    levels = pyramid_levels(native)
+    written = 0
+
+    def build(zoom: int, x: int, y: int) -> tuple[np.ndarray, np.ndarray] | None:
+        nonlocal written
+
+        if zoom == geo.NATIVE_Z:
+            fog, trail = composite_tile(conn, view, x, y)
+        else:
+            fog_children: dict[tuple[int, int], np.ndarray] = {}
+            trail_children: dict[tuple[int, int], np.ndarray] = {}
+            for offset_x in (0, 1):
+                for offset_y in (0, 1):
+                    child_x, child_y = x * 2 + offset_x, y * 2 + offset_y
+                    if (child_x, child_y) not in levels[zoom + 1]:
+                        continue
+                    built = build(zoom + 1, child_x, child_y)
+                    if built is None:
+                        continue
+                    fog_children[(offset_x, offset_y)] = built[0]
+                    trail_children[(offset_x, offset_y)] = built[1]
+
+            if not fog_children:
+                return None
+            fog = parent_tile(fog_children, "max")
+            trail = parent_tile(trail_children, "sum")
+
+        for theme in themes:
+            for kind, rgba in (
+                ("fog", render_fog(fog, theme)),
+                ("trail", render_trail(trail, theme)),
+            ):
+                destination = tile_path(root, theme, view, kind, zoom, x, y)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(encode_png(rgba))
+                written += 1
+
+        return fog, trail
+
+    build(0, 0, 0)
+    return written
+
+
+def render_all(
+    conn: sqlite3.Connection, root: Path, themes: tuple[str, ...] = THEMES
+) -> dict[str, int]:
+    """Render every canonical view. Returns tiles written per view."""
+    root.mkdir(parents=True, exist_ok=True)
+    write_placeholders(root)
+    return {
+        view: render_view(conn, root, view, themes) for view in available_views(conn)
+    }
 
 
 def rebuild_scope(touched: set[tuple[int, int]]) -> dict[int, set[tuple[int, int]]]:

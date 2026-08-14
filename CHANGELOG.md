@@ -11,6 +11,9 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+### Added
+- The map is now drawn. Fog covers ground you have never visited and lifts where you have been, and trails are shaded by how often you passed - a daily commute reads brighter than a one-off detour.
+
 ## [0.1.0] - 2026-08-14
 
 First release with a working ingest and raster core. Import a GPX or TCX file
