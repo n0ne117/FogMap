@@ -426,3 +426,59 @@ class TestPauseAndCancel:
         assert client.delete("/api/setup/basemap?discard=true").json()["state"] == (
             "cancelled"
         )
+
+
+class TestCompletionEdges:
+    """The end of a very long download is where it went wrong.
+
+    Protomaps holds the connection open after the last byte, so reading once
+    more blocked until the socket timed out. A download with every one of its
+    137 GB on disk was reported as a failure, and the next attempt would then
+    have deleted the lot and started again.
+    """
+
+    def test_a_complete_partial_is_finished_rather_than_refetched(
+        self, downloader, server
+    ):
+        partial = db.data_dir() / "test-q.pmtiles.part"
+        partial.write_bytes(PAYLOAD)
+
+        downloader.start(server, "test-q.pmtiles")
+        assert wait_for(downloader)["state"] == "done"
+
+        target = db.data_dir() / "test-q.pmtiles"
+        assert target.read_bytes() == PAYLOAD
+        assert not partial.exists()
+        target.unlink()
+
+    def test_a_complete_partial_is_never_deleted(self, downloader, server):
+        partial = db.data_dir() / "test-r.pmtiles.part"
+        partial.write_bytes(PAYLOAD)
+
+        downloader.start(server, "test-r.pmtiles")
+        wait_for(downloader)
+
+        # Whatever else happened, those bytes were not thrown away.
+        target = db.data_dir() / "test-r.pmtiles"
+        assert target.exists() and target.stat().st_size == len(PAYLOAD)
+        target.unlink()
+
+    def test_a_partial_longer_than_the_archive_starts_over(self, downloader, server):
+        partial = db.data_dir() / "test-s.pmtiles.part"
+        partial.write_bytes(PAYLOAD + b"junk that should not be there")
+
+        downloader.start(server, "test-s.pmtiles")
+        assert wait_for(downloader)["state"] == "done"
+
+        target = db.data_dir() / "test-s.pmtiles"
+        assert target.read_bytes() == PAYLOAD
+        target.unlink()
+
+    def test_the_reader_stops_on_the_byte_count(self, downloader, server):
+        """Finishing must not depend on the server closing the connection."""
+        downloader.start(server, "test-t.pmtiles")
+        status = wait_for(downloader, timeout=20.0)
+
+        assert status["state"] == "done"
+        assert status["downloaded_bytes"] == len(PAYLOAD)
+        (db.data_dir() / "test-t.pmtiles").unlink()

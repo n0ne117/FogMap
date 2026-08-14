@@ -188,7 +188,7 @@ async function start(): Promise<void> {
     console.warn('maplibre', event.error?.message ?? event)
   })
 
-  const handle: Record<string, unknown> = { map, setup: options, buildStyle }
+  const handle: Record<string, unknown> = { map, options, buildStyle }
   ;(window as unknown as { fogmap: unknown }).fogmap = handle
 
   // The sheets are mutually exclusive: opening places closes settings.

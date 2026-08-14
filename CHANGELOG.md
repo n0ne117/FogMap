@@ -11,6 +11,13 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.9.1] - 2026-08-15
+
+Rescues a basemap download that had already finished.
+
+### Fixed
+- A finished basemap download is no longer reported as a failure. The server holds the connection open after the last byte, so waiting for it to close timed out — with all 137 GB already on disk. The next attempt would then have deleted the lot and started again.
+
 ## [0.9.0] - 2026-08-14
 
 A reorganised interface, and a fix for pages coming up half empty.

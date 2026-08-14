@@ -209,7 +209,15 @@ class Downloader:
             already = partial.stat().st_size if partial.exists() else 0
             total = self._remote_size(url)
 
-            if already and total and already >= total:
+            # Every byte is already here. This happens when a previous attempt
+            # downloaded the lot and then died on the way out - finish it
+            # rather than fetching a hundred gigabytes again.
+            if already and total and already == total:
+                self._finish(partial, target)
+                return
+
+            if already and total and already > total:
+                # Longer than the archive is: genuinely wrong, start over.
                 already = 0
                 partial.unlink()
 
@@ -236,6 +244,14 @@ class Downloader:
                     written = already
                     last_report = 0.0
                     while not self._cancel.is_set():
+                        # Stop on the byte count rather than waiting for an
+                        # empty read. Protomaps holds the connection open after
+                        # the last byte, so reading once more blocks until the
+                        # socket times out - and a complete download was being
+                        # reported as a failure because of it.
+                        if total and written >= total:
+                            break
+
                         chunk = response.read(CHUNK)
                         if not chunk:
                             break
@@ -257,21 +273,36 @@ class Downloader:
                     self._persist()
                 return
 
-            self._verify(partial)
-            partial.replace(target)
-
-            with self._lock:
-                self._state.downloaded_bytes = target.stat().st_size
-                self._state.state = "done"
-                self._state.updated_at = time.time()
-                self._persist()
+            self._finish(partial, target)
 
         except Exception as exc:  # surfaced to the user, never swallowed
+            # A stalled read at the very end must not throw away a download
+            # that already has every byte of the archive.
+            try:
+                if partial.exists() and partial.stat().st_size >= self._state.total_bytes > 0:
+                    self._finish(partial, target)
+                    return
+            except Exception:
+                pass
+
             with self._lock:
                 self._state.state = "error"
                 self._state.error = f"{type(exc).__name__}: {exc}"
                 self._state.updated_at = time.time()
                 self._persist()
+
+    def _finish(self, partial: Path, target: Path) -> None:
+        """Check the archive and put it in place."""
+        self._verify(partial)
+        partial.replace(target)
+
+        with self._lock:
+            self._state.downloaded_bytes = target.stat().st_size
+            self._state.total_bytes = self._state.downloaded_bytes
+            self._state.state = "done"
+            self._state.error = ""
+            self._state.updated_at = time.time()
+            self._persist()
 
     def _remote_size(self, url: str) -> int:
         request = urllib.request.Request(
