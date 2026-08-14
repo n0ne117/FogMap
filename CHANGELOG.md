@@ -11,6 +11,9 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+### Added
+- A year slider. Step through the map one year at a time, or see everything at once, with undated routes gathered under their own stop. Every period was rendered at import, so moving the slider is a change of image rather than a wait.
+
 ## [0.2.0] - 2026-08-14
 
 The map exists. Import a track and watch the fog lift along it, with the

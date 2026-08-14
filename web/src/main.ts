@@ -6,12 +6,14 @@ import type { Map as MapLibreMap } from 'maplibre-gl'
 
 import {
   applyMapTheme,
+  applyView,
   basemapAvailable,
   buildStyle,
   createMap,
   type MapSetup,
 } from './map'
 import { Setup } from './setup'
+import { Timeline } from './timeline'
 import {
   applyUiTheme,
   getMapTheme,
@@ -95,7 +97,7 @@ async function start(): Promise<void> {
   const options: MapSetup = {
     container: 'map',
     theme: getMapTheme(),
-    view: 'all',
+    view: Timeline.remembered(),
     hasBasemap,
   }
 
@@ -135,15 +137,25 @@ async function start(): Promise<void> {
     panel.hidden = !panel.hidden
   })
 
+  const timeline = new Timeline((view) => {
+    options.view = view
+    applyView(map, options)
+  })
+  void timeline.load()
+
   // Once the archive lands, rebuild the style so the basemap appears without
   // the user having to reload.
   const setup = new Setup(() => {
     if (options.hasBasemap) return
     options.hasBasemap = true
     applyMapTheme(map, options)
+    void timeline.load()
   })
   setup.wire()
   void setup.maybeShow()
+
+  ;(window as unknown as { fogmap: Record<string, unknown> }).fogmap.timeline =
+    timeline
 }
 
 void start()

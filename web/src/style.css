@@ -234,6 +234,82 @@ body {
   color: var(--fg);
 }
 
+/* Year slider. */
+
+.timeline {
+  position: absolute;
+  bottom: 0.75rem;
+  left: 50%;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  transform: translateX(-50%);
+  width: min(30rem, calc(100vw - 8rem));
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--panel);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow);
+}
+
+.timeline button {
+  flex: 0 0 auto;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--fg);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.timeline button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.timeline button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.timeline-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.timeline-label {
+  margin: 0 0 0.15rem;
+  color: var(--fg);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.timeline-slider {
+  display: block;
+  width: 100%;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.timeline-ticks {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.1rem;
+  color: var(--muted);
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 0.6rem;
+}
+
+.timeline-ticks span[data-active='true'] {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 /* First-run setup. */
 
 .setup {

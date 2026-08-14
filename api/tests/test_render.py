@@ -198,6 +198,76 @@ class TestPyramid:
         for path in written:
             assert path.is_file()
 
+class TestPerYearViews:
+    """Phase 3: every year present in the data gets its own rendered pyramid."""
+
+    @pytest.fixture
+    def multi_year(self, conn):
+        from datetime import datetime, timezone
+
+        for index, year in enumerate((2022, 2023, 2024)):
+            points = [
+                (synthetic.BASE_LON + step * 0.0001, synthetic.BASE_LAT + index * 0.0009)
+                for step in range(40)
+            ]
+            document = synthetic.gpx_document(
+                points,
+                name=f"route {year}",
+                start=datetime(year, 5, 1, 8, 0, tzinfo=timezone.utc),
+            )
+            common.ingest_tracks(conn, "workout", gpx.parse(document))
+        return conn
+
+    def test_a_view_exists_for_every_year_in_the_data(self, multi_year):
+        assert composite.available_views(multi_year) == [
+            "all",
+            "year:2022",
+            "year:2023",
+            "year:2024",
+        ]
+
+    def test_each_year_renders_its_own_pyramid(self, multi_year, tmp_path):
+        root = tmp_path / "tiles"
+        rendered = composite.render_all(multi_year, root)
+
+        for year in (2022, 2023, 2024):
+            assert rendered[f"year:{year}"] > 0
+            assert (root / "dark" / f"year-{year}" / "fog" / "0" / "0" / "0.png").is_file()
+
+    def test_the_years_render_to_different_pixels(self, multi_year, tmp_path):
+        root = tmp_path / "tiles"
+        composite.render_all(multi_year, root)
+
+        seen = {
+            (root / "dark" / f"year-{year}" / "fog" / "13" / "4107" / "4090.png").read_bytes()
+            for year in (2022, 2023, 2024)
+        }
+        assert len(seen) == 3
+
+    def test_the_cumulative_view_is_the_union_of_the_years(self, multi_year, tmp_path):
+        root = tmp_path / "tiles"
+        composite.render_all(multi_year, root)
+
+        def explored(view):
+            tile = root / "dark" / view / "fog" / "13" / "4107" / "4090.png"
+            return np.array(Image.open(tile))[..., 3] == 0
+
+        union = np.zeros((TILE, TILE), dtype=bool)
+        for year in (2022, 2023, 2024):
+            union |= explored(f"year-{year}")
+
+        assert np.array_equal(explored("all"), union)
+        assert union.sum() > 0
+
+    def test_undated_tracks_render_under_prehistory(self, conn, tmp_path):
+        points = [(synthetic.BASE_LON + n * 0.0001, synthetic.BASE_LAT) for n in range(30)]
+        document = synthetic.gpx_document(points, with_time=False)
+        common.ingest_tracks(conn, "workout", gpx.parse(document))
+
+        assert "prehistory" in composite.available_views(conn)
+        rendered = composite.render_all(conn, tmp_path / "tiles")
+        assert rendered["prehistory"] > 0
+
     def test_render_all_covers_every_available_view(self, seeded, tmp_path):
         rendered = composite.render_all(seeded, tmp_path / "tiles")
         assert set(rendered) == set(composite.available_views(seeded))

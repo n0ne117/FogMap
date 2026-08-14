@@ -111,6 +111,25 @@
       The map could not start. Check the browser console.
     </p>
 
+    <div id="timeline" class="timeline" hidden>
+      <button id="timeline-prev" type="button" aria-label="Previous period">‹</button>
+      <div class="timeline-body">
+        <p id="timeline-label" class="timeline-label">All time</p>
+        <input
+          id="timeline-slider"
+          class="timeline-slider"
+          type="range"
+          min="0"
+          max="0"
+          step="1"
+          value="0"
+          aria-label="Time period"
+        />
+        <div id="timeline-ticks" class="timeline-ticks"></div>
+      </div>
+      <button id="timeline-next" type="button" aria-label="Next period">›</button>
+    </div>
+
     <a id="version-corner" class="version-corner" rel="noreferrer">v0.0.0</a>
 
     <script type="module" src="/src/main.ts"></script>

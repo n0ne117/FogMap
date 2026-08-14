@@ -128,3 +128,24 @@ export function createMap(setup: MapSetup): MapLibreMap {
 export function applyMapTheme(map: MapLibreMap, setup: MapSetup): void {
   map.setStyle(buildStyle(setup), { diff: false })
 }
+
+/**
+ * Point the fog and trail sources at a different view.
+ *
+ * Only the raster URLs change - the basemap is left alone, so stepping through
+ * years does not reload it. Both views were rendered at ingest, so this is a
+ * cache lookup away from instant.
+ */
+export function applyView(map: MapLibreMap, setup: MapSetup): void {
+  for (const [id, kind] of [
+    [TRAIL_SOURCE, 'trail'],
+    [FOG_SOURCE, 'fog'],
+  ] as const) {
+    const source = map.getSource(id)
+    if (source && 'setTiles' in source) {
+      ;(source as { setTiles: (tiles: string[]) => unknown }).setTiles([
+        rasterTiles(setup.theme, setup.view, kind),
+      ])
+    }
+  }
+}
