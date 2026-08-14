@@ -9,6 +9,14 @@ Entries are written for someone reading the release page, not for someone readin
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.0] - 2026-08-14
+
+The map exists. Import a track and watch the fog lift along it, with the
+route shaded by how often you have been that way. Tagged releases now
+publish themselves.
+
 ### Added
 - The map is now drawn. Fog covers ground you have never visited and lifts where you have been, and trails are shaded by how often you passed - a daily commute reads brighter than a one-off detour.
 - Tiles are served straight from disk, and a Protomaps basemap can be served from the data directory over range requests.
@@ -43,5 +51,6 @@ get the same bytes back.
 - Upload endpoints for GPX and TCX files, reporting how many events were created, how many points were stamped and how many tiles changed.
 - Command line tools to rebuild every bitmap from the event log, import a file from disk, and dump a single tile to a PNG for inspection. `selfcheck` now reports a digest over all stored bitmaps.
 
-[Unreleased]: https://github.com/n0ne117/FogMap/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/n0ne117/FogMap/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.2.0
 [0.1.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.1.0
