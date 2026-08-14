@@ -9,6 +9,14 @@ Entries are written for someone reading the release page, not for someone readin
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.0] - 2026-08-14
+
+First release with a working ingest and raster core. Import a GPX or TCX file
+and it is painted into a permanent bitmap; delete every bitmap, rebuild, and
+get the same bytes back.
+
 ### Added
 - Repository hygiene: data files, secrets and build output are excluded from version control from the first commit onward.
 - Web-Mercator coordinate math on the native z14 grid, covering projection round trips, ground resolution by latitude, the Mercator latitude clamp and antimeridian crossings.
@@ -23,4 +31,5 @@ Entries are written for someone reading the release page, not for someone readin
 - Upload endpoints for GPX and TCX files, reporting how many events were created, how many points were stamped and how many tiles changed.
 - Command line tools to rebuild every bitmap from the event log, import a file from disk, and dump a single tile to a PNG for inspection. `selfcheck` now reports a digest over all stored bitmaps.
 
-[Unreleased]: https://github.com/n0ne117/FogMap/commits/main
+[Unreleased]: https://github.com/n0ne117/FogMap/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.1.0
