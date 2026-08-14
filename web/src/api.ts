@@ -69,8 +69,8 @@ export async function apiSend<T>(
   if (!token && !options.tokenOptional) {
     throw new ApiError(
       401,
-      'No API token set. Paste the value of FOGMAP_TOKEN from the server ' +
-        'environment into the token field.',
+      'No API token set. Put the value of FOGMAP_TOKEN into ' +
+        'Settings, Data sources, API token.',
     )
   }
 

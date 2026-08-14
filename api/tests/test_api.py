@@ -153,3 +153,30 @@ class TestDatabase:
         conn.execute(insert, manual)
         assert db.counts(conn)["events"] == 3
         conn.close()
+
+
+class TestConcurrentReads:
+    """Every read endpoint must survive a page load.
+
+    A browser opens /api/meta, /api/places and /api/settings at once. FastAPI
+    runs the sync connection dependency and the route that uses it in
+    whichever worker threads happen to be free, and under load those are
+    different threads - which SQLite refuses unless told otherwise. Before
+    this was fixed, an ordinary page load returned 500 for most of its
+    requests while every one of them succeeded when tried on its own.
+    """
+
+    def test_the_read_endpoints_survive_being_called_together(self, client):
+        from concurrent.futures import ThreadPoolExecutor
+
+        paths = ["/api/meta", "/api/places", "/api/settings", "/api/setup"] * 6
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            responses = list(pool.map(lambda path: client.get(path), paths))
+
+        failures = [
+            (path, response.status_code)
+            for path, response in zip(paths, responses)
+            if response.status_code != 200
+        ]
+        assert not failures, f"concurrent reads failed: {failures}"

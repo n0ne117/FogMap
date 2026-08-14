@@ -5,6 +5,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import type { Map as MapLibreMap } from 'maplibre-gl'
 
 import { Draw, MIN_DRAW_ZOOM, type Mode, type Tool } from './draw'
+import { Imports } from './imports'
 import {
   applyMapTheme,
   applyView,
@@ -14,7 +15,6 @@ import {
   createMap,
   type MapSetup,
 } from './map'
-import { Imports } from './imports'
 import { Places } from './places'
 import { Setup } from './setup'
 import { Sources } from './sources'
@@ -30,72 +30,51 @@ import {
   type MapTheme,
   type UiTheme,
 } from './theme'
+import { element, radioGroup, Sheets, wireTabs, wireTokenField, wireZoom } from './ui'
 
 const REPO_URL = 'https://github.com/n0ne117/FogMap'
+const CHANGELOG_URL = `${REPO_URL}/blob/main/CHANGELOG.md`
 const webVersion = __FOGMAP_VERSION__
 
-function element<T extends HTMLElement>(id: string): T {
-  const found = document.getElementById(id)
-  if (!found) {
-    throw new Error(
-      `FogMap web is missing the element #${id}. index.html and main.ts are out of sync.`,
-    )
-  }
-  return found as T
-}
-
-function showWebVersion(): void {
+function showVersion(): void {
   const corner = element<HTMLAnchorElement>('version-corner')
   corner.textContent = `v${webVersion}`
   corner.href = `${REPO_URL}/releases/tag/v${webVersion}`
-  corner.title = `FogMap ${webVersion} - release notes`
+  corner.title = `FogMap ${webVersion} — release notes`
+
+  const link = element<HTMLAnchorElement>('version-link')
+  link.textContent = `v${webVersion}`
+  link.href = CHANGELOG_URL
 }
 
+/**
+ * One version is enough. The api is mentioned only when it disagrees, which
+ * is the only moment the distinction is worth anyone's attention.
+ */
 async function checkApiVersion(): Promise<void> {
-  const target = element('api-version')
+  const mismatch = element('version-mismatch')
   try {
     const response = await fetch('/healthz', { headers: { accept: 'application/json' } })
     const body = (await response.json()) as { version?: string }
     const apiVersion = body.version ?? 'unknown'
-    target.textContent =
-      apiVersion === webVersion ? apiVersion : `${apiVersion} - does not match web`
-    target.dataset.state = apiVersion === webVersion ? 'good' : 'warn'
+
+    if (apiVersion === webVersion) return
+    mismatch.textContent =
+      `The api reports ${apiVersion} but this page was built from ` +
+      `${webVersion}. One of the two containers is out of date.`
+    mismatch.hidden = false
   } catch {
-    target.textContent = 'unreachable'
-    target.dataset.state = 'bad'
+    mismatch.textContent = 'The api is unreachable.'
+    mismatch.hidden = false
   }
-}
-
-/** Wire a set of radio-style buttons whose values live in a data attribute. */
-function radioGroup<T extends string>(
-  id: string,
-  current: T,
-  onPick: (value: T) => void,
-): void {
-  const group = element(id)
-  const buttons = Array.from(group.querySelectorAll<HTMLButtonElement>('button'))
-
-  const paint = (value: T) => {
-    for (const button of buttons) {
-      button.setAttribute('aria-pressed', String(button.dataset.value === value))
-    }
-  }
-
-  for (const button of buttons) {
-    button.addEventListener('click', () => {
-      const value = button.dataset.value as T
-      paint(value)
-      onPick(value)
-    })
-  }
-  paint(current)
 }
 
 function wireDrawing(
   map: MapLibreMap,
   options: MapSetup,
   timeline: Timeline,
-): void {
+  trails: Trails,
+): Draw {
   const status = element('draw-status')
   const hint = element('draw-hint')
   const undoButton = element<HTMLButtonElement>('draw-undo')
@@ -103,19 +82,22 @@ function wireDrawing(
   const draw = new Draw(
     map as never,
     () => {
-      // The tiles behind this view just changed on disk.
       bustTileCache()
       applyView(map, options)
       void timeline.load()
+      void trails.refresh()
       undoButton.disabled = draw.undoDepth === 0
     },
     (message, bad) => {
       status.textContent = message
       status.hidden = !message
       status.dataset.state = bad ? 'bad' : ''
+      if (message && !bad) window.setTimeout(() => (status.hidden = true), 4000)
     },
   )
   draw.attach()
+
+  let paintTool: (value: Tool) => void = () => {}
 
   /** Drawing below z14 produces meaningless geometry, so it is locked out. */
   const refreshLock = () => {
@@ -123,34 +105,26 @@ function wireDrawing(
     const zoom = map.getZoom()
 
     for (const id of ['draw-tool', 'draw-mode']) {
-      for (const button of element(id).querySelectorAll('button')) {
-        button.disabled = !allowed
-      }
+      const group = element(id)
+      group.dataset.locked = String(!allowed)
+      for (const button of group.querySelectorAll('button')) button.disabled = !allowed
     }
-    element('draw-tool').dataset.locked = String(!allowed)
-    element('draw-mode').dataset.locked = String(!allowed)
 
     hint.textContent = allowed
       ? draw.activeTool === 'line'
         ? 'Click to add points, double click to finish.'
         : draw.activeTool === 'freehand'
           ? 'Drag on the map to draw.'
-          : ''
-      : `Zoom in to ${MIN_DRAW_ZOOM} to draw. Currently ${zoom.toFixed(1)}.`
+          : 'Pick a tool to start drawing.'
+      : `Zoom to ${MIN_DRAW_ZOOM} or closer to draw. Currently ${zoom.toFixed(1)}.`
 
     if (!allowed && draw.activeTool !== 'off') {
       draw.setTool('off')
-      paintGroup('draw-tool', 'off')
+      paintTool('off')
     }
   }
 
-  const paintGroup = (id: string, value: string) => {
-    for (const button of element(id).querySelectorAll('button')) {
-      button.setAttribute('aria-pressed', String(button.dataset.value === value))
-    }
-  }
-
-  radioGroup<Tool>('draw-tool', 'off', (value) => {
+  paintTool = radioGroup<Tool>('draw-tool', 'off', (value) => {
     draw.setTool(value)
     refreshLock()
   })
@@ -163,29 +137,37 @@ function wireDrawing(
     const value = Number((event.target as HTMLInputElement).value)
     if (Number.isFinite(value) && value > 0) draw.radiusM = value
   })
-
   undoButton.addEventListener('click', () => void draw.undo())
+
+  // The pencil opens the toolbar. Closing it puts the brush away too, so the
+  // map is never left in drawing mode with nothing on screen saying so.
+  const bar = element('draw-bar')
+  const toggle = element('draw-toggle')
+  toggle.addEventListener('click', () => {
+    const opening = bar.hidden
+    bar.hidden = !opening
+    toggle.setAttribute('aria-pressed', String(opening))
+    if (!opening) {
+      draw.setTool('off')
+      paintTool('off')
+    }
+    refreshLock()
+  })
 
   map.on('zoomend', refreshLock)
   map.on('load', refreshLock)
   refreshLock()
-
-  const handle = (window as unknown as { fogmap: Record<string, unknown> }).fogmap
-  if (handle) {
-    handle.draw = draw
-    handle.refreshDrawLock = refreshLock
-  }
+  return draw
 }
 
 async function start(): Promise<void> {
-  showWebVersion()
+  showVersion()
   void checkApiVersion()
 
   applyUiTheme()
   watchSystemTheme(() => applyUiTheme())
 
   const hasBasemap = await basemapAvailable()
-
   const options: MapSetup = {
     container: 'map',
     theme: getMapTheme(),
@@ -203,36 +185,30 @@ async function start(): Promise<void> {
   }
 
   map.on('error', (event) => {
-    // Tile 404s are normal at the edges of the world; only surface real ones.
     console.warn('maplibre', event.error?.message ?? event)
   })
 
-  // A handle for the browser console. Debugging a map without one means
-  // rebuilding the whole bundle every time a question comes up, and the
-  // frontend has no dev server. buildStyle is pure, so it can be called here
-  // to inspect exactly what a theme would produce.
-  ;(window as unknown as { fogmap: unknown }).fogmap = {
-    map,
-    setup: options,
-    buildStyle,
-  }
+  const handle: Record<string, unknown> = { map, setup: options, buildStyle }
+  ;(window as unknown as { fogmap: unknown }).fogmap = handle
+
+  // The sheets are mutually exclusive: opening places closes settings.
+  const sheets = new Sheets(['panel', 'places-page'])
+  element('panel-toggle').addEventListener('click', () => sheets.toggle('panel'))
+  element('panel-close').addEventListener('click', () => sheets.close())
+  element('places-toggle').addEventListener('click', () => sheets.toggle('places-page'))
+  element('places-close').addEventListener('click', () => sheets.close())
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') sheets.close()
+  })
+
+  wireTabs('tabs')
+  wireZoom(map as never)
 
   radioGroup<UiTheme>('ui-theme', getUiTheme(), (value) => setUiTheme(value))
   radioGroup<MapTheme>('map-theme', getMapTheme(), (value) => {
     setMapTheme(value)
     options.theme = value
     applyMapTheme(map, options)
-  })
-
-  const panel = element('panel')
-  element('panel-toggle').addEventListener('click', () => {
-    panel.hidden = !panel.hidden
-  })
-  element('panel-close').addEventListener('click', () => {
-    panel.hidden = true
-  })
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') panel.hidden = true
   })
 
   const trails = new Trails(map, (message) => {
@@ -245,7 +221,6 @@ async function start(): Promise<void> {
       trails.attach()
       void trails.refresh()
     } catch (error) {
-      // Never let the trail layer take the rest of the interface down with it.
       console.error('FogMap could not attach the trail layer', error)
     }
   }
@@ -260,10 +235,9 @@ async function start(): Promise<void> {
   })
   void timeline.load()
 
-  wireDrawing(map, options, timeline)
+  const draw = wireDrawing(map, options, timeline, trails)
 
   const places = new Places(map, () => {
-    // A place clears fog, so the tiles behind this view just changed.
     bustTileCache()
     applyView(map, options)
     void timeline.load()
@@ -274,6 +248,8 @@ async function start(): Promise<void> {
   const sources = new Sources()
   void sources.load()
 
+  wireTokenField(() => void sources.load())
+
   const imports = new Imports(() => {
     bustTileCache()
     applyView(map, options)
@@ -282,8 +258,6 @@ async function start(): Promise<void> {
   })
   imports.wire()
 
-  // Once the archive lands, rebuild the style so the basemap appears without
-  // the user having to reload.
   const setup = new Setup(() => {
     if (options.hasBasemap) return
     options.hasBasemap = true
@@ -293,12 +267,16 @@ async function start(): Promise<void> {
   setup.wire()
   void setup.maybeShow()
 
-  const handle = (window as unknown as { fogmap: Record<string, unknown> }).fogmap
-  handle.timeline = timeline
-  handle.places = places
-  handle.sources = sources
-  handle.trails = trails
-  handle.imports = imports
+  Object.assign(handle, {
+    sheets,
+    timeline,
+    places,
+    sources,
+    trails,
+    imports,
+    draw,
+    setup,
+  })
 }
 
 void start()

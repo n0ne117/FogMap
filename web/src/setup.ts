@@ -13,6 +13,7 @@ import {
   getToken,
   setToken,
 } from './api'
+import { element } from './ui'
 
 const DISMISSED_KEY = 'fogmap.setup.dismissed'
 
@@ -40,12 +41,6 @@ export interface SetupStatus {
     path: string
     download: DownloadStatus
   }
-}
-
-function element<T extends HTMLElement>(id: string): T {
-  const found = document.getElementById(id)
-  if (!found) throw new Error(`FogMap setup is missing the element #${id}.`)
-  return found as T
 }
 
 function dismissed(): boolean {

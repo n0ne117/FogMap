@@ -11,8 +11,23 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.9.0] - 2026-08-14
+
+A reorganised interface, and a fix for pages coming up half empty.
+
 ### Fixed
 - Per-machine editor and agent settings are now ignored by the repository itself rather than relying on a global ignore file, so the protection travels with a clone.
+- Pages no longer come up half empty. Opening FogMap fires several requests at once, and under that load most of them were failing with a server error while the same request made on its own succeeded. Places, markers, data sources and the year slider could all silently fail to appear.
+
+### Changed
+- Settings is now organised into tabs, so importing files and configuring data sources each have room to breathe.
+- Places has its own page, opened by the pin at the top right of the map.
+- One version number in Settings instead of two, linked to the changelog. The api version is mentioned only when it disagrees with the page.
+- Protomaps is credited alongside OpenStreetMap and MapLibre in the map attribution.
+
+### Added
+- A drawing toolbar on the map, opened by the pencil at the top right, and a vertical zoom control at the left edge.
+- An API token field in Settings, Data sources. Everything that changes data needs it, and until now the only place to enter one was the basemap setup screen.
 
 ## [0.8.3] - 2026-08-14
 

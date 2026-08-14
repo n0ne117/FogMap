@@ -8,6 +8,7 @@ import { Marker, Popup } from 'maplibre-gl'
 import type { Map as MapLibreMap } from 'maplibre-gl'
 
 import { ApiError, apiGet, apiSend } from './api'
+import { element } from './ui'
 
 export interface Place {
   id: number
@@ -25,12 +26,6 @@ interface PlacesResponse {
   places: Place[]
   people: string[]
   categories: string[]
-}
-
-function element<T extends HTMLElement>(id: string): T {
-  const found = document.getElementById(id)
-  if (!found) throw new Error(`FogMap places is missing the element #${id}.`)
-  return found as T
 }
 
 function escapeHtml(value: string): string {

@@ -132,6 +132,13 @@ export function createMap(setup: MapSetup): MapLibreMap {
     zoom: 2,
     maxZoom: 18,
     hash: true,
+    attributionControl: {
+      compact: true,
+      customAttribution: [
+        '<a href="https://protomaps.com" target="_blank" rel="noreferrer">Protomaps</a>',
+        '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a>',
+      ],
+    },
   })
 }
 

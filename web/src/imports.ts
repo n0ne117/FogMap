@@ -6,17 +6,12 @@
 // meaningless.
 
 import { ApiError, getToken } from './api'
+import { element } from './ui'
 
 export interface ImportOutcome {
   name: string
   ok: boolean
   detail: string
-}
-
-function element<T extends HTMLElement>(id: string): T {
-  const found = document.getElementById(id)
-  if (!found) throw new Error(`FogMap imports is missing the element #${id}.`)
-  return found as T
 }
 
 interface IngestResult {
@@ -85,7 +80,7 @@ export class Imports {
   async run(files: File[]): Promise<void> {
     if (this.running) return
     if (!getToken()) {
-      this.report([], 'No API token set. Add it under Basemap setup first.')
+      this.report([], 'No API token set. Add it under Settings, Data sources, API token.')
       return
     }
 

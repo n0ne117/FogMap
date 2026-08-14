@@ -5,6 +5,7 @@
 // to imply they are required.
 
 import { ApiError, apiGet, apiSend } from './api'
+import { element } from './ui'
 
 const LABELS: Record<string, string> = {
   overland: 'Overland',
@@ -27,12 +28,6 @@ export interface SourceState {
 interface SettingsResponse {
   settings: Record<string, string>
   sources: SourceState[]
-}
-
-function element<T extends HTMLElement>(id: string): T {
-  const found = document.getElementById(id)
-  if (!found) throw new Error(`FogMap sources is missing the element #${id}.`)
-  return found as T
 }
 
 export class Sources {
@@ -68,6 +63,7 @@ export class Sources {
       this.say(`${LABELS[source] ?? source} ${enabled ? 'enabled' : 'disabled'}`)
       await this.load()
     } catch (error) {
+      // Put the checkbox back where it was: nothing changed on the server.
       this.say(error instanceof ApiError ? error.message : String(error), true)
       await this.load()
     }

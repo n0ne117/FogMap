@@ -5,6 +5,7 @@
 // server-side render, no query, just tiles that already exist.
 
 import { apiGet } from './api'
+import { element } from './ui'
 
 const VIEW_KEY = 'fogmap.view'
 const PREHISTORY = 'prehistory'
@@ -20,12 +21,6 @@ export interface Stop {
 interface Meta {
   views: string[]
   layers: { layer: string; blobs: number }[]
-}
-
-function element<T extends HTMLElement>(id: string): T {
-  const found = document.getElementById(id)
-  if (!found) throw new Error(`FogMap timeline is missing the element #${id}.`)
-  return found as T
 }
 
 /**

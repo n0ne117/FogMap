@@ -92,7 +92,14 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
         ) from exc
 
     try:
-        conn = sqlite3.connect(target, isolation_level=None)
+        # check_same_thread=False because FastAPI runs a sync dependency and
+        # the route that uses it in whichever worker threads are free, and
+        # they are often not the same one. The connection is still used by a
+        # single request from start to finish, never by two at once, so the
+        # check is guarding against something that cannot happen here - while
+        # its absence made every endpoint fail under concurrent load, which a
+        # page load produces every time.
+        conn = sqlite3.connect(target, isolation_level=None, check_same_thread=False)
     except sqlite3.Error as exc:
         raise RuntimeError(
             f"Cannot open the FogMap database at {target} ({exc})."

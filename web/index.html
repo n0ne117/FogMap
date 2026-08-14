@@ -11,182 +11,308 @@
   <body>
     <div id="map"></div>
 
-    <button id="panel-toggle" class="panel-toggle" title="Settings" aria-label="Settings">
+    <button id="panel-toggle" class="icon-button top-left" title="Settings" aria-label="Settings">
       &#9881;
     </button>
 
-    <aside id="panel" class="panel" hidden>
-      <header class="panel-head">
-        <h1>FogMap settings</h1>
-        <button id="panel-close" type="button" class="panel-close" aria-label="Close settings">
-          &times;
-        </button>
-      </header>
-
-      <div class="panel-grid">
-      <section>
-        <h2>Interface</h2>
-        <div id="ui-theme" class="segmented" role="group" aria-label="Interface theme">
-          <button type="button" data-value="light" aria-pressed="false">Light</button>
-          <button type="button" data-value="dark" aria-pressed="false">Dark</button>
-          <button type="button" data-value="system" aria-pressed="false">System</button>
-        </div>
-      </section>
-
-      <section>
-        <h2>Map</h2>
-        <div id="map-theme" class="segmented" role="group" aria-label="Map theme">
-          <button type="button" data-value="light" aria-pressed="false">Light</button>
-          <button type="button" data-value="dark" aria-pressed="false">Dark</button>
-        </div>
-      </section>
-
-      <section>
-        <h2>Draw</h2>
+    <!-- Map tools, top right. The draw bar sits to the left of the buttons so
+         it opens leftwards across the map rather than off the edge. -->
+    <div class="map-tools">
+      <div id="draw-bar" class="draw-bar" hidden>
         <div id="draw-tool" class="segmented" role="group" aria-label="Drawing tool">
           <button type="button" data-value="off" aria-pressed="true">Off</button>
           <button type="button" data-value="freehand" aria-pressed="false">Freehand</button>
           <button type="button" data-value="line" aria-pressed="false">Line</button>
         </div>
-        <div id="draw-mode" class="segmented spaced" role="group" aria-label="Draw mode">
+        <div id="draw-mode" class="segmented" role="group" aria-label="Draw mode">
           <button type="button" data-value="add" aria-pressed="true">Reveal</button>
           <button type="button" data-value="erase" aria-pressed="false">Erase</button>
         </div>
+        <button id="draw-undo" type="button" class="bar-button" disabled>Undo</button>
+        <span id="draw-hint" class="bar-hint"></span>
+      </div>
 
-        <label class="field compact">
-          <span>Years</span>
-          <input
-            id="draw-layers"
-            type="text"
-            placeholder="1994..2002, or blank for prehistory"
+      <button id="draw-toggle" class="icon-button" title="Draw" aria-label="Draw" aria-pressed="false">
+        &#9998;
+      </button>
+      <button id="places-toggle" class="icon-button" title="Places" aria-label="Places">
+        <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+          <path
+            fill="currentColor"
+            d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7Zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5Z"
           />
-        </label>
-        <label class="field compact">
-          <span>Brush radius, metres</span>
-          <input id="draw-radius" type="number" min="1" max="500" step="1" value="15" />
-        </label>
+        </svg>
+      </button>
+    </div>
 
-        <button id="draw-undo" type="button" class="wide" disabled>Undo stroke</button>
-        <p id="draw-hint" class="draw-hint"></p>
-        <p id="draw-status" class="draw-status" hidden></p>
-      </section>
+    <!-- Zoom, vertical, left of the map at mid height. -->
+    <div class="zoom-control" aria-label="Zoom">
+      <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+      <input
+        id="zoom-slider"
+        class="zoom-slider"
+        type="range"
+        min="0"
+        max="18"
+        step="0.25"
+        value="2"
+        aria-label="Zoom level"
+      />
+      <button id="zoom-out" type="button" aria-label="Zoom out">&minus;</button>
+      <span id="zoom-label" class="zoom-label">z2</span>
+    </div>
 
-      <section>
-        <h2>Places</h2>
-        <div id="place-filter-row" class="field compact" hidden>
-          <span>Who was there</span>
-          <select id="place-person"></select>
-        </div>
+    <p id="draw-status" class="notice" hidden></p>
+    <p id="trail-notice" class="notice" hidden></p>
+    <p id="map-error" class="notice notice-bad" hidden>
+      The map could not start. Check the browser console.
+    </p>
 
-        <div id="place-list" class="place-list"></div>
-        <p id="place-empty" class="draw-hint">No places yet.</p>
+    <!-- Places, its own page. -->
+    <aside id="places-page" class="sheet" hidden>
+      <header class="sheet-head">
+        <h1>Places</h1>
+        <button id="places-close" type="button" class="icon-button" aria-label="Close places">
+          &times;
+        </button>
+      </header>
 
-        <button id="place-add" type="button" class="wide">Add a place</button>
+      <div class="sheet-body narrow">
+        <section>
+          <h2>Saved places</h2>
+          <div id="place-filter-row" class="field" hidden>
+            <span>Filter by person</span>
+            <select id="place-person"></select>
+          </div>
 
-        <div id="place-form" class="place-form" hidden>
-          <label class="field compact">
+          <div id="place-list" class="place-list"></div>
+          <p id="place-empty" class="hint">No places yet.</p>
+
+          <button id="place-add" type="button" class="wide primary">Add a place</button>
+        </section>
+
+        <section id="place-form" hidden>
+          <h2>New place</h2>
+          <label class="field">
             <span>Name</span>
             <input id="place-name" type="text" placeholder="Grandparents' flat" />
           </label>
-          <label class="field compact">
+          <label class="field">
             <span>Category</span>
             <select id="place-category"></select>
           </label>
-          <label class="field compact">
+          <label class="field">
             <span>Who was there</span>
             <input id="place-people" type="text" placeholder="comma separated" />
           </label>
           <div class="field-pair">
-            <label class="field compact">
+            <label class="field">
               <span>From</span>
               <input id="place-from" type="text" placeholder="1994" />
             </label>
-            <label class="field compact">
+            <label class="field">
               <span>To</span>
               <input id="place-to" type="text" placeholder="1997" />
             </label>
           </div>
           <div class="field-pair">
-            <label class="field compact">
+            <label class="field">
               <span>Latitude</span>
               <input id="place-lat" type="text" />
             </label>
-            <label class="field compact">
+            <label class="field">
               <span>Longitude</span>
               <input id="place-lon" type="text" />
             </label>
           </div>
-          <p class="draw-hint">Click the map to move the pin.</p>
-          <p id="place-message" class="draw-status" hidden></p>
-          <div class="setup-actions">
+          <p class="hint">Close this page and click the map to move the pin.</p>
+          <p id="place-message" class="status-line" hidden></p>
+          <div class="button-row">
             <button id="place-save" type="button" class="primary">Save</button>
             <button id="place-cancel" type="button">Cancel</button>
           </div>
-        </div>
-      </section>
-
-      <section>
-        <h2>Import</h2>
-        <input id="import-file" type="file" accept=".gpx,.tcx" multiple hidden />
-        <button id="import-button" type="button" class="wide">
-          Import GPX or TCX
-        </button>
-        <div id="import-progress-row" class="setup-progress" hidden>
-          <progress id="import-progress" max="1" value="0"></progress>
-          <p id="import-progress-text" class="setup-progress-text"></p>
-        </div>
-        <div id="import-log" class="import-log"></div>
-      </section>
-
-      <section>
-        <h2>Data sources</h2>
-        <div id="source-list" class="source-list"></div>
-        <p class="draw-hint">
-          All off by default. Each endpoint refuses politely while its source
-          is off. See the README for tracker setup.
-        </p>
-        <p id="source-message" class="draw-status" hidden></p>
-      </section>
-
-      <section>
-        <h2>Basemap</h2>
-        <p id="basemap-status" class="basemap-status">Checking.</p>
-        <div id="basemap-progress-row" class="setup-progress" hidden>
-          <progress id="basemap-progress" max="100" value="0"></progress>
-          <p id="basemap-progress-text" class="setup-progress-text"></p>
-        </div>
-        <div class="button-row">
-          <button id="basemap-pause" type="button" hidden>Pause</button>
-          <button id="basemap-resume" type="button" hidden>Resume</button>
-          <button id="basemap-cancel" type="button" hidden>Cancel</button>
-        </div>
-        <button id="setup-open" type="button" class="wide">Set up basemap</button>
-        <button id="basemap-update" type="button" class="wide">Update basemap</button>
-      </section>
-
-      <section>
-        <h2>Version</h2>
-        <dl class="status">
-          <dt>web build</dt>
-          <dd id="web-version">unknown</dd>
-          <dt>api</dt>
-          <dd id="api-version">checking</dd>
-        </dl>
-      </section>
+        </section>
       </div>
     </aside>
 
+    <!-- Settings, tabbed. -->
+    <aside id="panel" class="sheet" hidden>
+      <header class="sheet-head">
+        <h1>Settings</h1>
+        <button id="panel-close" type="button" class="icon-button" aria-label="Close settings">
+          &times;
+        </button>
+      </header>
+
+      <nav id="tabs" class="tabs" role="tablist">
+        <button type="button" role="tab" data-tab="appearance" aria-selected="true">Appearance</button>
+        <button type="button" role="tab" data-tab="draw" aria-selected="false">Draw</button>
+        <button type="button" role="tab" data-tab="import" aria-selected="false">Import</button>
+        <button type="button" role="tab" data-tab="sources" aria-selected="false">Data sources</button>
+        <button type="button" role="tab" data-tab="basemap" aria-selected="false">Basemap</button>
+        <button type="button" role="tab" data-tab="about" aria-selected="false">About</button>
+      </nav>
+
+      <div class="sheet-body">
+        <div class="tab-panel" data-tab="appearance">
+          <section>
+            <h2>Interface theme</h2>
+            <div id="ui-theme" class="segmented" role="group" aria-label="Interface theme">
+              <button type="button" data-value="light" aria-pressed="false">Light</button>
+              <button type="button" data-value="dark" aria-pressed="false">Dark</button>
+              <button type="button" data-value="system" aria-pressed="false">System</button>
+            </div>
+            <p class="hint">Panels and controls. Independent of the map.</p>
+          </section>
+
+          <section>
+            <h2>Map theme</h2>
+            <div id="map-theme" class="segmented" role="group" aria-label="Map theme">
+              <button type="button" data-value="light" aria-pressed="false">Light</button>
+              <button type="button" data-value="dark" aria-pressed="false">Dark</button>
+            </div>
+            <p class="hint">
+              Basemap, fog colour and trail colours. Both themes were rendered
+              at import, so switching is instant.
+            </p>
+          </section>
+        </div>
+
+        <div class="tab-panel" data-tab="draw" hidden>
+          <section>
+            <h2>Brush</h2>
+            <label class="field">
+              <span>Radius, metres</span>
+              <input id="draw-radius" type="number" min="1" max="500" step="1" value="15" />
+            </label>
+            <label class="field">
+              <span>Years for new strokes</span>
+              <input id="draw-layers" type="text" placeholder="1994..2002, or blank for prehistory" />
+            </label>
+            <p class="hint">
+              A range writes the stroke to every year it covers. Leave it blank
+              and the stroke goes to prehistory, where undated memories live.
+            </p>
+          </section>
+
+          <section>
+            <h2>Drawing on the map</h2>
+            <p class="hint">
+              Use the pencil at the top right of the map to open the drawing
+              toolbar. Drawing needs zoom 14 or closer: below that one screen
+              pixel is wider than the brush, so the geometry would be
+              meaningless.
+            </p>
+          </section>
+        </div>
+
+        <div class="tab-panel" data-tab="import" hidden>
+          <section class="span-all">
+            <h2>Import workout files</h2>
+            <p class="hint">
+              GPX and TCX. Files are imported one at a time, and re-importing
+              something you already have changes nothing, so it is safe to
+              select everything at once.
+            </p>
+            <input id="import-file" type="file" accept=".gpx,.tcx" multiple hidden />
+            <button id="import-button" type="button" class="wide primary">Choose files</button>
+            <div id="import-progress-row" class="progress-row" hidden>
+              <progress id="import-progress" max="1" value="0"></progress>
+              <p id="import-progress-text" class="progress-text"></p>
+            </div>
+            <div id="import-log" class="import-log"></div>
+          </section>
+        </div>
+
+        <div class="tab-panel" data-tab="sources" hidden>
+          <section>
+            <h2>API token</h2>
+            <label class="field">
+              <span>Value of FOGMAP_TOKEN</span>
+              <input id="settings-token" type="password" autocomplete="off" placeholder="paste it here" />
+            </label>
+            <p id="token-state" class="status-line"></p>
+            <p class="hint">
+              Needed to change anything: drawing, places, imports and the
+              switches beside this. Same value as FOGMAP_TOKEN in the server's
+              environment. Kept in this browser only.
+            </p>
+          </section>
+
+          <section class="span-2">
+            <h2>Live tracking</h2>
+            <div id="source-list" class="source-list"></div>
+            <p class="hint">
+              All off by default. While a source is off its endpoint refuses
+              politely, so a misconfigured tracker tells you what is wrong
+              rather than losing your location silently. See the README for
+              tracker setup.
+            </p>
+            <p id="source-message" class="status-line" hidden></p>
+          </section>
+        </div>
+
+        <div class="tab-panel" data-tab="basemap" hidden>
+          <section class="span-all">
+            <h2>Basemap</h2>
+            <p id="basemap-status" class="status-line">Checking.</p>
+            <div id="basemap-progress-row" class="progress-row" hidden>
+              <progress id="basemap-progress" max="100" value="0"></progress>
+              <p id="basemap-progress-text" class="progress-text"></p>
+            </div>
+            <div class="button-row">
+              <button id="basemap-pause" type="button" hidden>Pause</button>
+              <button id="basemap-resume" type="button" hidden>Resume</button>
+              <button id="basemap-cancel" type="button" hidden>Cancel</button>
+            </div>
+            <div class="button-row">
+              <button id="setup-open" type="button">Set up basemap</button>
+              <button id="basemap-update" type="button">Update basemap</button>
+            </div>
+            <p class="hint">
+              Pausing keeps what has been downloaded so far. Cancelling throws
+              it away.
+            </p>
+          </section>
+        </div>
+
+        <div class="tab-panel" data-tab="about" hidden>
+          <section>
+            <h2>Version</h2>
+            <p class="version-line"><a id="version-link" rel="noreferrer">unknown</a></p>
+            <p id="version-mismatch" class="status-line" data-state="bad" hidden></p>
+            <p class="hint">Links to the changelog, which covers every release.</p>
+          </section>
+
+          <section>
+            <h2>Credits</h2>
+            <p class="hint">
+              Map data &copy;
+              <a href="https://www.openstreetmap.org/copyright" rel="noreferrer">OpenStreetMap</a>
+              contributors, tiles by
+              <a href="https://protomaps.com" rel="noreferrer">Protomaps</a>,
+              rendered with
+              <a href="https://maplibre.org/" rel="noreferrer">MapLibre</a>.
+            </p>
+            <p class="hint">
+              <a href="https://github.com/n0ne117/FogMap" rel="noreferrer">Source and licence</a>
+            </p>
+          </section>
+        </div>
+      </div>
+    </aside>
+
+    <!-- First run basemap setup. -->
     <section id="setup" class="setup" hidden aria-label="First run setup">
       <div class="setup-card">
         <h2>Set up the basemap</h2>
         <p class="setup-lede">
           FogMap draws your fog and trails over a map of the world. That map is
-          a Protomaps PMTiles archive, which is far too large to ship in a
-          container, so it is downloaded once into the data directory and
-          served from there.
+          a Protomaps PMTiles archive, far too large to ship in a container, so
+          it is downloaded once into the data directory and served from there.
         </p>
 
-        <p id="setup-state" class="setup-state">Checking.</p>
+        <p id="setup-state" class="status-line">Checking.</p>
 
         <label class="field">
           <span>Source</span>
@@ -195,74 +321,45 @@
 
         <label class="field">
           <span>Or a URL of your own</span>
-          <input
-            id="setup-custom"
-            type="url"
-            placeholder="https://example.org/regional.pmtiles"
-          />
+          <input id="setup-custom" type="url" placeholder="https://example.org/regional.pmtiles" />
         </label>
 
         <label class="field">
           <span>API token — only for a URL of your own</span>
-          <input
-            id="setup-token"
-            type="password"
-            autocomplete="off"
-            placeholder="value of FOGMAP_TOKEN"
-          />
+          <input id="setup-token" type="password" autocomplete="off" placeholder="value of FOGMAP_TOKEN" />
         </label>
 
-        <div id="setup-progress-row" class="setup-progress" hidden>
+        <div id="setup-progress-row" class="progress-row" hidden>
           <progress id="setup-progress" max="100" value="0"></progress>
-          <p id="setup-progress-text" class="setup-progress-text"></p>
+          <p id="setup-progress-text" class="progress-text"></p>
         </div>
 
         <p id="setup-message" class="setup-message" hidden></p>
 
-        <div class="setup-actions">
+        <div class="button-row">
           <button id="setup-start" type="button" class="primary">Download</button>
-          <button id="setup-background" type="button">
-            Continue download in the background
-          </button>
+          <button id="setup-background" type="button">Continue download in the background</button>
           <button id="setup-cancel" type="button" hidden>Cancel download</button>
         </div>
 
-        <p class="setup-note">
+        <p class="hint">
           The planet archive is around 128 GB. The download resumes if it is
-          interrupted, and FogMap is fully usable while it runs — only the map
-          underneath your trails is missing. Progress and a re-download button
-          live under Settings, Basemap.
+          interrupted, and FogMap is fully usable while it runs. Progress and a
+          re-download button live under Settings, Basemap.
         </p>
 
-        <button id="setup-skip" type="button" class="linky">
-          Continue without a basemap
-        </button>
+        <button id="setup-skip" type="button" class="linky">Continue without a basemap</button>
       </div>
     </section>
 
-    <p id="trail-notice" class="notice" hidden></p>
-
-    <p id="map-error" class="notice notice-bad" hidden>
-      The map could not start. Check the browser console.
-    </p>
-
     <div id="timeline" class="timeline" hidden>
-      <button id="timeline-prev" type="button" aria-label="Previous period">‹</button>
+      <button id="timeline-prev" type="button" aria-label="Previous period">&lsaquo;</button>
       <div class="timeline-body">
         <p id="timeline-label" class="timeline-label">All time</p>
-        <input
-          id="timeline-slider"
-          class="timeline-slider"
-          type="range"
-          min="0"
-          max="0"
-          step="1"
-          value="0"
-          aria-label="Time period"
-        />
+        <input id="timeline-slider" class="timeline-slider" type="range" min="0" max="0" step="1" value="0" aria-label="Time period" />
         <div id="timeline-ticks" class="timeline-ticks"></div>
       </div>
-      <button id="timeline-next" type="button" aria-label="Next period">›</button>
+      <button id="timeline-next" type="button" aria-label="Next period">&rsaquo;</button>
     </div>
 
     <a id="version-corner" class="version-corner" rel="noreferrer">v0.0.0</a>
