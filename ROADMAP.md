@@ -24,12 +24,13 @@ Current status is in [CHANGELOG.md](CHANGELOG.md).
 - Point interpolation
 - Brush stamping into z14 bitmaps
 - Fog mask and trail pass-count layers
-- Tile pyramid build, z14 → z0
+- View composition, downsampling and rebuild scope, z14 → z0
 - Full rebuild from the event log
 - Idempotent re-import
 
 ## Phase 2 — Tile server and frontend → `0.2.0`
 
+- PNG tile pyramid rendered at ingest, both themes
 - PNG tile endpoint, file read only
 - Trail intensity colourmap
 - Protomaps PMTiles basemap
