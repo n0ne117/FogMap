@@ -78,14 +78,14 @@ class TestTokenGate:
     def test_correct_token_passes_the_gate(self, client, monkeypatch):
         monkeypatch.setenv("FOGMAP_TOKEN", TOKEN)
         response = client.post("/api/events", headers={"X-FogMap-Token": TOKEN})
-        # The route does not exist yet, which is the point: the request got
-        # past the middleware and was refused by the router instead.
-        assert response.status_code == 404
+        # 422 for the missing body, which is the point: the request got past
+        # the middleware and was refused by the route instead.
+        assert response.status_code == 422
 
     def test_the_header_is_matched_case_insensitively(self, client, monkeypatch):
         monkeypatch.setenv("FOGMAP_TOKEN", TOKEN)
         response = client.post("/api/events", headers={"x-fogmap-token": TOKEN})
-        assert response.status_code == 404
+        assert response.status_code == 422
 
     @pytest.mark.parametrize("path", ["/healthz", "/api/meta"])
     def test_reads_never_need_a_token(self, client, monkeypatch, path):

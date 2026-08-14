@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import secrets
 import sqlite3
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
@@ -317,6 +319,206 @@ def serve_basemap(request: Request, name: str) -> Response:
             "Content-Length": str(length),
         },
     )
+
+
+def _render_views(conn: sqlite3.Connection, views: list[str]) -> None:
+    root = tiles_root()
+    root.mkdir(parents=True, exist_ok=True)
+    composite.write_placeholders(root)
+    for view in views:
+        composite.render_view(conn, root, view)
+
+
+def _views_for_layers(layers: list[str]) -> list[str]:
+    views = ["all"]
+    views += sorted(f"year:{layer}" for layer in layers if layer.isdigit())
+    if common.PREHISTORY in layers:
+        views.append(common.PREHISTORY)
+    return views
+
+
+@app.post("/api/events", status_code=201)
+def create_event(
+    payload: dict, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    """Record one drawn stroke.
+
+    A brush stroke is not a special case. It becomes a LineString event and
+    goes down exactly the path a GPX import takes, which is why an erase drawn
+    by hand survives a rebuild the same way everything else does.
+    """
+    source = str(payload.get("source", "manual"))
+    if source not in common.RADIUS_DEFAULTS_M:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown source {source!r}. Valid sources are "
+            f"{', '.join(sorted(common.RADIUS_DEFAULTS_M))}.",
+        )
+
+    op = str(payload.get("op", "add"))
+    if op not in ("add", "erase"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown op {op!r}. FogMap stores only 'add' and 'erase'.",
+        )
+
+    geometry = payload.get("geometry")
+    if not isinstance(geometry, dict):
+        raise HTTPException(
+            status_code=400,
+            detail="geometry must be a GeoJSON Point or LineString object.",
+        )
+
+    # Not `or`: a radius of 0 is falsy, and would silently become the default
+    # instead of being refused.
+    given = payload.get("radius_m")
+    try:
+        radius_m = (
+            common.RADIUS_DEFAULTS_M[source] if given is None else float(given)
+        )
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=400, detail=f"radius_m must be a number, got {given!r}."
+        ) from None
+
+    if radius_m <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"radius_m must be greater than 0 m, got {radius_m}.",
+        )
+
+    try:
+        layers = (
+            [raster.ERASE_LAYER]
+            if op == "erase"
+            else common.expand_layers(payload.get("layers"))
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    encoded = json.dumps(geometry)
+    with db.transaction(conn):
+        cursor = conn.execute(
+            "INSERT INTO events "
+            "(source, op, geometry, radius_m, layers, external_id, created_at, meta) "
+            "VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
+            (
+                source,
+                op,
+                encoded,
+                radius_m,
+                json.dumps(layers),
+                datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                json.dumps(payload.get("meta")) if payload.get("meta") else None,
+            ),
+        )
+        event_id = int(cursor.lastrowid)
+        row = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
+
+        try:
+            touched = raster.stamp_event(conn, row)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # An erase is subtracted from every view when one is composed, not just
+    # from the layer it was drawn in, so every view has to be re-rendered.
+    # Rendering only the erase event's own layers leaves every year view
+    # showing fog that has just been rubbed out.
+    _render_views(
+        conn,
+        composite.available_views(conn)
+        if op == "erase"
+        else _views_for_layers(layers),
+    )
+
+    return {
+        "id": event_id,
+        "op": op,
+        "layers": layers,
+        "radius_m": radius_m,
+        "tiles_touched": len(touched),
+    }
+
+
+@app.delete("/api/events/{event_id}")
+def delete_event(
+    event_id: int, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    """Remove an event and rebuild only the ground it covered.
+
+    Fog and trail accumulate, so an event cannot be subtracted - the tiles it
+    touched are rebuilt from whatever events remain. This is undo.
+    """
+    row = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"No event with id {event_id}.")
+
+    layers = raster.parse_layers(row["layers"], event_id)
+
+    with db.transaction(conn):
+        tiles = raster.event_tiles(row)
+        conn.execute("DELETE FROM events WHERE id = ?", (event_id,))
+        raster.rebuild_tiles(conn, tiles)
+
+    # Deleting can empty a view completely, and an erase applied to every
+    # view anyway. render_all prunes tiles and views that no longer have
+    # anything behind them, which rendering a named list would not.
+    root = tiles_root()
+    root.mkdir(parents=True, exist_ok=True)
+    composite.render_all(conn, root)
+
+    return {"deleted": event_id, "tiles_rebuilt": len(tiles)}
+
+
+@app.get("/api/events")
+def list_events(
+    source: str | None = None,
+    layer: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> dict[str, object]:
+    limit = max(1, min(limit, 1000))
+    offset = max(0, offset)
+
+    where: list[str] = []
+    params: list[object] = []
+    if source:
+        where.append("source = ?")
+        params.append(source)
+    if layer:
+        where.append("layers LIKE ?")
+        params.append(f'%"{layer}"%')
+
+    clause = f" WHERE {' AND '.join(where)}" if where else ""
+    total = conn.execute(
+        f"SELECT COUNT(*) AS n FROM events{clause}", params
+    ).fetchone()["n"]
+
+    rows = conn.execute(
+        f"SELECT id, source, op, radius_m, layers, external_id, created_at, meta "
+        f"FROM events{clause} ORDER BY id DESC LIMIT ? OFFSET ?",
+        [*params, limit, offset],
+    ).fetchall()
+
+    return {
+        "total": int(total),
+        "limit": limit,
+        "offset": offset,
+        "events": [
+            {
+                "id": row["id"],
+                "source": row["source"],
+                "op": row["op"],
+                "radius_m": row["radius_m"],
+                "layers": json.loads(row["layers"]),
+                "external_id": row["external_id"],
+                "created_at": row["created_at"],
+                "meta": json.loads(row["meta"]) if row["meta"] else None,
+            }
+            for row in rows
+        ],
+    }
 
 
 @app.get("/api/setup")

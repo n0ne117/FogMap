@@ -183,6 +183,52 @@ def segment(
     return segments
 
 
+def expand_layers(layers: list[str] | None) -> list[str]:
+    """Expand a layer list, turning `1994..2002` into every year in between.
+
+    Reconstructing where someone lived for eight years is one stroke, not
+    eight, so a range is written to each year it covers.
+    """
+    if not layers:
+        return [PREHISTORY]
+
+    out: list[str] = []
+    for raw in layers:
+        layer = str(raw).strip()
+        if not layer:
+            continue
+
+        if ".." not in layer:
+            out.append(layer)
+            continue
+
+        start_text, _, end_text = layer.partition("..")
+        start_text, end_text = start_text.strip(), end_text.strip()
+        if not (start_text.isdigit() and end_text.isdigit()):
+            raise ValueError(
+                f"Layer range {layer!r} must be two years, as in '1994..2002'."
+            )
+
+        start, end = int(start_text), int(end_text)
+        if start > end:
+            raise ValueError(
+                f"Layer range {layer!r} runs backwards. Write it as "
+                f"'{end_text}..{start_text}'."
+            )
+        if end - start > 200:
+            raise ValueError(
+                f"Layer range {layer!r} spans {end - start + 1} years. That is "
+                "almost certainly a typo."
+            )
+        out.extend(f"{year:04d}" for year in range(start, end + 1))
+
+    if not out:
+        return [PREHISTORY]
+
+    # Stable and deduplicated, so the same stroke always stores the same list.
+    return sorted(dict.fromkeys(out))
+
+
 def layer_for(fixes: list[Fix]) -> str:
     """The time layer a segment belongs to.
 

@@ -4,10 +4,12 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 
 import type { Map as MapLibreMap } from 'maplibre-gl'
 
+import { Draw, MIN_DRAW_ZOOM, type Mode, type Tool } from './draw'
 import {
   applyMapTheme,
   applyView,
   basemapAvailable,
+  bustTileCache,
   buildStyle,
   createMap,
   type MapSetup,
@@ -85,6 +87,92 @@ function radioGroup<T extends string>(
   paint(current)
 }
 
+function wireDrawing(
+  map: MapLibreMap,
+  options: MapSetup,
+  timeline: Timeline,
+): void {
+  const status = element('draw-status')
+  const hint = element('draw-hint')
+  const undoButton = element<HTMLButtonElement>('draw-undo')
+
+  const draw = new Draw(
+    map as never,
+    () => {
+      // The tiles behind this view just changed on disk.
+      bustTileCache()
+      applyView(map, options)
+      void timeline.load()
+      undoButton.disabled = draw.undoDepth === 0
+    },
+    (message, bad) => {
+      status.textContent = message
+      status.hidden = !message
+      status.dataset.state = bad ? 'bad' : ''
+    },
+  )
+  draw.attach()
+
+  /** Drawing below z14 produces meaningless geometry, so it is locked out. */
+  const refreshLock = () => {
+    const allowed = draw.canDraw
+    const zoom = map.getZoom()
+
+    for (const id of ['draw-tool', 'draw-mode']) {
+      for (const button of element(id).querySelectorAll('button')) {
+        button.disabled = !allowed
+      }
+    }
+    element('draw-tool').dataset.locked = String(!allowed)
+    element('draw-mode').dataset.locked = String(!allowed)
+
+    hint.textContent = allowed
+      ? draw.activeTool === 'line'
+        ? 'Click to add points, double click to finish.'
+        : draw.activeTool === 'freehand'
+          ? 'Drag on the map to draw.'
+          : ''
+      : `Zoom in to ${MIN_DRAW_ZOOM} to draw. Currently ${zoom.toFixed(1)}.`
+
+    if (!allowed && draw.activeTool !== 'off') {
+      draw.setTool('off')
+      paintGroup('draw-tool', 'off')
+    }
+  }
+
+  const paintGroup = (id: string, value: string) => {
+    for (const button of element(id).querySelectorAll('button')) {
+      button.setAttribute('aria-pressed', String(button.dataset.value === value))
+    }
+  }
+
+  radioGroup<Tool>('draw-tool', 'off', (value) => {
+    draw.setTool(value)
+    refreshLock()
+  })
+  radioGroup<Mode>('draw-mode', 'add', (value) => draw.setMode(value))
+
+  element<HTMLInputElement>('draw-layers').addEventListener('input', (event) => {
+    draw.layers = (event.target as HTMLInputElement).value
+  })
+  element<HTMLInputElement>('draw-radius').addEventListener('input', (event) => {
+    const value = Number((event.target as HTMLInputElement).value)
+    if (Number.isFinite(value) && value > 0) draw.radiusM = value
+  })
+
+  undoButton.addEventListener('click', () => void draw.undo())
+
+  map.on('zoomend', refreshLock)
+  map.on('load', refreshLock)
+  refreshLock()
+
+  const handle = (window as unknown as { fogmap: Record<string, unknown> }).fogmap
+  if (handle) {
+    handle.draw = draw
+    handle.refreshDrawLock = refreshLock
+  }
+}
+
 async function start(): Promise<void> {
   showWebVersion()
   void checkApiVersion()
@@ -142,6 +230,8 @@ async function start(): Promise<void> {
     applyView(map, options)
   })
   void timeline.load()
+
+  wireDrawing(map, options, timeline)
 
   // Once the archive lands, rebuild the style so the basemap appears without
   // the user having to reload.

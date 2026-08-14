@@ -14,6 +14,9 @@ Nothing yet.
 ### Fixed
 - Release notes no longer carry a leftover "Nothing yet." placeholder from the unreleased section. Cutting a release is now a command rather than a hand edit, and a release with a placeholder still in it fails to build.
 
+### Added
+- Manual editing. Draw a route freehand or point to point, reveal ground you know you have been to, erase fog that GPS drift cleared by mistake, and undo any stroke. A stroke can be assigned to a year or a range of years such as 1994..2002, which writes it to each year it covers.
+
 ## [0.3.0] - 2026-08-14
 
 Time. The map can be stepped through year by year, or seen all at once.

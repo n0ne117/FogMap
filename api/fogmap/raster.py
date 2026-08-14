@@ -299,16 +299,36 @@ def geometry_points(geometry: str, event_id: int) -> list[tuple[float, float]]:
     )
 
 
-def stamp_event(conn: sqlite3.Connection, event: sqlite3.Row) -> set[tuple[int, int]]:
+def event_tiles(event: sqlite3.Row) -> set[tuple[int, int]]:
+    """Which z14 tiles an event covers, without writing anything.
+
+    Deleting an event needs this before the row goes away, so the tiles it
+    dirtied can be rebuilt from what remains.
+    """
+    event_id = int(event["id"])
+    points = geometry_points(event["geometry"], event_id)
+    return set(stamp_path(points, float(event["radius_m"])).keys())
+
+
+def stamp_event(
+    conn: sqlite3.Connection,
+    event: sqlite3.Row,
+    restrict: set[tuple[int, int]] | None = None,
+) -> set[tuple[int, int]]:
     """Rasterise a single event into the blob store.
 
     Returns the z14 tiles it touched, which is the rebuild scope for whatever
-    is derived from them.
+    is derived from them. `restrict` limits writes to a set of tiles, which is
+    what makes a targeted rebuild after a delete possible without replaying
+    the whole archive into the whole world.
     """
     event_id = int(event["id"])
     points = geometry_points(event["geometry"], event_id)
     radius_m = float(event["radius_m"])
     tiles = stamp_path(points, radius_m)
+
+    if restrict is not None:
+        tiles = {key: mask for key, mask in tiles.items() if key in restrict}
     if not tiles:
         return set()
 
@@ -320,11 +340,14 @@ def stamp_event(conn: sqlite3.Connection, event: sqlite3.Row) -> set[tuple[int, 
         merge_mask(conn, "erase", source, ERASE_LAYER, tiles)
     elif op == "add":
         trail_radius_m = min(radius_m, trail_max_radius_m())
-        trail_tiles = (
-            tiles
-            if trail_radius_m >= radius_m
-            else stamp_path(points, trail_radius_m)
-        )
+        if trail_radius_m >= radius_m:
+            trail_tiles = tiles
+        else:
+            trail_tiles = stamp_path(points, trail_radius_m)
+            if restrict is not None:
+                trail_tiles = {
+                    key: mask for key, mask in trail_tiles.items() if key in restrict
+                }
         for layer in parse_layers(event["layers"], event_id):
             merge_mask(conn, "fog", source, layer, tiles)
             merge_trail(conn, source, layer, trail_tiles)
@@ -356,6 +379,31 @@ def parse_layers(layers: str, event_id: int) -> list[str]:
 def iter_events(conn: sqlite3.Connection) -> Iterator[sqlite3.Row]:
     """Every event in insertion order, which is what makes rebuild reproducible."""
     yield from conn.execute("SELECT * FROM events ORDER BY id")
+
+
+def rebuild_tiles(
+    conn: sqlite3.Connection, tiles: set[tuple[int, int]]
+) -> set[tuple[int, int]]:
+    """Rebuild a specific set of z14 tiles from the event log.
+
+    Fog and trail accumulate, so removing an event cannot be undone by
+    subtracting it - the tiles it touched have to be built again from whatever
+    events remain. Restricting the replay to those tiles is what keeps undo
+    instant instead of a full archive rebuild.
+    """
+    if not tiles:
+        return set()
+
+    placeholders = ",".join("(?, ?)" for _ in tiles)
+    params: list[int] = []
+    for tile_x, tile_y in tiles:
+        params.extend((tile_x, tile_y))
+    conn.execute(f"DELETE FROM blobs WHERE (x, y) IN ({placeholders})", params)
+
+    touched: set[tuple[int, int]] = set()
+    for event in iter_events(conn):
+        touched |= stamp_event(conn, event, restrict=tiles)
+    return touched
 
 
 def rebuild(

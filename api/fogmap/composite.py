@@ -18,6 +18,7 @@ full rebuild and a re-import of the file that drew the fog underneath it.
 from __future__ import annotations
 
 import io
+import shutil
 import math
 import sqlite3
 from pathlib import Path
@@ -326,6 +327,33 @@ def pyramid_levels(
     return levels
 
 
+def prune_stale(root: Path, view: str, keep: set[Path]) -> int:
+    """Delete rendered tiles for a view that this render did not write.
+
+    Rendering only writes tiles that have data behind them. Without this, the
+    last event in an area could be deleted and its tiles would stay on disk
+    forever - the endpoint would keep serving them and the deletion would look
+    like it had silently failed.
+    """
+    removed = 0
+    for theme in THEMES:
+        directory = root / theme / view.replace(":", "-")
+        if not directory.is_dir():
+            continue
+
+        for existing in directory.rglob("*.png"):
+            if existing not in keep:
+                existing.unlink(missing_ok=True)
+                removed += 1
+
+        # Deepest first, so a column that has just been emptied goes with the
+        # tiles that were in it rather than accumulating over years of editing.
+        for leftover in sorted(directory.rglob("*"), key=lambda p: -len(p.parts)):
+            if leftover.is_dir() and not any(leftover.iterdir()):
+                leftover.rmdir()
+    return removed
+
+
 def render_view(
     conn: sqlite3.Connection, root: Path, view: str, themes: tuple[str, ...] = THEMES
 ) -> int:
@@ -336,10 +364,13 @@ def render_view(
     """
     native = tiles_with_data(conn, view_layers(view))
     if not native:
+        # Everything in this view is gone. Its tiles have to go with it.
+        prune_stale(root, view, set())
         return 0
 
     levels = pyramid_levels(native)
     written = 0
+    kept: set[Path] = set()
 
     def build(zoom: int, x: int, y: int) -> tuple[np.ndarray, np.ndarray] | None:
         nonlocal written
@@ -373,11 +404,13 @@ def render_view(
                 destination = tile_path(root, theme, view, kind, zoom, x, y)
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(encode_png(rgba))
+                kept.add(destination)
                 written += 1
 
         return fog, trail
 
     build(0, 0, 0)
+    prune_stale(root, view, kept)
     return written
 
 
@@ -387,9 +420,22 @@ def render_all(
     """Render every canonical view. Returns tiles written per view."""
     root.mkdir(parents=True, exist_ok=True)
     write_placeholders(root)
-    return {
-        view: render_view(conn, root, view, themes) for view in available_views(conn)
-    }
+
+    views = available_views(conn)
+    rendered = {view: render_view(conn, root, view, themes) for view in views}
+
+    # A view can disappear entirely - delete the last event of a year and that
+    # year is no longer a view at all. Its directory has to go too.
+    wanted = {view.replace(":", "-") for view in views}
+    for theme in THEMES:
+        theme_root = root / theme
+        if not theme_root.is_dir():
+            continue
+        for directory in theme_root.iterdir():
+            if directory.is_dir() and directory.name not in wanted:
+                shutil.rmtree(directory, ignore_errors=True)
+
+    return rendered
 
 
 def rebuild_scope(touched: set[tuple[int, int]]) -> dict[int, set[tuple[int, int]]]:

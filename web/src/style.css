@@ -234,6 +234,59 @@ body {
   color: var(--fg);
 }
 
+/* Drawing controls. */
+
+.segmented.spaced {
+  margin-top: 0.35rem;
+}
+
+.segmented[data-locked='true'] {
+  opacity: 0.4;
+}
+
+.segmented button:disabled {
+  cursor: not-allowed;
+}
+
+.field.compact {
+  margin: 0.5rem 0 0;
+}
+
+.field.compact span {
+  font-size: 0.65rem;
+}
+
+.field.compact input {
+  padding: 0.3rem 0.4rem;
+  font-size: 0.8rem;
+}
+
+#draw-undo {
+  margin-top: 0.6rem;
+}
+
+#draw-undo:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.draw-hint {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.draw-status {
+  margin: 0.35rem 0 0;
+  color: var(--good);
+  font-size: 0.7rem;
+  overflow-wrap: anywhere;
+}
+
+.draw-status[data-state='bad'] {
+  color: var(--bad);
+}
+
 /* Year slider. */
 
 .timeline {

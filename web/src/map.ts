@@ -41,8 +41,18 @@ export async function basemapAvailable(): Promise<boolean> {
   }
 }
 
+// Bumped after a stroke is saved. Tiles are cached hard by design, so without
+// a changing token a freshly drawn route would not appear until the cache
+// expired - which looks exactly like the drawing being lost.
+let cacheBust = 0
+
+export function bustTileCache(): void {
+  cacheBust += 1
+}
+
 function rasterTiles(theme: MapTheme, view: string, kind: 'fog' | 'trail'): string {
-  return `${window.location.origin}/api/tiles/${theme}/${view}/${kind}/{z}/{x}/{y}.png`
+  const base = `${window.location.origin}/api/tiles/${theme}/${view}/${kind}/{z}/{x}/{y}.png`
+  return cacheBust === 0 ? base : `${base}?v=${cacheBust}`
 }
 
 /**

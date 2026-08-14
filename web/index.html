@@ -36,6 +36,36 @@
       </section>
 
       <section>
+        <h2>Draw</h2>
+        <div id="draw-tool" class="segmented" role="group" aria-label="Drawing tool">
+          <button type="button" data-value="off" aria-pressed="true">Off</button>
+          <button type="button" data-value="freehand" aria-pressed="false">Freehand</button>
+          <button type="button" data-value="line" aria-pressed="false">Line</button>
+        </div>
+        <div id="draw-mode" class="segmented spaced" role="group" aria-label="Draw mode">
+          <button type="button" data-value="add" aria-pressed="true">Reveal</button>
+          <button type="button" data-value="erase" aria-pressed="false">Erase</button>
+        </div>
+
+        <label class="field compact">
+          <span>Years</span>
+          <input
+            id="draw-layers"
+            type="text"
+            placeholder="1994..2002, or blank for prehistory"
+          />
+        </label>
+        <label class="field compact">
+          <span>Brush radius, metres</span>
+          <input id="draw-radius" type="number" min="1" max="500" step="1" value="15" />
+        </label>
+
+        <button id="draw-undo" type="button" class="wide" disabled>Undo stroke</button>
+        <p id="draw-hint" class="draw-hint"></p>
+        <p id="draw-status" class="draw-status" hidden></p>
+      </section>
+
+      <section>
         <h2>Basemap</h2>
         <button id="setup-open" type="button" class="wide" hidden>
           Set up basemap
