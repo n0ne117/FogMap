@@ -42,7 +42,7 @@ class TestFogRendering:
     @pytest.mark.parametrize("theme", composite.THEMES)
     def test_unexplored_ground_is_opaque(self, theme):
         rgba = composite.render_fog(np.zeros((TILE, TILE), dtype=bool), theme)
-        assert (rgba[..., 3] == 255).all()
+        assert (rgba[..., 3] == composite.fog_alpha()).all()
 
     def test_the_two_themes_differ_in_colour_but_not_in_shape(self):
         fog = np.zeros((TILE, TILE), dtype=bool)
@@ -102,7 +102,7 @@ class TestPngEncoding:
         decoded = np.array(
             Image.open(io.BytesIO(composite.placeholder_tile("dark", "fog")))
         )
-        assert (decoded[..., 3] == 255).all()
+        assert (decoded[..., 3] == composite.fog_alpha()).all()
 
     def test_a_placeholder_trail_is_entirely_transparent(self):
         decoded = np.array(

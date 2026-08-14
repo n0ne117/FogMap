@@ -45,11 +45,36 @@ KINDS = ("fog", "trail")
 DEFAULT_FOG_EDGE_PX = 2.5
 
 # Fog is drawn where the ground is UNEXPLORED, so this is the colour of the
-# unknown. Alpha is the single most subjective number in the project.
+# unknown.
 FOG_COLOUR = {
-    "dark": (9, 11, 15, 255),
-    "light": (236, 236, 231, 255),
+    "dark": (9, 11, 15),
+    "light": (236, 236, 231),
 }
+
+# How solid that fog is, 0 to 255.
+#
+# Not fully opaque. Section 8 calls fog an opaque overlay, and taken literally
+# that is what it was - which meant everywhere you had not been was a flat
+# rectangle with the map completely hidden behind it. There was no way to see
+# where you were going, find somewhere to draw, or tell a working install from
+# a broken one. At 84% the map reads through clearly while the ground still
+# looks unmistakably unvisited.
+DEFAULT_FOG_ALPHA = 214
+
+
+def fog_alpha() -> int:
+    raw = os.environ.get("FOGMAP_FOG_ALPHA", "").strip()
+    if not raw:
+        return DEFAULT_FOG_ALPHA
+    try:
+        value = int(float(raw))
+    except ValueError:
+        raise ValueError(
+            f"FOGMAP_FOG_ALPHA must be a number from 0 to 255, got {raw!r}. "
+            f"Unset it to use the default of {DEFAULT_FOG_ALPHA}."
+        ) from None
+    return max(0, min(255, value))
+
 
 # Pass count to colour. Counts are heavily skewed - most pixels are crossed
 # once - so the ramp is walked on a log scale, otherwise every trail but the
@@ -279,7 +304,12 @@ def soften(explored: np.ndarray, radius: float) -> np.ndarray:
     return opacity
 
 
-def render_fog(fog: np.ndarray, theme: str, edge_px: float | None = None) -> np.ndarray:
+def render_fog(
+    fog: np.ndarray,
+    theme: str,
+    edge_px: float | None = None,
+    alpha: int | None = None,
+) -> np.ndarray:
     """Paint the unexplored ground, leaving explored ground transparent."""
     try:
         colour = FOG_COLOUR[theme]
@@ -289,13 +319,14 @@ def render_fog(fog: np.ndarray, theme: str, edge_px: float | None = None) -> np.
         ) from None
 
     radius = fog_edge_px() if edge_px is None else edge_px
+    solid = fog_alpha() if alpha is None else alpha
     opacity = soften(fog, radius)
 
     rgba = np.empty((TILE, TILE, 4), dtype=np.uint8)
     rgba[..., 0] = colour[0]
     rgba[..., 1] = colour[1]
     rgba[..., 2] = colour[2]
-    rgba[..., 3] = np.clip(opacity * colour[3], 0, 255).astype(np.uint8)
+    rgba[..., 3] = np.clip(opacity * solid, 0, 255).astype(np.uint8)
     return rgba
 
 

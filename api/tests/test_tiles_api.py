@@ -60,7 +60,7 @@ class TestTileEndpoint:
         # a hole here would clear the fog over most of the world.
         response = client.get("/api/tiles/dark/all/fog/14/1/1.png")
         assert response.status_code == 200
-        assert (image_of(response)[..., 3] == 255).all()
+        assert (image_of(response)[..., 3] == composite.fog_alpha()).all()
 
     def test_an_unvisited_trail_tile_is_transparent(self, client):
         response = client.get("/api/tiles/dark/all/trail/14/1/1.png")

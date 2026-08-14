@@ -11,6 +11,13 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.9.2] - 2026-08-15
+
+Lets the map show through the fog.
+
+### Fixed
+- The map is visible again. Fog over unvisited ground was completely opaque, so with a basemap installed the whole screen was a flat rectangle with the world hidden behind it — no way to navigate, and no way to tell a working install from a broken one. The map now reads through the fog, and how strongly is adjustable.
+
 ## [0.9.1] - 2026-08-15
 
 Rescues a basemap download that had already finished.

@@ -42,7 +42,7 @@ class TestFogEdge:
 
     def test_a_hard_edge_produces_none(self):
         rgba = composite.render_fog(self._scene(), "dark", edge_px=0.0)
-        assert set(np.unique(rgba[..., 3])) <= {0, 255}
+        assert set(np.unique(rgba[..., 3])) <= {0, composite.fog_alpha()}
 
     def test_explored_ground_is_never_dimmed_by_the_fade(self):
         """The fade runs outwards only.
@@ -67,7 +67,7 @@ class TestFogEdge:
             int(
                 (
                     (composite.render_fog(explored, "dark", edge_px=r)[..., 3] > 0)
-                    & (composite.render_fog(explored, "dark", edge_px=r)[..., 3] < 255)
+                    & (composite.render_fog(explored, "dark", edge_px=r)[..., 3] < composite.fog_alpha())
                 ).sum()
             )
             for r in (1.0, 3.0, 6.0)
@@ -78,7 +78,7 @@ class TestFogEdge:
         alpha = composite.render_fog(
             np.zeros((TILE, TILE), dtype=bool), "dark", edge_px=4.0
         )[..., 3]
-        assert (alpha == 255).all()
+        assert (alpha == composite.fog_alpha()).all()
 
     def test_the_radius_is_configurable(self, monkeypatch):
         monkeypatch.setenv("FOGMAP_FOG_EDGE_PX", "7")
@@ -87,6 +87,34 @@ class TestFogEdge:
     def test_zero_turns_softening_off(self, monkeypatch):
         monkeypatch.setenv("FOGMAP_FOG_EDGE_PX", "0")
         assert composite.fog_edge_px() == 0.0
+
+    def test_the_map_reads_through_the_fog(self):
+        """Fog is not fully opaque.
+
+        Taken literally, "opaque overlay" made everywhere you had not been a
+        flat rectangle with the basemap completely hidden - no way to navigate,
+        and indistinguishable from a broken install.
+        """
+        assert 0 < composite.DEFAULT_FOG_ALPHA < 255
+
+    def test_the_opacity_is_configurable(self, monkeypatch):
+        monkeypatch.setenv("FOGMAP_FOG_ALPHA", "180")
+        assert composite.fog_alpha() == 180
+        alpha = composite.render_fog(
+            np.zeros((TILE, TILE), dtype=bool), "dark", edge_px=0.0
+        )[..., 3]
+        assert (alpha == 180).all()
+
+    def test_the_opacity_is_clamped_to_a_byte(self, monkeypatch):
+        monkeypatch.setenv("FOGMAP_FOG_ALPHA", "400")
+        assert composite.fog_alpha() == 255
+        monkeypatch.setenv("FOGMAP_FOG_ALPHA", "-5")
+        assert composite.fog_alpha() == 0
+
+    def test_a_nonsense_opacity_is_refused_loudly(self, monkeypatch):
+        monkeypatch.setenv("FOGMAP_FOG_ALPHA", "thick")
+        with pytest.raises(ValueError, match="FOGMAP_FOG_ALPHA must be a number"):
+            composite.fog_alpha()
 
     def test_a_nonsense_radius_is_refused_loudly(self, monkeypatch):
         monkeypatch.setenv("FOGMAP_FOG_EDGE_PX", "soft")
