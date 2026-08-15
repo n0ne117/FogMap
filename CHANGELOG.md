@@ -11,6 +11,19 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.9.15] - 2026-08-15
+
+Two tools for ground you were around rather than ground you walked along.
+
+### Added
+- **Reveal** clears fog and leaves no track. The brush has always done both at once, which quietly asserts a route — and "I lived in this village for six years" is not a route. Reveal is the same brush without that claim.
+- **Area** encloses somewhere and clears all of it. Click round the edge, double click to close. A week on an island is not a stroke of any width, and dragging a 60 m brush across a town to say so was never going to be the answer. Areas are stored as GeoJSON polygons and filled; the ring itself is stamped with the brush, so the boundary is as round as a drawn one.
+- Neither tool appears in the track layer, because neither is a track.
+
+### Changed
+- The brush is called **Track** now, since it is the one that draws one.
+- Removed ROADMAP.md. It described a plan the project has long since diverged from, and a roadmap nobody is following is worse than no roadmap.
+
 ## [0.9.14] - 2026-08-15
 
 The progress bar keeps working after the last file lands.

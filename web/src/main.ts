@@ -156,6 +156,16 @@ function wireFogColour(map: MapLibreMap, options: MapSetup): { load: () => Promi
   return { load }
 }
 
+/** What each tool wants you to do with the pointer. */
+const HINTS: Record<Tool, string> = {
+  off: 'Drag to pan. Pick a tool to start drawing.',
+  freehand: 'Drag on the map to draw a route.',
+  line: 'Click to add points, double click to finish.',
+  reveal: 'Drag to clear fog without drawing a route through it.',
+  area: 'Click round the edge, double click to close it.',
+  eraser: 'Drag on the map to rub fog back in.',
+}
+
 function wireDrawing(
   map: MapLibreMap,
   options: MapSetup,
@@ -216,13 +226,7 @@ function wireDrawing(
     for (const button of group.querySelectorAll('button')) button.disabled = !allowed
 
     hint.textContent = allowed
-      ? draw.activeTool === 'line'
-        ? 'Click to add points, double click to finish.'
-        : draw.activeTool === 'freehand'
-          ? 'Drag on the map to reveal.'
-          : draw.activeTool === 'eraser'
-            ? 'Drag on the map to rub fog back in.'
-            : 'Drag to pan. Pick a tool to start drawing.'
+      ? (HINTS[draw.activeTool] ?? '')
       : // Floored, not rounded. At 13.96 a rounded reading says "Currently
         // 14.0" next to a message demanding zoom 14, which reads as a broken
         // lock rather than as being a fraction of a level short.

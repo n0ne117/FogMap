@@ -24,8 +24,34 @@ const THIN_METRES = 5
  */
 const SMOOTH_PASSES = 2
 
-export type Tool = 'off' | 'freehand' | 'line' | 'eraser'
-export type Mode = 'add' | 'erase'
+export type Tool = 'off' | 'freehand' | 'line' | 'reveal' | 'area' | 'eraser'
+
+/**
+ * What an event does to the map.
+ *
+ *   add     clears fog and records a pass on the trail.
+ *   reveal  clears fog and nothing else - true of a childhood village or a
+ *           week on an island, where drawing a route would invent one.
+ *   erase   subtracts, at composite time.
+ */
+export type Op = 'add' | 'reveal' | 'erase'
+
+const OP_FOR: Record<Tool, Op> = {
+  off: 'add',
+  freehand: 'add',
+  line: 'add',
+  reveal: 'reveal',
+  area: 'reveal',
+  eraser: 'erase',
+}
+
+/** Tools drawn by dragging. The rest are built click by click. */
+const DRAGGED = new Set<Tool>(['freehand', 'reveal', 'eraser'])
+
+/** Tools whose stroke is a closed shape rather than a line. */
+const CLOSED = new Set<Tool>(['area'])
+
+const VERB: Record<Op, string> = { add: 'Drew', reveal: 'Revealed', erase: 'Erased' }
 
 export interface Point {
   lng: number
@@ -134,7 +160,7 @@ function perpendicularMetres(point: Point, start: Point, end: Point): number {
 
 export interface DrawResult {
   id: number
-  op: Mode
+  op: Op
   layers: string[]
 }
 
@@ -171,13 +197,18 @@ export class Draw {
   /**
    * What a stroke with the current tool does.
    *
-   * The eraser is a tool rather than a mode next to the brush. A control that
-   * says "Erase" and sits away from the tool it modifies reads as a button
-   * that erases something, which is the last thing a drawing app should be
-   * ambiguous about.
+   * Every tool is a tool, including the eraser. A control that says "Erase"
+   * and sits away from the tool it modifies reads as a button that erases
+   * something, which is the last thing a drawing app should be ambiguous
+   * about.
    */
-  get mode(): Mode {
-    return this.tool === 'eraser' ? 'erase' : 'add'
+  get op(): Op {
+    return OP_FOR[this.tool]
+  }
+
+  /** Does this tool close its stroke into an area? */
+  get closes(): boolean {
+    return CLOSED.has(this.tool)
   }
 
   get canDraw(): boolean {
@@ -215,7 +246,7 @@ export class Draw {
 
     // A point-to-point line is finished by double click rather than release.
     canvas.addEventListener('dblclick', (event) => {
-      if (this.tool === 'line' && this.drawing) {
+      if (!DRAGGED.has(this.tool) && this.tool !== 'off' && this.drawing) {
         event.preventDefault()
         void this.finish(true)
       }
@@ -233,7 +264,7 @@ export class Draw {
 
     this.map.dragPan.disable()
 
-    if (this.tool === 'line') {
+    if (!DRAGGED.has(this.tool)) {
       // Each click adds a vertex; the stroke ends on double click.
       if (!this.drawing) {
         this.drawing = true
@@ -241,7 +272,10 @@ export class Draw {
       } else {
         this.points.push(this.at(event))
       }
-      this.onStatus(`${this.points.length} points, double click to finish`)
+      this.onStatus(
+        `${this.points.length} ${this.closes ? 'corners' : 'points'}, ` +
+          'double click to finish',
+      )
       this.onPreview(this.points)
       return
     }
@@ -254,9 +288,9 @@ export class Draw {
   private extend(event: PointerEvent): void {
     if (!this.drawing) return
 
-    // The line tool rubber-bands to the cursor rather than recording it: the
+    // Vertex tools rubber-band to the cursor rather than recording it: the
     // segment being aimed is the one worth seeing.
-    if (this.tool === 'line') {
+    if (!DRAGGED.has(this.tool)) {
       this.onPreview([...this.points, this.at(event)])
       return
     }
@@ -267,8 +301,9 @@ export class Draw {
 
   private async finish(force = false): Promise<void> {
     if (!this.drawing) return
-    if (this.tool === 'line' && !force) return
+    if (!DRAGGED.has(this.tool) && !force) return
 
+    const closes = this.closes
     this.drawing = false
     this.map.dragPan.enable()
 
@@ -279,43 +314,50 @@ export class Draw {
       this.onPreview([])
       return
     }
+    if (closes && raw.length < 3) {
+      this.onStatus('An area needs at least three corners.')
+      this.onPreview([])
+      return
+    }
     if (raw.length === 1 && this.tool === 'line') {
       this.onStatus('A line needs at least two points.')
       this.onPreview([])
       return
     }
 
-    // A point-to-point line is meant to be straight, so it is left alone.
-    const thinned =
-      this.tool === 'line'
-        ? raw
-        : smooth(simplify(thinByDistance(raw), THIN_METRES))
+    // Only a dragged stroke is smoothed. A point-to-point line is meant to be
+    // straight and an area is meant to have the corners it was given.
+    const thinned = DRAGGED.has(this.tool)
+      ? smooth(simplify(thinByDistance(raw), THIN_METRES))
+      : raw
 
-    // The preview holds - now showing the smoothed line that is actually
-    // being saved - until the rebuilt tiles arrive, so the stroke does not
-    // blink out of existence while the server works.
+    // The preview holds - now showing the geometry that is actually being
+    // saved - until the rebuilt tiles arrive, so the stroke does not blink out
+    // of existence while the server works.
     this.onPreview(thinned)
 
-    const geometry =
-      thinned.length === 1
+    const ring = [...thinned, thinned[0]].map((p) => [p.lng, p.lat])
+    const geometry = closes
+      ? { type: 'Polygon', coordinates: [ring] }
+      : thinned.length === 1
         ? { type: 'Point', coordinates: [thinned[0].lng, thinned[0].lat] }
         : {
             type: 'LineString',
             coordinates: thinned.map((p) => [p.lng, p.lat]),
           }
 
-    const mode = this.mode
+    const op = this.op
     try {
       const saved = await apiSend<DrawResult>('POST', '/api/events', {
         source: 'manual',
-        op: mode,
+        op,
         geometry,
         radius_m: this.radiusM,
-        layers: mode === 'erase' ? undefined : this.layerList(),
+        layers: op === 'erase' ? undefined : this.layerList(),
       })
       this.undoStack.push(saved.id)
       this.onStatus(
-        `${mode === 'erase' ? 'Erased' : 'Drew'} ${thinned.length} points ` +
+        `${VERB[op]} ${thinned.length} ${closes ? 'corners' : 'points'} ` +
           `into ${saved.layers.join(', ')}`,
       )
       this.onSaved()

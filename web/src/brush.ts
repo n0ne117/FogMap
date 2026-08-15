@@ -11,9 +11,10 @@
 
 import type { Map as MapLibreMap } from 'maplibre-gl'
 
-import type { Mode, Point, Tool } from './draw'
+import type { Op, Point, Tool } from './draw'
 
 const SOURCE = 'fogmap-draw-preview'
+const AREA_LAYER = 'fogmap-draw-area'
 const SWATH_LAYER = 'fogmap-draw-swath'
 const SPINE_LAYER = 'fogmap-draw-spine'
 
@@ -48,8 +49,12 @@ export class Brush {
     map.on('move', () => this.resize())
   }
 
-  private get mode(): Mode {
-    return this.tool === 'eraser' ? 'erase' : 'add'
+  private get op(): Op {
+    return this.tool === 'eraser' ? 'erase' : this.tool === 'off' ? 'add' : 'reveal'
+  }
+
+  private get closes(): boolean {
+    return this.tool === 'area'
   }
 
   private get diameterPx(): number {
@@ -71,6 +76,16 @@ export class Brush {
     if (this.map.getSource(SOURCE)) return
 
     this.map.addSource(SOURCE, { type: 'geojson', data: EMPTY as never })
+
+    // The area tool encloses ground rather than covering a line, so what
+    // matters while drawing is what is inside the ring.
+    this.map.addLayer({
+      id: AREA_LAYER,
+      type: 'fill',
+      source: SOURCE,
+      filter: ['==', ['geometry-type'], 'Polygon'],
+      paint: { 'fill-color': REVEAL, 'fill-opacity': 0.18 },
+    })
 
     // The swath is the brush itself, at ground width. The spine is a hairline
     // down the middle: at a 15 m brush zoomed out the swath alone is too faint
@@ -100,7 +115,9 @@ export class Brush {
   /** Follow the tool the toolbar has selected. */
   setTool(tool: Tool): void {
     this.tool = tool
-    this.ring.hidden = tool === 'off'
+    // The area tool encloses ground; the brush footprint is not what governs
+    // it, so showing a ring for it would be a lie about what will be covered.
+    this.ring.hidden = tool === 'off' || tool === 'area'
     this.repaint()
     this.resize()
   }
@@ -112,7 +129,7 @@ export class Brush {
 
   /** Move the ring to the pointer. */
   track(event: PointerEvent | MouseEvent): void {
-    if (this.tool === 'off') return
+    if (this.tool === 'off' || this.closes) return
     this.ring.hidden = false
     this.ring.style.left = `${event.clientX}px`
     this.ring.style.top = `${event.clientY}px`
@@ -125,27 +142,30 @@ export class Brush {
   /** Show the stroke as it is being drawn. */
   preview(points: Point[]): void {
     this.points = points
-    this.setData(
-      points.length === 0
-        ? EMPTY
-        : {
-            type: 'FeatureCollection',
-            features: [
-              {
-                type: 'Feature',
-                properties: {},
-                geometry: {
-                  type: 'LineString',
-                  // A single point is not a line. Doubling it gives the round
-                  // cap something to draw, so a dab shows as a dot.
-                  coordinates: (points.length === 1 ? [points[0], points[0]] : points).map(
-                    (point) => [point.lng, point.lat],
-                  ),
-                },
-              },
-            ],
-          },
-    )
+    if (points.length === 0) {
+      this.setData(EMPTY)
+      return
+    }
+
+    const at = (point: Point) => [point.lng, point.lat]
+    // A single point is not a line. Doubling it gives the round cap something
+    // to draw, so a dab shows as a dot.
+    const line = (points.length === 1 ? [points[0], points[0]] : points).map(at)
+    const features: unknown[] = [
+      { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: line } },
+    ]
+
+    // The ring only becomes a shape at three corners; before that the line is
+    // the honest thing to show.
+    if (this.closes && points.length >= 3) {
+      features.push({
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'Polygon', coordinates: [[...points, points[0]].map(at)] },
+      })
+    }
+
+    this.setData({ type: 'FeatureCollection', features })
   }
 
   clear(): void {
@@ -162,10 +182,11 @@ export class Brush {
 
   private repaint(): void {
     if (!this.map.getLayer(SWATH_LAYER)) return
-    const colour = this.mode === 'erase' ? ERASE : REVEAL
+    const colour = this.op === 'erase' ? ERASE : REVEAL
     this.map.setPaintProperty(SWATH_LAYER, 'line-color', colour)
     this.map.setPaintProperty(SPINE_LAYER, 'line-color', colour)
-    this.ring.dataset.mode = this.mode
+    this.map.setPaintProperty(AREA_LAYER, 'fill-color', colour)
+    this.ring.dataset.mode = this.op === 'erase' ? 'erase' : 'add'
   }
 
   private resize(): void {

@@ -4,7 +4,7 @@ A self-hosted fog-of-war map of everywhere you've been.
 
 Feed it GPS tracks — live from Overland, OwnTracks or Home Assistant, imported from workout files, or drawn by hand for the years before GPS existed — and it renders a persistent map where the places you've visited are revealed and everywhere else stays under fog. Inspired by [Fog of World](https://fogofworld.app/), but self-hosted, on your own hardware, with your data staying on it.
 
-**Status:** early development. See [CHANGELOG.md](CHANGELOG.md) for what works right now and [ROADMAP.md](ROADMAP.md) for what's coming.
+**Status:** early development. See [CHANGELOG.md](CHANGELOG.md) for what works right now.
 
 ---
 
@@ -31,7 +31,7 @@ Delete both caches, run a rebuild, get byte-identical output. That means the who
 - Live tracking via Overland, OwnTracks or Home Assistant (all optional, off by default)
 - GPX and TCX import
 - Per-year subdivision maps plus a cumulative all-time view
-- Manual brush: reveal fog for places you know you've been, erase fog wrongly cleared by GPS drift
+- Manual tools: draw a route, clear fog without claiming one, enclose an area and clear all of it, or erase fog wrongly cleared by GPS drift
 - Freehand and point-to-point route drawing for pre-digital history
 - Labelled places with categories and who was there
 - Independent light/dark themes for the interface and the map

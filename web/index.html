@@ -26,8 +26,38 @@
           <button type="button" data-value="off" aria-pressed="true" title="Pan the map">
             &#9995; Pan
           </button>
-          <button type="button" data-value="freehand" aria-pressed="false">Brush</button>
-          <button type="button" data-value="line" aria-pressed="false">Line</button>
+          <button
+            type="button"
+            data-value="freehand"
+            aria-pressed="false"
+            title="Draw a route: clears fog and leaves a track"
+          >
+            Track
+          </button>
+          <button
+            type="button"
+            data-value="line"
+            aria-pressed="false"
+            title="A straight route, corner by corner"
+          >
+            Line
+          </button>
+          <button
+            type="button"
+            data-value="reveal"
+            aria-pressed="false"
+            title="Clear fog without claiming a route"
+          >
+            Reveal
+          </button>
+          <button
+            type="button"
+            data-value="area"
+            aria-pressed="false"
+            title="Draw round somewhere and clear all of it"
+          >
+            Area
+          </button>
           <button type="button" data-value="eraser" aria-pressed="false">Eraser</button>
         </div>
         <button id="draw-zoom-in" type="button" class="bar-button" hidden>

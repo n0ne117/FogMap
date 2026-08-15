@@ -313,17 +313,28 @@ def deep_tiles(
         (parent[1] + 1) * across,
     )
 
-    def stamp(points: list[tuple[float, float]], radius_m: float) -> raster.Tiles:
+    def keep(source: raster.Tiles, out: raster.Tiles) -> raster.Tiles:
+        for key, mask in source.items():
+            if key not in wanted:
+                continue
+            target = out.get(key)
+            if target is None:
+                out[key] = mask.copy()
+            else:
+                target |= mask
+        return out
+
+    def stamp(geometry: str, radius_m: float, event_id: int) -> raster.Tiles:
         out: raster.Tiles = {}
+
+        if raster.geometry_type(geometry, event_id) == "Polygon":
+            # An area is filled, so there is nothing to clip into runs - the
+            # fill already only produces tiles the ring encloses.
+            return keep(raster.stamp_geometry(geometry, radius_m, event_id, zoom), out)
+
+        points = raster.geometry_points(geometry, event_id)
         for run in raster.clip_runs(points, radius_m, zoom, window):
-            for key, mask in raster.stamp_path(run, radius_m, zoom).items():
-                if key not in wanted:
-                    continue
-                target = out.get(key)
-                if target is None:
-                    out[key] = mask
-                else:
-                    target |= mask
+            keep(raster.stamp_path(run, radius_m, zoom), out)
         return out
 
     fog_add: dict[tuple[int, int], np.ndarray] = {}
@@ -345,9 +356,9 @@ def deep_tiles(
         if op != "erase" and layers is not None and not (layers & set(event_layers)):
             continue
 
-        points = raster.geometry_points(event["geometry"], event_id)
+        geometry = event["geometry"]
         radius_m = float(event["radius_m"])
-        stamped = stamp(points, radius_m)
+        stamped = stamp(geometry, radius_m, event_id)
         if not stamped:
             continue
 
@@ -365,9 +376,16 @@ def deep_tiles(
             target = fog_add.setdefault(key, np.zeros((TILE, TILE), dtype=bool))
             target |= mask
 
+        # A reveal clears fog and leaves no track, so it contributes nothing
+        # here. That is the whole difference between the two.
+        if op != "add":
+            continue
+
         trail_radius_m = min(radius_m, raster.trail_max_radius_m())
         trail_stamped = (
-            stamped if trail_radius_m >= radius_m else stamp(points, trail_radius_m)
+            stamped
+            if trail_radius_m >= radius_m
+            else stamp(geometry, trail_radius_m, event_id)
         )
         # One pass per event per layer, saturating - the same counting rule as
         # merge_trail, so the colour ramp means the same thing at every zoom.

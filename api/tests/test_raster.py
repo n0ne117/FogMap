@@ -266,8 +266,25 @@ class TestGeometryParsing:
         ]
 
     def test_an_unsupported_geometry_type_names_the_event(self):
-        with pytest.raises(ValueError, match="Event 42 has geometry type 'Polygon'"):
-            raster.geometry_points('{"type":"Polygon","coordinates":[]}', 42)
+        with pytest.raises(ValueError, match="Event 42 has geometry type 'Circle'"):
+            raster.geometry_points('{"type":"Circle","coordinates":[]}', 42)
+
+    def test_a_polygon_reads_back_as_its_outer_ring(self):
+        ring = '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}'
+        assert raster.geometry_points(ring, 1) == [
+            (0.0, 0.0),
+            (1.0, 0.0),
+            (1.0, 1.0),
+            (0.0, 0.0),
+        ]
+
+    def test_an_open_ring_is_closed_on_the_way_in(self):
+        ring = '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1]]]}'
+        assert raster.geometry_ring(ring, 1)[-1] == (0.0, 0.0)
+
+    def test_a_polygon_with_no_rings_names_the_event(self):
+        with pytest.raises(ValueError, match="Event 9 is a Polygon with no rings"):
+            raster.geometry_ring('{"type":"Polygon","coordinates":[]}', 9)
 
     def test_broken_json_names_the_event(self):
         with pytest.raises(ValueError, match="Event 7 has geometry that is not valid"):

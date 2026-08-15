@@ -20,8 +20,8 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
   id          INTEGER PRIMARY KEY,
   source      TEXT NOT NULL,   -- ha | workout | manual | place
-  op          TEXT NOT NULL,   -- add | erase
-  geometry    TEXT NOT NULL,   -- GeoJSON LineString or Point
+  op          TEXT NOT NULL,   -- add | reveal | erase
+  geometry    TEXT NOT NULL,   -- GeoJSON Point, LineString or Polygon
   radius_m    REAL NOT NULL,
   layers      TEXT NOT NULL,   -- JSON array: ["2024"] | ["1994","1995"] | ["prehistory"]
   external_id TEXT,            -- dedup key, NULL for manual

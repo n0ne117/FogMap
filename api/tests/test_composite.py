@@ -383,3 +383,134 @@ def _blob_snapshot(conn) -> dict[tuple, bytes]:
         )
         for row in conn.execute("SELECT * FROM blobs")
     }
+
+
+class TestRevealLeavesNoTrack:
+    """A reveal clears fog and nothing else.
+
+    Somebody was around here is a different claim from somebody walked along
+    here, and a childhood village or a week on an island is the first without
+    being the second. Drawing a route through it would be inventing one.
+    """
+
+    def test_a_reveal_clears_fog(self, conn):
+        line = synthetic.straight_line(30)
+        add_event(conn, line, op="reveal", source="manual")
+        assert fog_of(conn).sum() > 0
+
+    def test_a_reveal_records_no_pass_on_the_trail(self, conn):
+        line = synthetic.straight_line(30)
+        add_event(conn, line, op="reveal", source="manual")
+
+        trails = conn.execute(
+            "SELECT COUNT(*) AS n FROM blobs WHERE kind = 'trail'"
+        ).fetchone()["n"]
+        assert trails == 0
+
+    def test_an_add_over_the_same_ground_does_record_one(self, conn):
+        line = synthetic.straight_line(30)
+        add_event(conn, line, op="add", source="manual")
+
+        trails = conn.execute(
+            "SELECT COUNT(*) AS n FROM blobs WHERE kind = 'trail'"
+        ).fetchone()["n"]
+        assert trails > 0
+
+    def test_a_reveal_survives_a_rebuild_byte_for_byte(self, conn):
+        add_event(conn, synthetic.straight_line(30), op="reveal", source="manual")
+        add_event(conn, synthetic.square_loop(20), op="add")
+
+        before = _blob_snapshot(conn)
+        raster.rebuild(conn)
+        assert _blob_snapshot(conn) == before
+
+    def test_a_reveal_can_be_erased_and_redrawn_like_anything_else(self, conn):
+        line = synthetic.straight_line(40)
+        add_event(conn, line, op="reveal", source="manual")
+        revealed = fog_of(conn).sum()
+
+        add_event(conn, line[10:25], op="erase", layers=[raster.ERASE_LAYER])
+        assert fog_of(conn).sum() < revealed
+
+        add_event(conn, line[12:22], op="reveal", source="manual")
+        assert fog_of(conn).sum() > 0
+
+
+class TestAreaReveal:
+    """An area is a Polygon, and filling it is the point."""
+
+    def square(self, side: float = 0.004) -> list[tuple[float, float]]:
+        lon, lat = synthetic.BASE_LON, synthetic.BASE_LAT
+        return [
+            (lon, lat),
+            (lon + side, lat),
+            (lon + side, lat + side),
+            (lon, lat + side),
+            (lon, lat),
+        ]
+
+    def polygon(self, ring) -> str:
+        return json.dumps(
+            {"type": "Polygon", "coordinates": [[[lon, lat] for lon, lat in ring]]}
+        )
+
+    def insert(self, conn, ring, op="reveal", layers=("2024",), radius_m=15.0):
+        cursor = conn.execute(
+            "INSERT INTO events "
+            "(source, op, geometry, radius_m, layers, external_id, created_at, meta) "
+            "VALUES ('manual', ?, ?, ?, ?, NULL, '2024-05-01T08:00:00+00:00', NULL)",
+            (op, self.polygon(ring), radius_m, json.dumps(list(layers))),
+        )
+        row = conn.execute(
+            "SELECT * FROM events WHERE id = ?", (cursor.lastrowid,)
+        ).fetchone()
+        return raster.stamp_event(conn, row)
+
+    def test_the_inside_is_cleared_not_just_the_edge(self, conn):
+        self.insert(conn, self.square())
+        fog = fog_of(conn)
+
+        # A ring stamped as a line would leave the middle under fog. Compare
+        # the filled area against the perimeter it would have covered.
+        assert fog.sum() > 0
+        rows, cols = np.nonzero(fog)
+        height = rows.max() - rows.min() + 1
+        width = cols.max() - cols.min() + 1
+        assert fog.sum() > 0.8 * height * width
+
+    def test_an_area_leaves_no_track(self, conn):
+        self.insert(conn, self.square())
+        trails = conn.execute(
+            "SELECT COUNT(*) AS n FROM blobs WHERE kind = 'trail'"
+        ).fetchone()["n"]
+        assert trails == 0
+
+    def test_an_unclosed_ring_is_closed_for_you(self, conn):
+        lon, lat = synthetic.BASE_LON, synthetic.BASE_LAT
+        side = 0.004
+        open_ring = [(lon, lat), (lon + side, lat), (lon + side, lat + side)]
+        self.insert(conn, open_ring)
+        assert fog_of(conn).sum() > 0
+
+    def test_a_ring_with_too_few_corners_is_refused_by_name(self, conn):
+        with pytest.raises(ValueError, match="needs at least three"):
+            self.insert(conn, [(synthetic.BASE_LON, synthetic.BASE_LAT)] * 2)
+
+    def test_an_area_survives_a_rebuild_byte_for_byte(self, conn):
+        self.insert(conn, self.square())
+        before = _blob_snapshot(conn)
+        raster.rebuild(conn)
+        assert _blob_snapshot(conn) == before
+
+    def test_the_deep_levels_fill_it_too(self, conn, tmp_path):
+        from fogmap import geo
+        from PIL import Image
+
+        self.insert(conn, self.square())
+        root = tmp_path / "tiles"
+        composite.render_view(conn, root, "all")
+
+        cleared = 0
+        for tile in root.glob(f"dark/all/fog/{geo.MAX_Z}/*/*.png"):
+            cleared += int((np.array(Image.open(tile))[..., 3] == 0).sum())
+        assert cleared > 0

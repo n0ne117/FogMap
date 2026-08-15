@@ -668,7 +668,9 @@ def create_event(
 
     A brush stroke is not a special case. It becomes a LineString event and
     goes down exactly the path a GPX import takes, which is why an erase drawn
-    by hand survives a rebuild the same way everything else does.
+    by hand survives a rebuild the same way everything else does. An area is
+    the same thing with a Polygon, and a reveal the same thing with an op that
+    leaves the trail alone.
     """
     source = str(payload.get("source", "manual"))
     if source not in common.RADIUS_DEFAULTS_M:
@@ -679,17 +681,25 @@ def create_event(
         )
 
     op = str(payload.get("op", "add"))
-    if op not in ("add", "erase"):
+    if op not in raster.OPS:
         raise HTTPException(
             status_code=400,
-            detail=f"Unknown op {op!r}. FogMap stores only 'add' and 'erase'.",
+            detail=f"Unknown op {op!r}. FogMap stores only "
+            f"{', '.join(repr(name) for name in raster.OPS)}.",
         )
 
     geometry = payload.get("geometry")
     if not isinstance(geometry, dict):
         raise HTTPException(
             status_code=400,
-            detail="geometry must be a GeoJSON Point or LineString object.",
+            detail="geometry must be a GeoJSON object: "
+            f"{', '.join(raster.GEOMETRIES)}.",
+        )
+    if geometry.get("type") not in raster.GEOMETRIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Geometry type {geometry.get('type')!r} is not stored. "
+            f"FogMap stores {', '.join(raster.GEOMETRIES)}.",
         )
 
     # Not `or`: a radius of 0 is falsy, and would silently become the default

@@ -20,6 +20,7 @@ from functools import lru_cache
 from typing import Iterable, Iterator, Sequence
 
 import numpy as np
+from PIL import Image, ImageDraw
 
 from fogmap import geo
 
@@ -407,10 +408,90 @@ def geometry_points(geometry: str, event_id: int) -> list[tuple[float, float]]:
             raise ValueError(f"Event {event_id} is a LineString with no coordinates.")
         return [(float(pair[0]), float(pair[1])) for pair in coordinates]
 
+    if kind == "Polygon":
+        # The outer ring. Enough to bound the shape, which is all the callers
+        # that reach here want; filling it goes through geometry_ring.
+        return geometry_ring(geometry, event_id)
+
     raise ValueError(
         f"Event {event_id} has geometry type {kind!r}. FogMap stores only "
-        "Point and LineString."
+        "Point, LineString and Polygon."
     )
+
+
+def geometry_type(geometry: str, event_id: int) -> str:
+    try:
+        return str(json.loads(geometry).get("type"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"Event {event_id} has geometry that is not valid JSON ({exc})."
+        ) from exc
+
+
+def geometry_ring(geometry: str, event_id: int) -> list[tuple[float, float]]:
+    """The outer ring of a Polygon, closed.
+
+    Holes are not read. An area someone drew round to say "I was all over
+    here" does not have holes in it, and inventing support for them would mean
+    inventing a way to draw them.
+    """
+    parsed = json.loads(geometry)
+    rings = parsed.get("coordinates")
+
+    if not isinstance(rings, (list, tuple)) or not rings:
+        raise ValueError(f"Event {event_id} is a Polygon with no rings.")
+
+    ring = rings[0]
+    if not isinstance(ring, (list, tuple)) or len(ring) < 3:
+        raise ValueError(
+            f"Event {event_id} is a Polygon whose outer ring has "
+            f"{len(ring) if hasattr(ring, '__len__') else 0} points. An area "
+            "needs at least three."
+        )
+
+    points = [(float(pair[0]), float(pair[1])) for pair in ring]
+    if points[0] != points[-1]:
+        points.append(points[0])
+    return points
+
+
+def fill_ring(
+    ring: Sequence[tuple[float, float]], zoom: int = geo.NATIVE_Z
+) -> Tiles:
+    """Rasterise the inside of a closed ring into tile masks.
+
+    Drawn with Pillow rather than a scanline of our own: it is already a
+    dependency, it fills consistently along shared edges, and a polygon fill
+    written by hand is a well-known source of one-pixel seams between tiles.
+    """
+    if len(ring) < 3:
+        return {}
+
+    projected = [geo.lonlat_to_px(lon, lat, zoom) for lon, lat in ring]
+    xs = [x for x, _ in projected]
+    ys = [y for _, y in projected]
+
+    span = geo.world_px(zoom)
+    across = 2**zoom
+    left = max(0, int(math.floor(min(xs))) // TILE)
+    right = min(across - 1, int(math.floor(min(max(xs), span - 1))) // TILE)
+    top = max(0, int(math.floor(min(ys))) // TILE)
+    bottom = min(across - 1, int(math.floor(min(max(ys), span - 1))) // TILE)
+
+    tiles: Tiles = {}
+    for tile_x in range(left, right + 1):
+        for tile_y in range(top, bottom + 1):
+            origin_x, origin_y = tile_x * TILE, tile_y * TILE
+            # Pillow clips whatever falls outside the canvas, so the ring is
+            # handed over whole and only this tile's share comes back.
+            local = [(x - origin_x, y - origin_y) for x, y in projected]
+
+            canvas = Image.new("1", (TILE, TILE), 0)
+            ImageDraw.Draw(canvas).polygon(local, fill=1, outline=1)
+            mask = np.array(canvas, dtype=bool)
+            if mask.any():
+                tiles[(tile_x, tile_y)] = mask
+    return tiles
 
 
 def event_tile_bounds(event: sqlite3.Row) -> tuple[int, int, int, int] | None:
@@ -457,8 +538,44 @@ def event_tiles(event: sqlite3.Row) -> set[tuple[int, int]]:
     dirtied can be rebuilt from what remains.
     """
     event_id = int(event["id"])
-    points = geometry_points(event["geometry"], event_id)
-    return set(stamp_path(points, float(event["radius_m"])).keys())
+    return set(stamp_geometry(event["geometry"], float(event["radius_m"]), event_id))
+
+
+# What an event does to the map.
+#
+#   add     clears fog and records a pass on the trail. Somebody went along
+#           here, and the line down the middle says so.
+#   reveal  clears fog and nothing else. Somebody was around here - which is
+#           true of a childhood village or a week on an island, and drawing a
+#           route through it would be inventing one.
+#   erase   subtracts, at composite time. Invariant 2.
+OPS = ("add", "reveal", "erase")
+
+# Geometry an event may carry. Polygon is how an area reveal is stored: the
+# ring is what was drawn, and filling it is the point.
+GEOMETRIES = ("Point", "LineString", "Polygon")
+
+
+def stamp_geometry(
+    geometry: str, radius_m: float, event_id: int, zoom: int = geo.NATIVE_Z
+) -> Tiles:
+    """Rasterise an event's geometry, whatever shape it is.
+
+    A Polygon is filled and its ring stamped with the brush, so the boundary
+    is as round as a drawn one and a sliver too thin to enclose a pixel still
+    reveals something. Everything else is a stamped path.
+    """
+    if geometry_type(geometry, event_id) == "Polygon":
+        ring = geometry_ring(geometry, event_id)
+        tiles = fill_ring(ring, zoom)
+        for key, mask in stamp_path(ring, radius_m, zoom).items():
+            if key in tiles:
+                tiles[key] |= mask
+            else:
+                tiles[key] = mask
+        return tiles
+
+    return stamp_path(geometry_points(geometry, event_id), radius_m, zoom)
 
 
 def stamp_event(
@@ -474,9 +591,9 @@ def stamp_event(
     the whole archive into the whole world.
     """
     event_id = int(event["id"])
-    points = geometry_points(event["geometry"], event_id)
+    geometry = event["geometry"]
     radius_m = float(event["radius_m"])
-    tiles = stamp_path(points, radius_m)
+    tiles = stamp_geometry(geometry, radius_m, event_id)
 
     if restrict is not None:
         tiles = {key: mask for key, mask in tiles.items() if key in restrict}
@@ -489,26 +606,34 @@ def stamp_event(
     if op == "erase":
         # Erase ignores the layer it was drawn in, by design.
         merge_mask(conn, "erase", source, ERASE_LAYER, tiles)
-    elif op == "add":
-        trail_radius_m = min(radius_m, trail_max_radius_m())
-        if trail_radius_m >= radius_m:
-            trail_tiles = tiles
-        else:
-            trail_tiles = stamp_path(points, trail_radius_m)
-            if restrict is not None:
-                trail_tiles = {
-                    key: mask for key, mask in trail_tiles.items() if key in restrict
-                }
+    elif op in ("add", "reveal"):
         # Painting over erased ground takes the erase back off it. Without
         # this the stroke goes into the fog blob and is subtracted straight
         # out again when the tile is composed.
         clear_erase(conn, tiles)
+
+        trail_tiles: Tiles = {}
+        if op == "add":
+            trail_radius_m = min(radius_m, trail_max_radius_m())
+            if trail_radius_m >= radius_m:
+                trail_tiles = tiles
+            else:
+                trail_tiles = stamp_geometry(geometry, trail_radius_m, event_id)
+                if restrict is not None:
+                    trail_tiles = {
+                        key: mask
+                        for key, mask in trail_tiles.items()
+                        if key in restrict
+                    }
+
         for layer in parse_layers(event["layers"], event_id):
             merge_mask(conn, "fog", source, layer, tiles)
-            merge_trail(conn, source, layer, trail_tiles)
+            if trail_tiles:
+                merge_trail(conn, source, layer, trail_tiles)
     else:
         raise ValueError(
-            f"Event {event_id} has op {op!r}. FogMap stores only 'add' and 'erase'."
+            f"Event {event_id} has op {op!r}. FogMap stores only "
+            f"{', '.join(repr(name) for name in OPS)}."
         )
 
     return set(tiles.keys())

@@ -473,3 +473,87 @@ class TestDeferredRender:
 
     def test_the_render_endpoint_needs_the_token(self, client):
         assert client.post("/api/render").status_code == 401
+
+
+class TestRevealAndArea:
+    """The two tools that clear fog without claiming a route through it."""
+
+    def square(self, side: float = 0.004) -> dict:
+        return {
+            "type": "Polygon",
+            "coordinates": [
+                [
+                    [LON, LAT],
+                    [LON + side, LAT],
+                    [LON + side, LAT + side],
+                    [LON, LAT + side],
+                    [LON, LAT],
+                ]
+            ],
+        }
+
+    def test_a_reveal_is_accepted_and_named_back(self, client):
+        response = client.post(
+            "/api/events",
+            headers=auth(),
+            json={"op": "reveal", "geometry": line(LON, LON + 0.002), "radius_m": 20},
+        )
+        assert response.status_code == 201
+        assert response.json()["op"] == "reveal"
+        assert response.json()["tiles_touched"] > 0
+
+    def test_an_area_is_accepted(self, client):
+        response = client.post(
+            "/api/events",
+            headers=auth(),
+            json={"op": "reveal", "geometry": self.square(), "radius_m": 20},
+        )
+        assert response.status_code == 201
+        assert response.json()["tiles_touched"] > 0
+
+    def test_a_reveal_does_not_appear_among_the_tracks(self, client):
+        client.post(
+            "/api/events",
+            headers=auth(),
+            json={"op": "reveal", "geometry": line(LON, LON + 0.002), "radius_m": 20},
+        )
+        client.post(
+            "/api/events",
+            headers=auth(),
+            json={"op": "add", "geometry": line(LON, LON + 0.002), "radius_m": 20},
+        )
+
+        bbox = f"{LON - 0.01},{LAT - 0.01},{LON + 0.02},{LAT + 0.02}"
+        features = client.get(f"/api/trails?bbox={bbox}").json()["features"]
+        assert len(features) == 1
+        assert features[0]["properties"]["source"] == "manual"
+
+    def test_an_unknown_op_is_refused_by_name(self, client):
+        response = client.post(
+            "/api/events",
+            headers=auth(),
+            json={"op": "obliterate", "geometry": line(LON, LON + 0.002)},
+        )
+        assert response.status_code == 400
+        assert "obliterate" in response.json()["detail"]
+        assert "reveal" in response.json()["detail"]
+
+    def test_an_unknown_geometry_is_refused_by_name(self, client):
+        response = client.post(
+            "/api/events",
+            headers=auth(),
+            json={"op": "reveal", "geometry": {"type": "Circle", "coordinates": []}},
+        )
+        assert response.status_code == 400
+        assert "Circle" in response.json()["detail"]
+
+    def test_a_reveal_can_be_undone_like_any_other_stroke(self, client):
+        created = client.post(
+            "/api/events",
+            headers=auth(),
+            json={"op": "reveal", "geometry": self.square(), "radius_m": 20},
+        ).json()
+
+        response = client.delete(f"/api/events/{created['id']}", headers=auth())
+        assert response.status_code == 200
+        assert response.json()["deleted"] == created["id"]
