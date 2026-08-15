@@ -316,7 +316,7 @@ class TestDownsampling:
 class TestRebuildScope:
     def test_a_touched_tile_pulls_in_all_fourteen_ancestors(self):
         scope = composite.rebuild_scope({(8937, 5681)})
-        assert sorted(scope) == list(range(0, 15))
+        assert sorted(scope) == list(range(0, geo.MAX_Z + 1))
         assert scope[14] == {(8937, 5681)}
         assert scope[0] == {(0, 0)}
 

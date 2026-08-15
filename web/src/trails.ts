@@ -6,11 +6,31 @@
 // and it is bounded by the viewport and a hard cap.
 
 import { Popup } from 'maplibre-gl'
-import type { Map as MapLibreMap } from 'maplibre-gl'
+import type {
+  DataDrivenPropertyValueSpecification,
+  Map as MapLibreMap,
+} from 'maplibre-gl'
 
 import { apiGet } from './api'
 
 export const MIN_TRAIL_ZOOM = 14
+
+/**
+ * Where the vector lines take over from the trail bitmap.
+ *
+ * The bitmap is rendered natively to z16, so up to there it is sharper than a
+ * styled line and carries the pass count as colour. Past it the bitmap starts
+ * being magnified, and the real geometry is the better thing to look at.
+ */
+const FADE_IN: DataDrivenPropertyValueSpecification<number> = [
+  'interpolate',
+  ['linear'],
+  ['zoom'],
+  16,
+  0,
+  17.5,
+  1,
+]
 
 const SOURCE = 'fogmap-trail-vector'
 const CASING_LAYER = 'fogmap-trail-casing'
@@ -112,7 +132,7 @@ export class Trails {
       paint: {
         'line-color': 'rgba(0, 0, 0, 0.55)',
         'line-width': ['interpolate', ['linear'], ['zoom'], 14, 3, 18, 5, 22, 7],
-        'line-opacity': ['interpolate', ['linear'], ['zoom'], 14, 0, 15.5, 1],
+        'line-opacity': FADE_IN,
       },
     })
     this.map.addLayer({
@@ -130,7 +150,7 @@ export class Trails {
         'line-width': ['interpolate', ['linear'], ['zoom'], 14, 1, 18, 2.2, 22, 3],
         // Fades in as the raster underneath fades down, so the handover is a
         // cross-fade rather than both being drawn at full strength.
-        'line-opacity': ['interpolate', ['linear'], ['zoom'], 14, 0, 15.5, 1],
+        'line-opacity': FADE_IN,
       },
     })
     // A wider invisible line, so clicking near a track counts as clicking it.

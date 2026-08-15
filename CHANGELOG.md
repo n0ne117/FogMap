@@ -11,6 +11,16 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.9.12] - 2026-08-15
+
+Brush strokes that look like brush strokes.
+
+### Changed
+- The tile pyramid is rendered two levels deeper, to z16. Everything is still stored on the native z14 grid, where a 15 m brush is a two-pixel disc — and the client was magnifying that up to sixteen times to reach street level, which is why a hand-drawn stroke arrived as a blurred, visibly stepped smear. z15 and z16 are now stamped from the same geometry at their own resolution rather than upscaled, so a 20 m brush is a twelve-pixel disc at z16 instead of a three-pixel one. Nothing new is stored, the event log is still the only source of truth, and a rebuild is still byte-identical.
+- Tracks hand over from the bitmap to their real geometry at z16 rather than z14, since up to there the bitmap is now the sharper of the two and is the only thing carrying how many times a pixel was crossed.
+
+Rendering costs more than it did: a full re-render of a nineteen-year archive goes from about eleven seconds to about twenty-three, and a single stroke from about one and a half to about two and a half. The pyramid itself stays small — most deep tiles are empty and are never written.
+
 ## [0.9.11] - 2026-08-15
 
 Drawing you can see, borders you can see, and fog in a colour you chose.

@@ -199,6 +199,133 @@ class TestPyramid:
         for path in written:
             assert path.is_file()
 
+class TestDeepPyramid:
+    """Below z14 the pyramid is stamped from geometry, not upscaled.
+
+    A 15 m brush is a two-pixel disc on the native grid. Magnifying that to
+    z18 is what made a hand-drawn stroke arrive as a smear, so z15 and z16 are
+    rasterised from the same events at their own resolution.
+    """
+
+    def test_the_pyramid_reaches_the_deep_levels(self, seeded, tmp_path):
+        root = tmp_path / "tiles"
+        composite.render_view(seeded, root, "all")
+
+        for zoom in range(15, geo.MAX_Z + 1):
+            assert list(root.glob(f"dark/all/fog/{zoom}/*/*.png")), zoom
+            assert list(root.glob(f"dark/all/trail/{zoom}/*/*.png")), zoom
+        assert not list(root.glob(f"dark/all/fog/{geo.MAX_Z + 1}/*/*.png"))
+
+    def test_a_deep_level_holds_more_detail_than_the_native_one(
+        self, seeded, tmp_path
+    ):
+        root = tmp_path / "tiles"
+        composite.render_view(seeded, root, "all")
+
+        # Same ground, four times the pixels across: the explored area should
+        # come out close to sixteen times as many pixels, not one to one.
+        native = _explored_pixels(root, geo.NATIVE_Z)
+        deep = _explored_pixels(root, geo.MAX_Z)
+        factor = 4 ** (geo.MAX_Z - geo.NATIVE_Z)
+
+        assert native > 0
+        assert deep > native * factor * 0.5
+
+    def test_an_erase_still_applies_at_the_deep_levels(self, conn, tmp_path):
+        from fogmap import raster
+
+        root = tmp_path / "tiles"
+        line = synthetic.straight_line(40)
+        _insert(conn, line, radius_m=20.0)
+        composite.render_view(conn, root, "all")
+        before = _explored_pixels(root, geo.MAX_Z)
+
+        _insert(conn, line[10:25], op="erase", layers=["*"], radius_m=20.0)
+        composite.render_view(conn, root, "all")
+
+        assert _explored_pixels(root, geo.MAX_Z) < before
+        assert raster is not None
+
+    def test_redrawing_over_an_erase_works_at_the_deep_levels(self, conn, tmp_path):
+        root = tmp_path / "tiles"
+        line = synthetic.straight_line(40)
+        _insert(conn, line, radius_m=20.0)
+        _insert(conn, line[10:25], op="erase", layers=["*"], radius_m=20.0)
+        composite.render_view(conn, root, "all")
+        erased = _explored_pixels(root, geo.MAX_Z)
+
+        _insert(conn, line[12:22], source="manual", radius_m=20.0)
+        composite.render_view(conn, root, "all")
+
+        assert _explored_pixels(root, geo.MAX_Z) > erased
+
+    def test_the_deep_levels_are_reproducible(self, seeded, tmp_path):
+        first, second = tmp_path / "a", tmp_path / "b"
+        composite.render_view(seeded, first, "all")
+        composite.render_view(seeded, second, "all")
+
+        left = sorted(first.rglob(f"dark/all/fog/{geo.MAX_Z}/*/*.png"))
+        right = sorted(second.rglob(f"dark/all/fog/{geo.MAX_Z}/*/*.png"))
+        assert left and len(left) == len(right)
+        for a, b in zip(left, right):
+            assert a.read_bytes() == b.read_bytes()
+
+    def test_a_year_view_only_holds_its_own_year_at_depth(self, conn, tmp_path):
+        from datetime import datetime, timezone
+
+        root = tmp_path / "tiles"
+        for year in (2023, 2024):
+            document = synthetic.gpx_document(
+                synthetic.straight_line(40),
+                name=f"route {year}",
+                start=datetime(year, 5, 1, 8, 0, tzinfo=timezone.utc),
+            )
+            common.ingest_tracks(conn, "workout", gpx.parse(document))
+
+        composite.render_all(conn, root)
+
+        one = _explored_pixels(root, geo.MAX_Z, view="year-2024")
+        both = _explored_pixels(root, geo.MAX_Z, view="all")
+        assert 0 < one <= both
+
+    def test_the_scope_of_an_edit_includes_its_deep_tiles(self):
+        scope = composite.rebuild_scope({(8937, 5681)})
+        assert sorted(scope) == list(range(0, geo.MAX_Z + 1))
+        assert len(scope[15]) == 4
+        assert len(scope[16]) == 16
+
+
+def _insert(conn, points, *, op="add", layers=("2024",), source="workout", radius_m=15.0):
+    """Insert an event and rasterise it onto the native grid."""
+    from fogmap import raster
+
+    cursor = conn.execute(
+        "INSERT INTO events "
+        "(source, op, geometry, radius_m, layers, external_id, created_at, meta) "
+        "VALUES (?, ?, ?, ?, ?, NULL, '2024-05-01T08:00:00+00:00', NULL)",
+        (
+            source,
+            op,
+            json.dumps(
+                {"type": "LineString", "coordinates": [[x, y] for x, y in points]}
+            ),
+            radius_m,
+            json.dumps(list(layers)),
+        ),
+    )
+    row = conn.execute(
+        "SELECT * FROM events WHERE id = ?", (cursor.lastrowid,)
+    ).fetchone()
+    return raster.stamp_event(conn, row)
+
+
+def _explored_pixels(root, zoom: int, view: str = "all") -> int:
+    total = 0
+    for tile in root.glob(f"dark/{view}/fog/{zoom}/*/*.png"):
+        total += int((np.array(Image.open(tile))[..., 3] == 0).sum())
+    return total
+
+
 class TestFogColour:
     """The colour of the unknown is a stored setting, baked into the tiles."""
 
@@ -309,8 +436,11 @@ class TestScopedRender:
             conn, root, "all", scope=composite.rebuild_scope({sorted(native)[0]})
         )
 
-        # Fifteen zooms, two themes, two kinds.
-        assert scoped == 15 * 2 * 2
+        # Fifteen zooms up to z14, two themes, two kinds - plus however many
+        # of the twenty deep tiles under that one native tile hold anything.
+        chain = (geo.NATIVE_Z + 1) * 2 * 2
+        deep_ceiling = sum(4 ** (z - geo.NATIVE_Z) for z in range(15, geo.MAX_Z + 1))
+        assert chain <= scoped <= chain + deep_ceiling * 2 * 2
         assert scoped < full
 
     def test_a_scoped_render_leaves_the_tiles_outside_it_alone(self, seeded, tmp_path):

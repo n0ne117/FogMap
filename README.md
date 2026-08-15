@@ -20,7 +20,7 @@ Three layers, each derived from the one above it:
 
 1. **An append-only event log** — the only source of truth. Every import and every brush stroke is an event with its own geometry, radius and time layer.
 2. **z14 bitmap blobs** — derived, disposable.
-3. **A pre-rendered PNG pyramid** — derived, disposable.
+3. **A pre-rendered PNG pyramid** — derived, disposable. z0 to z13 is folded up from the blobs; z15 and z16 are stamped from the same geometry at their own resolution, because a 15 m brush is two pixels at z14 and magnifying that to street level is a smear.
 
 Delete both caches, run a rebuild, get byte-identical output. That means the whole archive can be reprocessed with different brush radii whenever you change your mind, which turns out to matter a lot when you're reconstructing places from forty years ago and your relatives keep correcting each other.
 

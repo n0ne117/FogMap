@@ -83,7 +83,13 @@ def _kernel_for(radius_px: float) -> np.ndarray:
     return disc_kernel(round(max(radius_px, 0.5), 2))
 
 
-def paint(tiles: Tiles, x_px: float, y_px: float, kernel: np.ndarray) -> None:
+def paint(
+    tiles: Tiles,
+    x_px: float,
+    y_px: float,
+    kernel: np.ndarray,
+    zoom: int = geo.NATIVE_Z,
+) -> None:
     """OR a kernel into the tile mosaic at a world-pixel position.
 
     Writes across tile boundaries, allocating tiles on first touch. Anything
@@ -93,17 +99,19 @@ def paint(tiles: Tiles, x_px: float, y_px: float, kernel: np.ndarray) -> None:
     centre = size // 2
     left = int(round(x_px)) - centre
     top = int(round(y_px)) - centre
+    span = geo.world_px(zoom)
+    across = 2**zoom
 
     if left + size <= 0 or top + size <= 0:
         return
-    if left >= geo.WORLD_PX or top >= geo.WORLD_PX:
+    if left >= span or top >= span:
         return
 
     for tile_x in range(left // TILE, (left + size - 1) // TILE + 1):
-        if not 0 <= tile_x < 2**geo.NATIVE_Z:
+        if not 0 <= tile_x < across:
             continue
         for tile_y in range(top // TILE, (top + size - 1) // TILE + 1):
-            if not 0 <= tile_y < 2**geo.NATIVE_Z:
+            if not 0 <= tile_y < across:
                 continue
 
             origin_x = tile_x * TILE
@@ -163,13 +171,17 @@ def resample(
 
 
 def stamp_path(
-    lonlats: Sequence[tuple[float, float]], radius_m: float
+    lonlats: Sequence[tuple[float, float]],
+    radius_m: float,
+    zoom: int = geo.NATIVE_Z,
 ) -> Tiles:
-    """Rasterise one path into z14 tile masks.
+    """Rasterise one path into tile masks at a zoom.
 
     Returns a boolean mask per touched tile. Radius is recomputed along the
     path rather than once for the whole track, because ground resolution
-    changes with latitude.
+    changes with latitude. Defaults to the native z14 grid, which is what the
+    blob store is built on; deeper zooms are used to render the sharp end of
+    the PNG pyramid straight from geometry.
     """
     if not lonlats:
         return {}
@@ -177,18 +189,24 @@ def stamp_path(
     tiles: Tiles = {}
 
     for part in geo.split_antimeridian(list(lonlats)):
-        projected = [geo.lonlat_to_px(lon, lat) for lon, lat in part]
+        projected = [geo.lonlat_to_px(lon, lat, zoom) for lon, lat in part]
         xs = np.array([p[0] for p in projected], dtype=np.float64)
         ys = np.array([p[1] for p in projected], dtype=np.float64)
         lats = np.array([geo.clamp_lat(lat) for _, lat in part], dtype=np.float64)
 
-        mid_radius = geo.radius_px(radius_m, float(np.median(lats)))
+        mid_radius = geo.radius_px(radius_m, float(np.median(lats)), zoom)
         step = max(mid_radius * STEP_FRACTION, MIN_STEP_PX)
 
         xs, ys, lats = resample(xs, ys, lats, step)
 
         for x_px, y_px, lat in zip(xs, ys, lats):
-            paint(tiles, x_px, y_px, _kernel_for(geo.radius_px(radius_m, float(lat))))
+            paint(
+                tiles,
+                x_px,
+                y_px,
+                _kernel_for(geo.radius_px(radius_m, float(lat), zoom)),
+                zoom,
+            )
 
     return tiles
 

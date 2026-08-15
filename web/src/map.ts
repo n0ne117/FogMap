@@ -28,6 +28,9 @@ const BORDERS_LAYER = 'fogmap-borders'
 const FOG_OPACITY_KEY = 'fogmap.fog.opacity'
 const BORDERS_KEY = 'fogmap.borders'
 
+/** Deepest zoom the server renders fog and trail tiles at. Matches geo.MAX_Z. */
+export const MAX_RENDERED_ZOOM = 16
+
 // Not baked into the tiles. How much of the map shows through the fog is a
 // viewing preference, and MapLibre scales a raster layer on the GPU - instant,
 // free, and no re-render. Baking one answer in would also be wrong for the
@@ -156,16 +159,18 @@ export function buildStyle(setup: MapSetup): StyleSpec {
       tiles: [rasterTiles(setup.theme, setup.view, 'trail')],
       tileSize: 256,
       minzoom: 0,
-      // The native grid is z14. Above that the client overzooms rather than
-      // the server rendering tiles that carry no more information.
-      maxzoom: 14,
+      // Everything is stored on the z14 grid, but the PNG pyramid is rendered
+      // two levels deeper - stamped from the same geometry rather than
+      // upscaled - because a 15 m brush is two pixels at z14 and magnifying
+      // that to z18 is a smear. Must match geo.MAX_Z on the server.
+      maxzoom: MAX_RENDERED_ZOOM,
     },
     [FOG_SOURCE]: {
       type: 'raster',
       tiles: [rasterTiles(setup.theme, setup.view, 'fog')],
       tileSize: 256,
       minzoom: 0,
-      maxzoom: 14,
+      maxzoom: MAX_RENDERED_ZOOM,
     },
   }
 
@@ -189,21 +194,19 @@ export function buildStyle(setup: MapSetup): StyleSpec {
         id: 'fogmap-trail',
         type: 'raster',
         source: TRAIL_SOURCE,
-        // The trail raster stops at z14, so above that it is magnified: a
-        // one-pixel track becomes a sixteen-pixel blurred stripe with visibly
-        // stepped edges. The vector trail layer draws the same tracks from
-        // their real geometry from z14 up, so the raster is faded down as it
-        // arrives. Not all the way to nothing: the raster is the only thing
-        // carrying how many times a pixel was crossed, and at low opacity it
-        // reads as a glow under the crisp line rather than as a blurred one.
+        // Sharp to z16, magnified past it. The vector trail layer draws the
+        // same tracks from their real geometry, so the raster fades down as
+        // that takes over - but not to nothing, because the raster is the only
+        // thing carrying how many times a pixel was crossed, and at low
+        // opacity it reads as a glow under the crisp line.
         paint: {
           'raster-opacity': [
             'interpolate',
             ['linear'],
             ['zoom'],
-            14,
+            MAX_RENDERED_ZOOM,
             1,
-            15.5,
+            MAX_RENDERED_ZOOM + 1.5,
             0.3,
           ],
         },

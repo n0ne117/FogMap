@@ -277,6 +277,125 @@ def composite_tile(
     return fog, np.clip(trail, 0, 255).astype(np.uint8)
 
 
+def deep_tiles(
+    conn: sqlite3.Connection, view: str, parent: tuple[int, int], zoom: int
+) -> dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]:
+    """Compose every tile at `zoom` inside one native tile, from the event log.
+
+    Below z14 the pyramid is built by folding the blob store upwards. Above it
+    there is nothing to fold: the blobs hold two-and-a-bit pixels per brush and
+    upscaling them is what made a hand-drawn stroke arrive as a smear. So the
+    deep levels are stamped from the same geometry at their own resolution.
+
+    Nothing new is stored. The event log is still the only source of truth
+    (invariant 1), the composite rules are the ones at the top of this file,
+    and it all still happens at ingest rather than in a tile request
+    (invariant 3). Only the grid the stamping lands on is different.
+    """
+    layers = view_layers(view)
+    wanted = set(geo.descendants(*parent, zoom))
+
+    fog_add: dict[tuple[int, int], np.ndarray] = {}
+    erased: dict[tuple[int, int], np.ndarray] = {}
+    trails: dict[tuple[int, int], np.ndarray] = {}
+
+    for event in raster.iter_events(conn):
+        bounds = raster.event_tile_bounds(event)
+        if bounds is not None:
+            west, north, east, south = bounds
+            if not (west <= parent[0] <= east and north <= parent[1] <= south):
+                continue
+
+        event_id = int(event["id"])
+        op = event["op"]
+        event_layers = raster.parse_layers(event["layers"], event_id)
+
+        # Erase ignores the layer filter, exactly as it does at z14.
+        if op != "erase" and layers is not None and not (layers & set(event_layers)):
+            continue
+
+        points = raster.geometry_points(event["geometry"], event_id)
+        radius_m = float(event["radius_m"])
+        stamped = {
+            key: mask
+            for key, mask in raster.stamp_path(points, radius_m, zoom).items()
+            if key in wanted
+        }
+        if not stamped:
+            continue
+
+        if op == "erase":
+            for key, mask in stamped.items():
+                target = erased.setdefault(key, np.zeros((TILE, TILE), dtype=bool))
+                target |= mask
+            continue
+
+        # An add that lands on erased ground lifts the erase, in id order,
+        # which is what makes redrawing there work at z14 too.
+        for key, mask in stamped.items():
+            if key in erased:
+                erased[key] &= ~mask
+            target = fog_add.setdefault(key, np.zeros((TILE, TILE), dtype=bool))
+            target |= mask
+
+        trail_radius_m = min(radius_m, raster.trail_max_radius_m())
+        trail_stamped = (
+            stamped
+            if trail_radius_m >= radius_m
+            else {
+                key: mask
+                for key, mask in raster.stamp_path(
+                    points, trail_radius_m, zoom
+                ).items()
+                if key in wanted
+            }
+        )
+        # One pass per event per layer, saturating - the same counting rule as
+        # merge_trail, so the colour ramp means the same thing at every zoom.
+        bump = len(event_layers) if layers is None else len(layers & set(event_layers))
+        for key, mask in trail_stamped.items():
+            counts = trails.setdefault(key, np.zeros((TILE, TILE), dtype=np.uint16))
+            counts[mask] += bump
+
+    out: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
+    for key in set(fog_add) | set(trails):
+        fog = fog_add.get(key, np.zeros((TILE, TILE), dtype=bool)).copy()
+        trail = trails.get(key, np.zeros((TILE, TILE), dtype=np.uint16)).copy()
+        gone = erased.get(key)
+        if gone is not None:
+            fog &= ~gone
+            trail[gone] = 0
+        if fog.any() or trail.any():
+            out[key] = (fog, np.clip(trail, 0, 255).astype(np.uint8))
+    return out
+
+
+def fold_up(
+    tiles: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]],
+) -> dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]:
+    """Combine a level of composed tiles into the level above it.
+
+    The same 2x2 rule the rest of the pyramid uses: max for fog so a thin
+    trail survives, sum for the pass count.
+    """
+    grouped: dict[tuple[int, int], dict[tuple[int, int], np.ndarray]] = {}
+    trails: dict[tuple[int, int], dict[tuple[int, int], np.ndarray]] = {}
+
+    for (x, y), (fog, trail) in tiles.items():
+        parent = (x // 2, y // 2)
+        offset = (x % 2, y % 2)
+        grouped.setdefault(parent, {})[offset] = fog
+        trails.setdefault(parent, {})[offset] = trail
+
+    return {
+        parent: (
+            parent_tile(children, "max"),
+            parent_tile(trails[parent], "sum"),
+        )
+        for parent, children in grouped.items()
+    }
+
+
 def downsample_max(array: np.ndarray) -> np.ndarray:
     """2x2 max, halving a tile. Used for fog and erase masks.
 
@@ -601,7 +720,44 @@ def render_view(
 
         return fog, trail
 
+    def build_deep(parent: tuple[int, int]) -> None:
+        """Stamp the deep levels under one native tile, straight from geometry.
+
+        Only the deepest is stamped. The levels between it and z14 are folded
+        up from it the same way z13 is folded up from z14, which is both
+        consistent with the rest of the pyramid and a good deal cheaper than
+        replaying the event log once per level.
+        """
+        nonlocal written
+
+        composed = deep_tiles(conn, view, parent, geo.MAX_Z)
+        for zoom in range(geo.MAX_Z, geo.NATIVE_Z, -1):
+            if zoom < geo.MAX_Z:
+                composed = fold_up(composed)
+
+            for (x, y), (fog, trail) in composed.items():
+                if not in_scope(zoom, x, y):
+                    for theme in themes:
+                        for kind in KINDS:
+                            kept.add(tile_path(root, theme, view, kind, zoom, x, y))
+                    continue
+
+                for theme in themes:
+                    for kind, rgba in (
+                        ("fog", render_fog(fog, theme, colour=colours[theme])),
+                        ("trail", render_trail(trail, theme)),
+                    ):
+                        destination = tile_path(root, theme, view, kind, zoom, x, y)
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        destination.write_bytes(encode_png(rgba))
+                        kept.add(destination)
+                        written += 1
+
     build(0, 0, 0)
+
+    deep_parents = native if scope is None else native & scope.get(geo.NATIVE_Z, set())
+    for parent in sorted(deep_parents):
+        build_deep(parent)
 
     if scope is None:
         prune_stale(root, view, kept)
@@ -650,11 +806,17 @@ def render_all(
 def rebuild_scope(touched: set[tuple[int, int]]) -> dict[int, set[tuple[int, int]]]:
     """Every tile that needs rebuilding for a set of touched z14 tiles.
 
-    Section 6: rebuild those tiles and all 14 ancestors, and nothing else.
+    Section 6: rebuild those tiles and all 14 ancestors, and nothing else -
+    plus, since the pyramid now goes below z14, their descendants down to
+    MAX_Z, which are stamped from the same geometry.
     Returned as {zoom: {(x, y), ...}} with z14 included.
     """
     scope: dict[int, set[tuple[int, int]]] = {geo.NATIVE_Z: set(touched)}
     for tile_x, tile_y in touched:
         for zoom, ancestor_x, ancestor_y in geo.ancestors(tile_x, tile_y):
             scope.setdefault(zoom, set()).add((ancestor_x, ancestor_y))
+        for zoom in range(geo.NATIVE_Z + 1, geo.MAX_Z + 1):
+            scope.setdefault(zoom, set()).update(
+                geo.descendants(tile_x, tile_y, zoom)
+            )
     return scope

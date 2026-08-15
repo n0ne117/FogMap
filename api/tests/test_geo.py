@@ -97,9 +97,52 @@ class TestTiles:
         assert chain[0] == (13, 4468, 2840)
         assert chain[-1] == (0, 0, 0)
 
-    def test_tile_count_rejects_zoom_above_native(self):
-        with pytest.raises(ValueError, match="zoom must be between 0 and 14"):
-            geo.tile_count(15)
+    def test_tile_count_rejects_zoom_below_the_deepest_rendered(self):
+        assert geo.tile_count(geo.MAX_Z) == 2**geo.MAX_Z
+        with pytest.raises(ValueError, match=f"zoom must be between 0 and {geo.MAX_Z}"):
+            geo.tile_count(geo.MAX_Z + 1)
+
+    def test_descendants_fill_the_native_tile(self):
+        assert geo.descendants(8937, 5681, geo.NATIVE_Z) == [(8937, 5681)]
+
+        one_deeper = geo.descendants(8937, 5681, geo.NATIVE_Z + 1)
+        assert len(one_deeper) == 4
+        assert (8937 * 2, 5681 * 2) in one_deeper
+        assert (8937 * 2 + 1, 5681 * 2 + 1) in one_deeper
+
+        assert len(geo.descendants(8937, 5681, geo.MAX_Z)) == 4 ** (
+            geo.MAX_Z - geo.NATIVE_Z
+        )
+
+    def test_descendants_refuses_to_look_upwards(self):
+        with pytest.raises(ValueError, match="no descendants"):
+            geo.descendants(8937, 5681, 13)
+
+
+class TestDeeperGrids:
+    """The stored grid is z14; the PNG pyramid is rendered below it."""
+
+    def test_a_deeper_grid_is_a_power_of_two_finer(self):
+        native = geo.lonlat_to_px(VIENNA_LON, VIENNA_LAT)
+        deep = geo.lonlat_to_px(VIENNA_LON, VIENNA_LAT, geo.NATIVE_Z + 2)
+        assert deep[0] == pytest.approx(native[0] * 4)
+        assert deep[1] == pytest.approx(native[1] * 4)
+
+    def test_ground_resolution_halves_with_every_level(self):
+        native = geo.m_per_px(VIENNA_LAT)
+        assert geo.m_per_px(VIENNA_LAT, geo.NATIVE_Z + 1) == pytest.approx(native / 2)
+        assert geo.m_per_px(VIENNA_LAT, geo.MAX_Z) == pytest.approx(native / 4)
+
+    def test_a_brush_covers_more_pixels_on_a_deeper_grid(self):
+        native = geo.radius_px(15.0, VIENNA_LAT)
+        deep = geo.radius_px(15.0, VIENNA_LAT, geo.MAX_Z)
+        assert native < 3.0  # the reason the deep levels exist at all
+        assert deep == pytest.approx(native * 4)
+
+    def test_a_deep_tile_sits_inside_its_native_parent(self):
+        parent = geo.lonlat_to_tile(VIENNA_LON, VIENNA_LAT)
+        deep = geo.lonlat_to_tile(VIENNA_LON, VIENNA_LAT, geo.MAX_Z)
+        assert deep in geo.descendants(*parent, geo.MAX_Z)
 
 
 class TestGroundResolution:

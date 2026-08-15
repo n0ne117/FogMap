@@ -18,6 +18,16 @@ WORLD_PX = 256 * 2**14
 TILE_PX = 256
 NATIVE_Z = 14
 
+# The deepest zoom the PNG pyramid is rendered to.
+#
+# Everything stored is on the native z14 grid, where a 15 m brush is a
+# two-and-a-bit pixel disc. Left there, the client magnifies it sixteen times
+# to reach z18 and a hand-drawn stroke arrives as a blurred, visibly stepped
+# smear. z15 and z16 are stamped from the same geometry at their own
+# resolution instead, which is four times sharper and costs about sixteen
+# times the deepest-level tiles.
+MAX_Z = 16
+
 EARTH_CIRCUMFERENCE_M = 40_075_016.686
 M_PER_PX_EQ = EARTH_CIRCUMFERENCE_M / WORLD_PX
 
@@ -47,19 +57,33 @@ def wrap_lon(lon: float) -> float:
     return wrapped - 180.0
 
 
-def lonlat_to_px(lon: float, lat: float) -> tuple[float, float]:
-    """Project lon/lat to fractional pixel coordinates on the z14 world grid.
+def world_px(zoom: int = NATIVE_Z) -> int:
+    """Width of the world in pixels at a zoom, with 256 px tiles."""
+    return TILE_PX * 2**zoom
+
+
+def lonlat_to_px(
+    lon: float, lat: float, zoom: int = NATIVE_Z
+) -> tuple[float, float]:
+    """Project lon/lat to fractional pixel coordinates on a world grid.
 
     Returns (x_px, y_px) with the origin at the north-west corner, x growing
     east and y growing south. Latitude is clamped and longitude wrapped, so
     this never raises on in-range-ish input.
+
+    Defaults to the native z14 grid, which is the grid everything stored is
+    on. The zoom argument exists for rendering below it: the PNG pyramid goes
+    deeper than z14 so that a brush stroke is not a handful of pixels being
+    magnified sixteen times, and those levels are stamped from geometry at
+    their own resolution rather than upscaled.
     """
     lon = wrap_lon(lon)
     lat_rad = math.radians(clamp_lat(lat))
+    span = world_px(zoom)
 
-    x_px = (lon + 180.0) / 360.0 * WORLD_PX
+    x_px = (lon + 180.0) / 360.0 * span
     merc = math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad))
-    y_px = (1.0 - merc / math.pi) / 2.0 * WORLD_PX
+    y_px = (1.0 - merc / math.pi) / 2.0 * span
     return x_px, y_px
 
 
@@ -73,16 +97,17 @@ def px_to_lonlat(x_px: float, y_px: float) -> tuple[float, float]:
     return lon, lat
 
 
-def m_per_px(lat: float) -> float:
-    """Ground resolution in metres per z14 pixel at the given latitude.
+def m_per_px(lat: float, zoom: int = NATIVE_Z) -> float:
+    """Ground resolution in metres per pixel at the given latitude.
 
-    9.5546 m at the equator, 6.37 m at Vienna's 48.2 degrees.
+    9.5546 m at the equator on the z14 grid, 6.37 m at Vienna's 48.2 degrees.
     """
-    return M_PER_PX_EQ * math.cos(math.radians(clamp_lat(lat)))
+    at_equator = EARTH_CIRCUMFERENCE_M / world_px(zoom)
+    return at_equator * math.cos(math.radians(clamp_lat(lat)))
 
 
-def radius_px(radius_m: float, lat: float) -> float:
-    """Convert a brush radius in metres to z14 pixels at the given latitude.
+def radius_px(radius_m: float, lat: float, zoom: int = NATIVE_Z) -> float:
+    """Convert a brush radius in metres to pixels at the given latitude.
 
     Call this per stamped point rather than once per track. Ground resolution
     changes by a factor of two between Vienna and the equator, so a radius
@@ -93,17 +118,17 @@ def radius_px(radius_m: float, lat: float) -> float:
         raise ValueError(
             f"brush radius must be greater than 0 m, got {radius_m} m"
         )
-    return radius_m / m_per_px(lat)
+    return radius_m / m_per_px(lat, zoom)
 
 
 def px_to_tile(x_px: float, y_px: float) -> tuple[int, int]:
-    """The z14 tile containing a pixel coordinate."""
+    """The tile containing a pixel coordinate, on that pixel's own grid."""
     return int(math.floor(x_px / TILE_PX)), int(math.floor(y_px / TILE_PX))
 
 
-def lonlat_to_tile(lon: float, lat: float) -> tuple[int, int]:
-    """The z14 tile containing a geographic coordinate."""
-    return px_to_tile(*lonlat_to_px(lon, lat))
+def lonlat_to_tile(lon: float, lat: float, zoom: int = NATIVE_Z) -> tuple[int, int]:
+    """The tile containing a geographic coordinate."""
+    return px_to_tile(*lonlat_to_px(lon, lat, zoom))
 
 
 def tile_origin_px(tile_x: int, tile_y: int) -> tuple[int, int]:
@@ -113,11 +138,25 @@ def tile_origin_px(tile_x: int, tile_y: int) -> tuple[int, int]:
 
 def tile_count(zoom: int) -> int:
     """Number of tiles along one axis at the given zoom."""
-    if not 0 <= zoom <= NATIVE_Z:
-        raise ValueError(
-            f"zoom must be between 0 and {NATIVE_Z}, got {zoom}"
-        )
+    if not 0 <= zoom <= MAX_Z:
+        raise ValueError(f"zoom must be between 0 and {MAX_Z}, got {zoom}")
     return 2**zoom
+
+
+def descendants(
+    tile_x: int, tile_y: int, zoom: int, of_zoom: int = NATIVE_Z
+) -> list[tuple[int, int]]:
+    """Every tile at `zoom` inside one tile at `of_zoom`."""
+    if zoom < of_zoom:
+        raise ValueError(
+            f"zoom {zoom} is above {of_zoom}, so there are no descendants there."
+        )
+    factor = 2 ** (zoom - of_zoom)
+    return [
+        (tile_x * factor + dx, tile_y * factor + dy)
+        for dx in range(factor)
+        for dy in range(factor)
+    ]
 
 
 def ancestors(tile_x: int, tile_y: int) -> list[tuple[int, int, int]]:
