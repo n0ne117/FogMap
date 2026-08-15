@@ -37,7 +37,7 @@ import {
 } from './map'
 import { Labels } from './labels'
 import { Places } from './places'
-import { percentOf, runRender } from './render'
+import { estimate, runRender } from './render'
 import { Setup } from './setup'
 import { Sources } from './sources'
 import { Timeline } from './timeline'
@@ -153,12 +153,15 @@ function wireFogColour(map: MapLibreMap, options: MapSetup): { load: () => Promi
     apply.disabled = true
     status.hidden = false
     status.dataset.state = ''
-    status.textContent = 'Re-rendering every tile in the new colour.'
+    status.textContent =
+      'The colour is baked into every tile, so this re-renders all of them. ' +
+      'On a large archive that is several minutes. Settings are locked until it finishes.'
 
+    const startedAt = Date.now()
     void apiSend('PATCH', '/api/settings', { [key()]: value })
       .then(() =>
         runRender((step) => {
-          status.textContent = `Re-rendering every tile in the new colour —${percentOf(step)}`
+          status.textContent = `Recolouring the fog — ${estimate(step, startedAt)}`
         }),
       )
       .then(() => {
@@ -426,12 +429,15 @@ async function start(): Promise<void> {
     if (!rampReady) return
     rampStatus.hidden = false
     rampStatus.dataset.state = ''
-    rampStatus.textContent = 'Re-rendering the trails in the new colours.'
+    rampStatus.textContent =
+      'The colours are baked into every tile, so this re-renders all of them. ' +
+      'On a large archive that is several minutes. Settings are locked until it finishes.'
 
+    const startedAt = Date.now()
     void apiSend('PATCH', '/api/settings', { trail_ramp: value })
       .then(() =>
         runRender((step) => {
-          rampStatus.textContent = `Re-rendering the trails in the new colours —${percentOf(step)}`
+          rampStatus.textContent = `Recolouring the trails — ${estimate(step, startedAt)}`
         }),
       )
       .then(() => {

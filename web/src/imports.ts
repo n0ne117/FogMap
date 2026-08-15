@@ -9,7 +9,7 @@
 // settles the whole debt in one pass once the last file is in.
 
 import { ApiError, getToken } from './api'
-import { percentOf, runRender } from './render'
+import { estimate, runRender } from './render'
 import { element } from './ui'
 
 export interface ImportOutcome {
@@ -147,11 +147,12 @@ export class Imports {
     bar.max = 1
     text.textContent = `${imported}. Drawing the map…`
 
+    const startedAt = Date.now()
     await runRender((step) => {
       if (!step.total) return
       bar.max = step.total
       bar.value = step.done
-      text.textContent = `${imported}. Drawing the map —${percentOf(step)}`
+      text.textContent = `${imported}. Drawing the map — ${estimate(step, startedAt)}`
     })
   }
 

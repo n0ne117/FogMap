@@ -745,3 +745,68 @@ def _trail_rgb(root):
         if lit.any():
             return tuple(int(v) for v in pixels[lit][:, :3].mean(axis=0).round())
     return None
+
+
+class TestKindScopedRender:
+    """Recolouring the trails must not re-render a single fog tile."""
+
+    def test_only_the_asked_for_kind_is_written(self, seeded, tmp_path):
+        root = tmp_path / "tiles"
+        composite.render_views(seeded, root, ["all"], themes=("dark",))
+        both = sorted(p.relative_to(root) for p in root.rglob("*.png"))
+        assert any("fog" in str(p) for p in both)
+        assert any("trail" in str(p) for p in both)
+
+        stamps = {p: p.stat().st_mtime_ns for p in root.rglob("*.png")}
+        composite.render_views(
+            seeded, root, ["all"], themes=("dark",), kinds=("trail",)
+        )
+
+        for path, was in stamps.items():
+            if "trail" in str(path):
+                assert path.stat().st_mtime_ns != was, f"{path} should have been redrawn"
+            else:
+                assert path.stat().st_mtime_ns == was, f"{path} should not have moved"
+
+    def test_a_kind_scoped_render_deletes_nothing(self, seeded, tmp_path):
+        """Pruning has no idea which fog tiles hold data on a trail-only pass."""
+        root = tmp_path / "tiles"
+        composite.render_views(seeded, root, ["all"], themes=("dark",))
+        before = sorted(p.relative_to(root) for p in root.rglob("*.png"))
+
+        composite.render_views(
+            seeded, root, ["all"], themes=("dark",), kinds=("trail",)
+        )
+        assert sorted(p.relative_to(root) for p in root.rglob("*.png")) == before
+
+    def test_a_kind_scoped_render_matches_a_full_one(self, seeded, tmp_path):
+        one, two = tmp_path / "scoped", tmp_path / "full"
+        composite.render_views(seeded, one, ["all"], themes=("dark",))
+        composite.render_views(seeded, one, ["all"], themes=("dark",), kinds=("trail",))
+        composite.render_views(seeded, two, ["all"], themes=("dark",))
+
+        left = sorted(one.rglob("*.png"))
+        right = sorted(two.rglob("*.png"))
+        assert left and len(left) == len(right)
+        for a, b in zip(left, right):
+            assert a.read_bytes() == b.read_bytes(), a.relative_to(one)
+
+
+class TestPendingKinds:
+    def test_nothing_recorded_means_both(self, conn):
+        assert db.pending_kinds(conn) == ("fog", "trail")
+
+    def test_one_kind_is_remembered(self, conn):
+        db.defer_render(conn, {(1, 1)}, ("trail",))
+        assert db.pending_kinds(conn) == ("trail",)
+
+    def test_deferrals_accumulate_rather_than_replace(self, conn):
+        db.defer_render(conn, {(1, 1)}, ("trail",))
+        db.defer_render(conn, {(2, 2)}, ("fog",))
+        assert db.pending_kinds(conn) == ("fog", "trail")
+
+    def test_rendering_clears_what_was_owed(self, conn):
+        db.defer_render(conn, {(1, 1)}, ("trail",))
+        db.clear_pending_render(conn)
+        assert db.pending_render(conn) == set()
+        assert db.pending_kinds(conn) == ("fog", "trail")

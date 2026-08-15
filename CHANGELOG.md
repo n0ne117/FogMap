@@ -11,6 +11,16 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.10.2] - 2026-08-15
+
+### Fixed
+- Single mode barely deduplicated anything. It kept any track covering 30% new ground, on a 25 m grid with no tolerance for GPS scatter — so two traces of one street landing either side of a grid line each looked like new ground and both were drawn. The grid is 10 m now, a cell counts as covered when any neighbouring cell is, and a track needs 15% genuinely new ground to earn a line. Two runs down the same street are one route; a run that shares most of its length but takes a detour is still drawn, and only the detour counts as newly covered.
+
+### Changed
+- Recolouring the trails no longer re-renders the fog, and recolouring the fog no longer re-renders the trails. Neither changes a single pixel of the other. On this archive a trail recolour went from 12 minutes to 6, and the progress became close to linear as a side effect — the fog and trail passes have very different costs, and interleaving them was most of why the percentage appeared to stall and then leap.
+- Recolouring says up front that it re-renders every tile and takes several minutes, then reports a live estimate rather than a bare percentage. The estimate projects from the rate observed so far, so it corrects itself as the work turns out to be faster or slower than it looked.
+- The controls that can start a render — both colour pickers and the import button — are locked while one is running. Starting a second render over a half-finished one leaves the tiles in a state neither of them intended.
+
 ## [0.10.1] - 2026-08-15
 
 ### Fixed

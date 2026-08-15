@@ -447,8 +447,10 @@ def patch_settings(
     # it inside the request means a request that times out somewhere between
     # the browser and the proxy with the tiles half rewritten.
     if recolour:
+        # A trail ramp does not change a single fog pixel, and vice versa.
+        kinds = ("trail",) if recolour == {composite.SETTING_TRAIL_RAMP} else ("fog",)
         with db.transaction(conn):
-            db.defer_render(conn, composite.tiles_with_data(conn, None))
+            db.defer_render(conn, composite.tiles_with_data(conn, None), kinds)
         load_placeholders(request.app, conn)
 
     out = get_settings(conn)
@@ -617,6 +619,7 @@ def render_status(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, obj
     pending = db.pending_render(conn)
     return {
         "pending_tiles": len(pending),
+        "kinds": list(db.pending_kinds(conn)) if pending else [],
         "views": composite.views_touching(conn, pending) if pending else [],
         "workers": composite.render_workers(),
     }
@@ -650,6 +653,7 @@ def render_pending() -> StreamingResponse:
                 return
 
             views = composite.views_touching(conn, pending)
+            kinds = db.pending_kinds(conn)
             root = tiles_root()
             root.mkdir(parents=True, exist_ok=True)
             composite.write_placeholders(root, conn)
@@ -662,8 +666,11 @@ def render_pending() -> StreamingResponse:
                 views,
                 scope=composite.rebuild_scope(pending),
                 written=written,
+                kinds=kinds,
             ):
-                yield json.dumps({"done": finished, "total": jobs}) + "\n"
+                yield json.dumps(
+                    {"done": finished, "total": jobs, "kinds": list(kinds)}
+                ) + "\n"
 
             with db.transaction(conn):
                 db.clear_pending_render(conn)

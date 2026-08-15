@@ -803,6 +803,7 @@ def render_deep(
     scope: dict[int, set[tuple[int, int]]] | None,
     colours: dict[str, tuple[int, int, int]],
     ramp: str = "ember",
+    kinds: tuple[str, ...] = KINDS,
 ) -> tuple[int, set[Path]]:
     """Stamp the deep levels under one native tile, straight from geometry.
 
@@ -825,7 +826,7 @@ def render_deep(
         for (x, y), (fog, trail) in composed.items():
             wanted = scope is None or (x, y) in scope.get(zoom, frozenset())
             for theme in themes:
-                for kind in KINDS:
+                for kind in kinds:
                     destination = tile_path(root, theme, view, kind, zoom, x, y)
                     kept.add(destination)
                     if not wanted:
@@ -850,6 +851,7 @@ Job = tuple[
     tuple[str, ...],  # themes
     "dict[int, set[tuple[int, int]]] | None",  # scope
     "tuple[int, int] | None",  # native tile, for deep jobs
+    tuple[str, ...],  # kinds
 ]
 
 
@@ -860,15 +862,25 @@ def _render_job(job: Job) -> tuple[int, list[str]]:
     pool can pickle. A connection cannot cross a process boundary, so each
     worker opens its own; they only read.
     """
-    kind, db_path, root, view, themes, scope, parent = job
+    kind, db_path, root, view, themes, scope, parent, kinds = job
     conn = db.connect(db_path)
     try:
         if kind == "shallow":
-            written, kept, _ = render_shallow(conn, Path(root), view, themes, scope)
+            written, kept, _ = render_shallow(
+                conn, Path(root), view, themes, scope, kinds
+            )
         else:
             colours = {theme: fog_colour(theme, conn) for theme in themes}
             written, kept = render_deep(
-                conn, Path(root), view, parent, themes, scope, colours, trail_ramp(conn)
+                conn,
+                Path(root),
+                view,
+                parent,
+                themes,
+                scope,
+                colours,
+                trail_ramp(conn),
+                kinds,
             )
         return written, [str(path) for path in kept]
     finally:
@@ -881,6 +893,7 @@ def render_shallow(
     view: str,
     themes: tuple[str, ...],
     scope: dict[int, set[tuple[int, int]]] | None,
+    kinds: tuple[str, ...] = KINDS,
 ) -> tuple[int, set[Path], list[tuple[int, int]]]:
     """z0 to z14 for one view, folded up from the blob store.
 
@@ -939,7 +952,7 @@ def render_shallow(
 
         wanted = in_scope(zoom, x, y)
         for theme in themes:
-            for kind in KINDS:
+            for kind in kinds:
                 destination = tile_path(root, theme, view, kind, zoom, x, y)
                 kept.add(destination)
                 if not wanted:
@@ -969,21 +982,31 @@ def prune_view(
     kept: set[Path],
     themes: tuple[str, ...],
     scope: dict[int, set[tuple[int, int]]] | None,
+    kinds: tuple[str, ...] = KINDS,
 ) -> None:
-    """Delete rendered tiles this render did not account for."""
+    """Delete rendered tiles this render did not account for.
+
+    Only among the kinds that were rendered. A trail-only pass knows nothing
+    about which fog tiles hold data, so sweeping those would delete every one
+    of them on the grounds that this pass did not write them.
+    """
+    if kinds != KINDS:
+        return
+
     if scope is None:
         prune_stale(root, view, kept)
-    else:
-        # Only a tile inside the scope can have lost its data, so the sweep
-        # over the whole view is not just wasted - with a view per year it is
-        # most of what an edit costs.
-        for zoom, tiles in scope.items():
-            for tile_x, tile_y in tiles:
-                for theme in themes:
-                    for kind in KINDS:
-                        path = tile_path(root, theme, view, kind, zoom, tile_x, tile_y)
-                        if path not in kept:
-                            path.unlink(missing_ok=True)
+        return
+
+    # Only a tile inside the scope can have lost its data, so the sweep over
+    # the whole view is not just wasted - with a view per year it is most of
+    # what an edit costs.
+    for zoom, tiles in scope.items():
+        for tile_x, tile_y in tiles:
+            for theme in themes:
+                for kind in kinds:
+                    path = tile_path(root, theme, view, kind, zoom, tile_x, tile_y)
+                    if path not in kept:
+                        path.unlink(missing_ok=True)
 
 
 def render_views_iter(
@@ -994,6 +1017,7 @@ def render_views_iter(
     scope: dict[int, set[tuple[int, int]]] | None = None,
     workers: int | None = None,
     written: dict[str, int] | None = None,
+    kinds: tuple[str, ...] = KINDS,
 ) -> Iterator[tuple[int, int]]:
     """Render a list of views, yielding (jobs finished, jobs total) as it goes.
 
@@ -1034,12 +1058,14 @@ def render_views_iter(
             continue
 
         owners.append(view)
-        jobs.append(("shallow", database, root_text, view, themes, scope, None))
+        jobs.append(("shallow", database, root_text, view, themes, scope, None, kinds))
 
         parents = native if scope is None else native & scope.get(geo.NATIVE_Z, set())
         for parent in sorted(parents):
             owners.append(view)
-            jobs.append(("deep", database, root_text, view, themes, scope, parent))
+            jobs.append(
+                ("deep", database, root_text, view, themes, scope, parent, kinds)
+            )
 
     total = len(jobs)
     yield 0, total
@@ -1079,7 +1105,7 @@ def render_views_iter(
 
     for view in views:
         if kept[view]:
-            prune_view(root, view, kept[view], themes, scope)
+            prune_view(root, view, kept[view], themes, scope, kinds)
 
 
 def render_views(
@@ -1089,10 +1115,13 @@ def render_views(
     themes: tuple[str, ...] = THEMES,
     scope: dict[int, set[tuple[int, int]]] | None = None,
     workers: int | None = None,
+    kinds: tuple[str, ...] = KINDS,
 ) -> dict[str, int]:
     """Render a list of views. Returns tiles written per view."""
     written: dict[str, int] = {}
-    for _ in render_views_iter(conn, root, views, themes, scope, workers, written):
+    for _ in render_views_iter(
+        conn, root, views, themes, scope, workers, written, kinds
+    ):
         pass
     return written
 

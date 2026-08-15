@@ -49,15 +49,28 @@ const DENSE_FROM = 24
 /**
  * How close two tracks have to be to count as the same route, in metres.
  *
- * Wide enough to swallow GPS scatter down one street, narrow enough to keep
- * the pavement on each side of a dual carriageway apart.
+ * Ten metres, with a cell counting as covered when any of its eight
+ * neighbours is - so the effective reach is about fifteen, which is roughly
+ * the scatter of two GPS traces down the same pavement. Small enough to keep
+ * the two sides of a dual carriageway apart.
  */
-const CORRIDOR_M = 25
+const CORRIDOR_M = 10
 
-/** New ground a track must cover to be worth drawing as well as its neighbours. */
-const NOVELTY = 0.3
+/**
+ * How much new ground a track needs before it is worth a line of its own.
+ *
+ * Low on purpose. Two runs down the same street are one route, not two, and
+ * the trail colouring underneath already says how often it was run - so a
+ * track has to genuinely go somewhere the drawn ones do not before it earns
+ * ink. A run sharing its whole length with an existing one is dropped; a run
+ * sharing most of it but taking a detour is kept, and only the detour is
+ * added to what has been covered.
+ */
+const NOVELTY = 0.15
 
 type Ring = [number, number][]
+
+type Cell = [number, number]
 
 /**
  * The grid cells a track passes through, walked at the corridor spacing.
@@ -65,8 +78,9 @@ type Ring = [number, number][]
  * Vertices alone are not enough: a hand-drawn line is two points a kilometre
  * apart, and snapping only its ends would say it covers two cells.
  */
-function cellsOf(geometry: unknown, metres: number): Set<string> {
-  const cells = new Set<string>()
+function cellsOf(geometry: unknown, metres: number): Cell[] {
+  const seen = new Set<string>()
+  const cells: Cell[] = []
   const coordinates = (geometry as { type?: string; coordinates?: unknown })?.coordinates
   if (!Array.isArray(coordinates)) return cells
 
@@ -75,12 +89,19 @@ function cellsOf(geometry: unknown, metres: number): Set<string> {
   ) as Ring
   if (!points.length) return cells
 
-  const at = (lon: number, lat: number) => {
+  const add = (lon: number, lat: number) => {
     const scale = Math.cos((lat * Math.PI) / 180)
-    return `${Math.round((lon * 111_320 * scale) / metres)},${Math.round((lat * 110_540) / metres)}`
+    const cell: Cell = [
+      Math.round((lon * 111_320 * scale) / metres),
+      Math.round((lat * 110_540) / metres),
+    ]
+    const key = `${cell[0]},${cell[1]}`
+    if (seen.has(key)) return
+    seen.add(key)
+    cells.push(cell)
   }
 
-  cells.add(at(points[0][0], points[0][1]))
+  add(points[0][0], points[0][1])
   for (let i = 0; i < points.length - 1; i += 1) {
     const [aLon, aLat] = points[i]
     const [bLon, bLat] = points[i + 1]
@@ -89,7 +110,7 @@ function cellsOf(geometry: unknown, metres: number): Set<string> {
     const steps = Math.min(Math.ceil(span / metres), 4000)
     for (let step = 1; step <= steps; step += 1) {
       const t = step / steps
-      cells.add(at(aLon + (bLon - aLon) * t, aLat + (bLat - aLat) * t))
+      add(aLon + (bLon - aLon) * t, aLat + (bLat - aLat) * t)
     }
   }
   return cells
@@ -100,24 +121,39 @@ function cellsOf(geometry: unknown, metres: number): Set<string> {
  *
  * Newest first, because when the same route has been walked for years the
  * most recent version of it is the one worth showing.
+ *
+ * A cell is covered if it or any neighbouring cell has been. Without that,
+ * two traces of one street landing either side of a grid line would each
+ * look like new ground, and the mode would quietly do nothing - which is
+ * exactly what it did at twenty-five metre cells with no tolerance.
  */
 export function oneEach<T extends { geometry: unknown }>(
   features: T[],
   metres = CORRIDOR_M,
+  novelty = NOVELTY,
 ): T[] {
   const seen = new Set<string>()
   const kept: T[] = []
 
+  const covered = (x: number, y: number): boolean => {
+    for (let dx = -1; dx <= 1; dx += 1) {
+      for (let dy = -1; dy <= 1; dy += 1) {
+        if (seen.has(`${x + dx},${y + dy}`)) return true
+      }
+    }
+    return false
+  }
+
   for (const feature of features) {
     const cells = cellsOf(feature.geometry, metres)
-    if (!cells.size) continue
+    if (!cells.length) continue
 
     let fresh = 0
-    for (const cell of cells) if (!seen.has(cell)) fresh += 1
+    for (const [x, y] of cells) if (!covered(x, y)) fresh += 1
 
-    if (fresh / cells.size >= NOVELTY) {
+    if (fresh / cells.length >= novelty) {
       kept.push(feature)
-      for (const cell of cells) seen.add(cell)
+      for (const [x, y] of cells) seen.add(`${x},${y}`)
     }
   }
   return kept

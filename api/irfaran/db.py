@@ -245,14 +245,56 @@ def path_of(conn: sqlite3.Connection) -> str:
     return str(db_path())
 
 
-def defer_render(conn: sqlite3.Connection, tiles: set[tuple[int, int]]) -> None:
-    """Record z14 tiles whose PNGs are now out of date."""
+PENDING_KINDS_KEY = "pending_render_kinds"
+
+
+def defer_render(
+    conn: sqlite3.Connection,
+    tiles: set[tuple[int, int]],
+    kinds: tuple[str, ...] = ("fog", "trail"),
+) -> None:
+    """Record z14 tiles whose PNGs are now out of date, and which of them.
+
+    Recolouring the trails does not change a single fog pixel, and rendering
+    the fog anyway is half the work for none of the result. What is owed is
+    the union of every deferral since the last render, so an import that owes
+    both followed by a recolour that owes one still owes both.
+    """
     if not tiles:
         return
     conn.executemany(
         "INSERT INTO pending_render (x, y) VALUES (?, ?) ON CONFLICT DO NOTHING",
         sorted(tiles),
     )
+
+    owed = _recorded_kinds(conn) | set(kinds)
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (PENDING_KINDS_KEY, ",".join(sorted(owed))),
+    )
+
+
+def _recorded_kinds(conn: sqlite3.Connection) -> set[str]:
+    """Exactly what is written down, which may be nothing at all."""
+    row = conn.execute(
+        "SELECT value FROM settings WHERE key = ?", (PENDING_KINDS_KEY,)
+    ).fetchone()
+    if not row or not str(row["value"]).strip():
+        return set()
+    return {part for part in str(row["value"]).split(",") if part}
+
+
+def pending_kinds(conn: sqlite3.Connection) -> tuple[str, ...]:
+    """Which tile kinds are owed.
+
+    Both when nothing was written down: a debt from before this was recorded,
+    or from any path that did not say, has to be assumed to cover everything.
+    Rendering more than was needed wastes time; rendering less leaves tiles
+    silently wrong.
+    """
+    recorded = _recorded_kinds(conn)
+    return tuple(sorted(recorded)) if recorded else ("fog", "trail")
 
 
 def pending_render(conn: sqlite3.Connection) -> set[tuple[int, int]]:
@@ -264,6 +306,7 @@ def pending_render(conn: sqlite3.Connection) -> set[tuple[int, int]]:
 
 def clear_pending_render(conn: sqlite3.Connection) -> None:
     conn.execute("DELETE FROM pending_render")
+    conn.execute("DELETE FROM settings WHERE key = ?", (PENDING_KINDS_KEY,))
 
 
 def counts(conn: sqlite3.Connection) -> dict[str, int]:
