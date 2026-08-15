@@ -176,6 +176,28 @@
               at import, so switching is instant.
             </p>
           </section>
+
+          <section>
+            <h2>Fog</h2>
+            <label class="field">
+              <span>Thickness — <output id="fog-opacity-value">60%</output></span>
+              <input
+                id="fog-opacity"
+                class="wide-slider"
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                value="60"
+                aria-label="Fog thickness"
+              />
+            </label>
+            <p class="hint">
+              How much of the map shows through ground you have not visited.
+              At 100% the world behind is completely hidden. Applied in the
+              browser, so it changes as you drag and nothing is re-rendered.
+            </p>
+          </section>
         </div>
 
         <div class="tab-panel" data-tab="draw" hidden>

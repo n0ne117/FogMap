@@ -11,6 +11,16 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.9.3] - 2026-08-15
+
+A fog slider, and room to see what it does.
+
+### Added
+- A fog thickness slider in Settings, Appearance, from 0 to 100%. It applies as you drag it — the map is scaled in the browser, so nothing is re-rendered and nothing is requested from the server.
+
+### Changed
+- Settings and Places no longer cover the whole map. A margin stays visible all round, so a change can be watched taking effect rather than guessed at.
+
 ## [0.9.2] - 2026-08-15
 
 Lets the map show through the fog.

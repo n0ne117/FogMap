@@ -51,15 +51,14 @@ FOG_COLOUR = {
     "light": (236, 236, 231),
 }
 
-# How solid that fog is, 0 to 255.
+# How solid the baked fog is, 0 to 255.
 #
-# Not fully opaque. Section 8 calls fog an opaque overlay, and taken literally
-# that is what it was - which meant everywhere you had not been was a flat
-# rectangle with the map completely hidden behind it. There was no way to see
-# where you were going, find somewhere to draw, or tell a working install from
-# a broken one. At 84% the map reads through clearly while the ground still
-# looks unmistakably unvisited.
-DEFAULT_FOG_ALPHA = 214
+# Fully opaque, as section 8 says. How much of the map shows through is a
+# viewing choice rather than a property of the data, so it is made in the
+# browser with MapLibre's raster-opacity - which costs nothing, applies
+# instantly and needs no re-render. Baking it in here would fix one answer
+# into every tile and still be wrong for the other theme.
+DEFAULT_FOG_ALPHA = 255
 
 
 def fog_alpha() -> int:

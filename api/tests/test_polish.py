@@ -88,14 +88,16 @@ class TestFogEdge:
         monkeypatch.setenv("FOGMAP_FOG_EDGE_PX", "0")
         assert composite.fog_edge_px() == 0.0
 
-    def test_the_map_reads_through_the_fog(self):
-        """Fog is not fully opaque.
+    def test_the_baked_fog_is_fully_opaque(self):
+        """The tile carries solid fog; how much shows through is a view.
 
-        Taken literally, "opaque overlay" made everywhere you had not been a
-        flat rectangle with the basemap completely hidden - no way to navigate,
-        and indistinguishable from a broken install.
+        Baking a compromise in was tried and was wrong: near-black fog over a
+        dark basemap needs far more transparency to read than pale fog over a
+        light one, and one number cannot serve both. The browser scales the
+        layer instead, which costs nothing and can be changed while looking
+        at it.
         """
-        assert 0 < composite.DEFAULT_FOG_ALPHA < 255
+        assert composite.DEFAULT_FOG_ALPHA == 255
 
     def test_the_opacity_is_configurable(self, monkeypatch):
         monkeypatch.setenv("FOGMAP_FOG_ALPHA", "180")

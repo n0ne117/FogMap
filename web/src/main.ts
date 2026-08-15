@@ -7,12 +7,15 @@ import type { Map as MapLibreMap } from 'maplibre-gl'
 import { Draw, MIN_DRAW_ZOOM, type Mode, type Tool } from './draw'
 import { Imports } from './imports'
 import {
+  applyFogOpacity,
   applyMapTheme,
   applyView,
   basemapAvailable,
   bustTileCache,
   buildStyle,
   createMap,
+  getFogOpacity,
+  setFogOpacity,
   type MapSetup,
 } from './map'
 import { Places } from './places'
@@ -204,6 +207,21 @@ async function start(): Promise<void> {
   wireTabs('tabs')
   wireZoom(map as never)
 
+  // Fog thickness is a viewing choice applied on the GPU: it changes as the
+  // slider moves, with no re-render and no request to the server.
+  const fogSlider = element<HTMLInputElement>('fog-opacity')
+  const fogValue = element('fog-opacity-value')
+  const paintFog = (percent: number) => {
+    fogValue.textContent = `${Math.round(percent)}%`
+  }
+  fogSlider.value = String(Math.round(getFogOpacity() * 100))
+  paintFog(Number(fogSlider.value))
+  fogSlider.addEventListener('input', () => {
+    const percent = Number(fogSlider.value)
+    paintFog(percent)
+    setFogOpacity(map, percent / 100)
+  })
+
   radioGroup<UiTheme>('ui-theme', getUiTheme(), (value) => setUiTheme(value))
   radioGroup<MapTheme>('map-theme', getMapTheme(), (value) => {
     setMapTheme(value)
@@ -218,6 +236,7 @@ async function start(): Promise<void> {
   })
   const attachTrails = () => {
     try {
+      applyFogOpacity(map)
       trails.attach()
       void trails.refresh()
     } catch (error) {

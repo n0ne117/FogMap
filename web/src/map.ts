@@ -23,6 +23,45 @@ const ASSETS = 'https://protomaps.github.io/basemaps-assets'
 const FOG_SOURCE = 'fogmap-fog'
 const TRAIL_SOURCE = 'fogmap-trail'
 const BASEMAP_SOURCE = 'protomaps'
+const FOG_LAYER = 'fogmap-fog'
+const FOG_OPACITY_KEY = 'fogmap.fog.opacity'
+
+// Not baked into the tiles. How much of the map shows through the fog is a
+// viewing preference, and MapLibre scales a raster layer on the GPU - instant,
+// free, and no re-render. Baking one answer in would also be wrong for the
+// other theme: near-black fog over a dark basemap needs far more transparency
+// than pale fog over a light one to read at all.
+const DEFAULT_FOG_OPACITY = 0.6
+
+export function getFogOpacity(): number {
+  try {
+    const stored = window.localStorage.getItem(FOG_OPACITY_KEY)
+    if (stored !== null) {
+      const value = Number(stored)
+      if (Number.isFinite(value) && value >= 0 && value <= 1) return value
+    }
+  } catch {
+    /* fall through to the default */
+  }
+  return DEFAULT_FOG_OPACITY
+}
+
+export function setFogOpacity(map: MapLibreMap, opacity: number): void {
+  const clamped = Math.max(0, Math.min(1, opacity))
+  try {
+    window.localStorage.setItem(FOG_OPACITY_KEY, String(clamped))
+  } catch {
+    /* remembering is optional */
+  }
+  applyFogOpacity(map)
+}
+
+/** Re-apply after any setStyle, which resets every paint property. */
+export function applyFogOpacity(map: MapLibreMap): void {
+  if (map.getLayer(FOG_LAYER)) {
+    map.setPaintProperty(FOG_LAYER, 'raster-opacity', getFogOpacity())
+  }
+}
 
 export interface MapSetup {
   container: string
@@ -111,7 +150,12 @@ export function buildStyle(setup: MapSetup): StyleSpec {
     layers: [
       ...basemapLayers,
       { id: 'fogmap-trail', type: 'raster', source: TRAIL_SOURCE },
-      { id: 'fogmap-fog', type: 'raster', source: FOG_SOURCE },
+      {
+        id: FOG_LAYER,
+        type: 'raster',
+        source: FOG_SOURCE,
+        paint: { 'raster-opacity': getFogOpacity() },
+      },
     ],
   } as unknown as StyleSpec
 }

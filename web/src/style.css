@@ -228,14 +228,27 @@ a {
 
 /* ------------------------------------------------------------- full sheets */
 
+/* Deliberately not full screen. A margin of map stays visible all round, so a
+ * change made here - the fog slider above all - can be seen taking effect
+ * rather than guessed at. */
 .sheet {
   position: absolute;
-  inset: 0;
+  inset: 12% 15%;
   z-index: 5;
   display: flex;
   flex-direction: column;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
-  backdrop-filter: blur(10px);
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 40px #00000055;
+  overflow: hidden;
+}
+
+@media (max-width: 46rem) {
+  .sheet {
+    inset: 6% 4%;
+  }
 }
 
 .sheet-head {
@@ -244,9 +257,7 @@ a {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  width: min(84rem, 100%);
-  margin: 0 auto;
-  padding: 1.1rem clamp(1rem, 4vw, 3rem) 0.85rem;
+  padding: 1rem 1.5rem 0.75rem;
 }
 
 .sheet-head h1 {
@@ -259,9 +270,7 @@ a {
   display: flex;
   flex: 0 0 auto;
   gap: 0.15rem;
-  width: min(84rem, 100%);
-  margin: 0 auto;
-  padding: 0 clamp(1rem, 4vw, 3rem);
+  padding: 0 1.5rem;
   border-bottom: 1px solid var(--line);
   overflow-x: auto;
 }
@@ -291,14 +300,19 @@ a {
 
 .sheet-body {
   flex: 1 1 auto;
-  width: min(84rem, 100%);
-  margin: 0 auto;
-  padding: 1.25rem clamp(1rem, 4vw, 3rem) 2.5rem;
+  padding: 1.25rem 1.5rem 1.75rem;
   overflow-y: auto;
 }
 
 .sheet-body.narrow {
   width: min(40rem, 100%);
+  margin: 0 auto;
+}
+
+.wide-slider {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 .tab-panel {
