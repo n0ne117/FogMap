@@ -151,6 +151,13 @@ export class Draw {
   layers = ''
   radiusM = 15
 
+  /**
+   * Called with the stroke so far on every change, and with nothing once it
+   * has been sent. Drawing blind and finding out what you drew a second later
+   * when the tiles come back is not drawing.
+   */
+  onPreview: (points: Point[]) => void = () => {}
+
   constructor(map: MapLike, onSaved: () => void, onStatus: (m: string, bad?: boolean) => void) {
     this.map = map
     this.onSaved = onSaved
@@ -189,6 +196,7 @@ export class Draw {
     this.tool = tool
     this.points = []
     this.drawing = false
+    this.onPreview([])
     this.map.getCanvas().style.cursor =
       tool === 'off' ? '' : tool === 'eraser' ? 'cell' : 'crosshair'
     if (tool === 'off') {
@@ -233,16 +241,27 @@ export class Draw {
         this.points.push(this.at(event))
       }
       this.onStatus(`${this.points.length} points, double click to finish`)
+      this.onPreview(this.points)
       return
     }
 
     this.drawing = true
     this.points = [this.at(event)]
+    this.onPreview(this.points)
   }
 
   private extend(event: PointerEvent): void {
-    if (!this.drawing || this.tool === 'line') return
+    if (!this.drawing) return
+
+    // The line tool rubber-bands to the cursor rather than recording it: the
+    // segment being aimed is the one worth seeing.
+    if (this.tool === 'line') {
+      this.onPreview([...this.points, this.at(event)])
+      return
+    }
+
     this.points.push(this.at(event))
+    this.onPreview(this.points)
   }
 
   private async finish(force = false): Promise<void> {
@@ -255,9 +274,13 @@ export class Draw {
     const raw = this.points
     this.points = []
 
-    if (raw.length === 0) return
+    if (raw.length === 0) {
+      this.onPreview([])
+      return
+    }
     if (raw.length === 1 && this.tool === 'line') {
       this.onStatus('A line needs at least two points.')
+      this.onPreview([])
       return
     }
 
@@ -266,6 +289,11 @@ export class Draw {
       this.tool === 'line'
         ? raw
         : smooth(simplify(thinByDistance(raw), THIN_METRES))
+
+    // The preview holds - now showing the smoothed line that is actually
+    // being saved - until the rebuilt tiles arrive, so the stroke does not
+    // blink out of existence while the server works.
+    this.onPreview(thinned)
 
     const geometry =
       thinned.length === 1
@@ -293,6 +321,8 @@ export class Draw {
     } catch (error) {
       const message = error instanceof ApiError ? error.message : String(error)
       this.onStatus(message, true)
+    } finally {
+      this.onPreview([])
     }
   }
 

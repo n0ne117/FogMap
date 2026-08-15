@@ -253,6 +253,46 @@ def merge_mask(
         write_blob(conn, kind, source, layer, x, y, merged)
 
 
+def clear_erase(conn: sqlite3.Connection, tiles: Tiles) -> None:
+    """Take a painted footprint back out of every erase mask covering it.
+
+    Erase is a composite-time subtract, so without this an erased patch of
+    ground could never be drawn on again: the new fog went into the fog blob
+    and the erase mask subtracted it straight back out at composite time, and
+    the stroke simply did not appear.
+
+    Invariant 2 says erased pixels stay erased across rebuilds and across
+    re-imports of the same file, and they still do. Rebuild replays events in
+    id order, so an erase drawn after a track still wins; re-importing a file
+    is idempotent and creates no event, so nothing reaches here. What this
+    changes is only the case the invariant does not cover - a deliberate new
+    stroke over erased ground, which has to win or the eraser is a one-way
+    door.
+    """
+    for (x, y), mask in tiles.items():
+        rows = conn.execute(
+            "SELECT source, layer, data FROM blobs WHERE kind = 'erase' "
+            "AND x = ? AND y = ?",
+            (x, y),
+        ).fetchall()
+
+        for row in rows:
+            source, layer = row["source"], row["layer"]
+            existing = decode(row["data"], "erase", source, layer, x, y)
+            remaining = np.where(mask, 0, existing).astype(np.uint8)
+
+            if remaining.any():
+                write_blob(conn, "erase", source, layer, x, y, remaining)
+            else:
+                # An empty blob is not the same as no blob: it would be read,
+                # decoded and unioned on every composite for ever.
+                conn.execute(
+                    "DELETE FROM blobs WHERE kind = 'erase' AND source = ? "
+                    "AND layer = ? AND x = ? AND y = ?",
+                    (source, layer, x, y),
+                )
+
+
 def merge_trail(
     conn: sqlite3.Connection, source: str, layer: str, tiles: Tiles
 ) -> None:
@@ -390,6 +430,10 @@ def stamp_event(
                 trail_tiles = {
                     key: mask for key, mask in trail_tiles.items() if key in restrict
                 }
+        # Painting over erased ground takes the erase back off it. Without
+        # this the stroke goes into the fog blob and is subtracted straight
+        # out again when the tile is composed.
+        clear_erase(conn, tiles)
         for layer in parse_layers(event["layers"], event_id):
             merge_mask(conn, "fog", source, layer, tiles)
             merge_trail(conn, source, layer, trail_tiles)

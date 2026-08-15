@@ -167,6 +167,27 @@ a {
   cursor: not-allowed;
 }
 
+/* Brush width, on the toolbar. Narrow on purpose: the ring on the map is the
+   real readout, this is the handle for changing it. */
+.bar-size {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.bar-size input[type='range'] {
+  width: 5.5rem;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.bar-size output {
+  min-width: 2.7rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .bar-hint {
   flex-basis: 100%;
   color: var(--muted);
@@ -356,6 +377,27 @@ a {
   .span-all {
     grid-column: auto;
   }
+}
+
+/* ------------------------------------------------------------- brush cursor */
+
+/* Sized in screen pixels from the brush radius in metres, so what it circles
+   is exactly the ground the stroke will cover. Centred on the pointer, and
+   never in the way of it. */
+.draw-cursor {
+  position: fixed;
+  z-index: 5;
+  transform: translate(-50%, -50%);
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+  background: rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+}
+
+.draw-cursor[data-mode='erase'] {
+  border-color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
 }
 
 /* ----------------------------------------------------------------- controls */

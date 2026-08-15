@@ -11,6 +11,9 @@
   <body>
     <div id="map"></div>
 
+    <!-- The brush footprint, at ground scale, following the cursor. -->
+    <div id="draw-cursor" class="draw-cursor" hidden></div>
+
     <button id="panel-toggle" class="icon-button top-left" title="Settings" aria-label="Settings">
       &#9881;
     </button>
@@ -25,6 +28,20 @@
           <button type="button" data-value="line" aria-pressed="false">Line</button>
           <button type="button" data-value="eraser" aria-pressed="false">Eraser</button>
         </div>
+        <!-- Brush width, where the drawing happens. Settings keeps the same
+             control for anyone who wants to type an exact number. -->
+        <label class="bar-size" title="Brush radius on the ground">
+          <input
+            id="draw-size"
+            type="range"
+            min="1"
+            max="60"
+            step="1"
+            value="15"
+            aria-label="Brush radius in metres"
+          />
+          <output id="draw-size-label" for="draw-size">15 m</output>
+        </label>
         <button id="draw-undo" type="button" class="bar-button" disabled>Undo</button>
         <span id="draw-hint" class="bar-hint"></span>
       </div>

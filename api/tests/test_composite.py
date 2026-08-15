@@ -125,6 +125,56 @@ class TestEraseSurvivesReimport:
         assert np.array_equal(fog_of(conn), erased)
 
 
+class TestDrawingOverErasedGround:
+    """The eraser must not be a one-way door.
+
+    Erase is a composite-time subtract, so a later stroke over erased ground
+    used to vanish: it went into the fog blob and was subtracted straight back
+    out. Invariant 2 covers rebuilds and re-imports, not deliberate redrawing.
+    """
+
+    def test_a_later_stroke_reappears_where_it_was_erased(self, conn):
+        line = synthetic.straight_line(40)
+        add_event(conn, line)
+        add_event(conn, line[10:20], op="erase", layers=[raster.ERASE_LAYER])
+        erased = fog_of(conn)
+
+        add_event(conn, line[12:18], source="manual")
+
+        redrawn = fog_of(conn)
+        assert redrawn.sum() > erased.sum()
+
+    def test_redrawing_only_lifts_the_erase_it_covered(self, conn):
+        line = synthetic.straight_line(40)
+        add_event(conn, line)
+        before_erase = fog_of(conn)
+        add_event(conn, line[10:30], op="erase", layers=[raster.ERASE_LAYER])
+
+        add_event(conn, line[12:18], source="manual")
+        redrawn = fog_of(conn)
+
+        # The rest of the erase is still doing its job.
+        assert redrawn.sum() < before_erase.sum()
+
+    def test_the_erase_still_wins_when_it_came_last(self, conn):
+        line = synthetic.straight_line(40)
+        add_event(conn, line)
+        add_event(conn, line[12:18], source="manual")
+        add_event(conn, line[10:20], op="erase", layers=[raster.ERASE_LAYER])
+
+        assert fog_of(conn).sum() < fog_of(conn).size
+
+    def test_redrawing_survives_a_rebuild_byte_for_byte(self, conn):
+        line = synthetic.straight_line(40)
+        add_event(conn, line)
+        add_event(conn, line[10:20], op="erase", layers=[raster.ERASE_LAYER])
+        add_event(conn, line[12:18], source="manual")
+
+        before = _blob_snapshot(conn)
+        raster.rebuild(conn)
+        assert _blob_snapshot(conn) == before
+
+
 class TestDeletingAnEraseRestoresFog:
     """Required test 3."""
 

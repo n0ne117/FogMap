@@ -11,6 +11,18 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.9.10] - 2026-08-15
+
+You can see what you are about to draw, and what you just drew.
+
+### Added
+- A ring follows the cursor showing the brush footprint at true ground scale, so the question "will this cover that side street" has an answer before the stroke rather than after it. It turns red for the eraser.
+- The stroke appears as you draw it, at the width it will land, instead of arriving a second or two later when the rebuilt tiles come back. The point-to-point tool rubber-bands to the cursor so the segment being aimed is visible. The preview holds until the real tiles arrive, so nothing blinks out in between.
+- Brush width has a slider on the drawing toolbar, next to the drawing. The number field in settings is still there and the two follow each other.
+
+### Fixed
+- Ground that has been erased can be drawn on again. Erase is subtracted when a tile is composed, so a later stroke over erased ground went into the archive and was subtracted straight back out — it simply never appeared, with no error to explain why. A new stroke now lifts the erase from the ground it covers. Erases still survive rebuilds and re-imports untouched, which is what invariant 2 requires; what changes is only the case it does not cover, a deliberate redraw.
+
 ## [0.9.9] - 2026-08-15
 
 Drawing that behaves like drawing.

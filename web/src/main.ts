@@ -10,6 +10,7 @@ import {
   watchLifecycle,
   wireDiagnostics,
 } from './diagnostics'
+import { Brush } from './brush'
 import { Draw, MIN_DRAW_ZOOM, type Tool } from './draw'
 import { Imports } from './imports'
 import {
@@ -85,6 +86,7 @@ function wireDrawing(
   options: MapSetup,
   timeline: Timeline,
   trails: Trails,
+  brush: Brush,
 ): Draw {
   const status = element('draw-status')
   const hint = element('draw-hint')
@@ -107,6 +109,13 @@ function wireDrawing(
     },
   )
   draw.attach()
+  draw.onPreview = (points) => brush.preview(points)
+
+  // The ring follows the pointer over the map, and goes away when it leaves.
+  const canvas = map.getCanvas()
+  canvas.addEventListener('pointermove', (event) => brush.track(event))
+  canvas.addEventListener('pointerenter', (event) => brush.track(event))
+  canvas.addEventListener('pointerleave', () => brush.hideRing())
 
   // Deleting a stroke rebuilds tiles, which takes long enough to look like
   // nothing happened. The button says what it is doing instead.
@@ -138,21 +147,42 @@ function wireDrawing(
 
     if (!allowed && draw.activeTool !== 'off') {
       draw.setTool('off')
+      brush.setTool('off')
       paintTool('off')
     }
   }
 
   paintTool = radioGroup<Tool>('draw-tool', 'off', (value) => {
     draw.setTool(value)
+    brush.setTool(value)
     refreshLock()
   })
   element<HTMLInputElement>('draw-layers').addEventListener('input', (event) => {
     draw.layers = (event.target as HTMLInputElement).value
   })
-  element<HTMLInputElement>('draw-radius').addEventListener('input', (event) => {
-    const value = Number((event.target as HTMLInputElement).value)
-    if (Number.isFinite(value) && value > 0) draw.radiusM = value
-  })
+  // Brush width has two controls - a slider on the toolbar and a number field
+  // in settings - because both are the right one at different moments. They
+  // are the same setting, so each follows the other.
+  const radiusField = element<HTMLInputElement>('draw-radius')
+  const radiusSlider = element<HTMLInputElement>('draw-size')
+  const radiusLabel = element<HTMLOutputElement>('draw-size-label')
+
+  const applyRadius = (value: number) => {
+    if (!Number.isFinite(value) || value <= 0) return
+    draw.radiusM = value
+    brush.setRadius(value)
+    radiusLabel.textContent = `${value} m`
+    if (Number(radiusField.value) !== value) radiusField.value = String(value)
+    if (Number(radiusSlider.value) !== value) radiusSlider.value = String(value)
+  }
+
+  radiusField.addEventListener('input', (event) =>
+    applyRadius(Number((event.target as HTMLInputElement).value)),
+  )
+  radiusSlider.addEventListener('input', (event) =>
+    applyRadius(Number((event.target as HTMLInputElement).value)),
+  )
+  applyRadius(Number(radiusField.value) || draw.radiusM)
   undoButton.addEventListener('click', () => {
     void draw.undo()
     refreshUndo()
@@ -169,6 +199,7 @@ function wireDrawing(
     toggle.setAttribute('aria-pressed', String(opening))
     if (!opening) {
       draw.setTool('off')
+      brush.setTool('off')
       paintTool('off')
     }
     refreshLock()
@@ -264,6 +295,7 @@ async function start(): Promise<void> {
     notice.textContent = message
     notice.hidden = !message
   })
+  const brush = new Brush(map, element('draw-cursor'))
   const attachTrails = () => {
     try {
       applyFogOpacity(map)
@@ -271,6 +303,15 @@ async function start(): Promise<void> {
       void trails.refresh()
     } catch (error) {
       console.error('FogMap could not attach the trail layer', error)
+    }
+    // Its own try: losing the trail layer should not also cost the drawing
+    // preview, which is what someone is actively looking at when it matters.
+    // Added after the trails, so a stroke in progress is never underneath the
+    // tracks it is being drawn between.
+    try {
+      brush.attach()
+    } catch (error) {
+      console.error('FogMap could not attach the drawing preview', error)
     }
   }
   map.on('style.load', attachTrails)
@@ -284,7 +325,7 @@ async function start(): Promise<void> {
   })
   void timeline.load()
 
-  const draw = wireDrawing(map, options, timeline, trails)
+  const draw = wireDrawing(map, options, timeline, trails, brush)
 
   const places = new Places(map, () => {
     bustTileCache()
@@ -324,6 +365,7 @@ async function start(): Promise<void> {
     trails,
     imports,
     draw,
+    brush,
     setup,
   })
 }
