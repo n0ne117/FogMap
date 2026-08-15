@@ -338,52 +338,81 @@
     </aside>
 
     <!-- First run basemap setup. -->
+    <!-- First run. -->
     <section id="setup" class="setup" hidden aria-label="First run setup">
       <div class="setup-card">
-        <h2>Set up the basemap</h2>
-        <p class="setup-lede">
-          FogMap draws your fog and trails over a map of the world. That map is
-          a Protomaps PMTiles archive, far too large to ship in a container, so
-          it is downloaded once into the data directory and served from there.
-        </p>
+        <h2>Welcome to FogMap</h2>
 
-        <p id="setup-state" class="status-line">Checking.</p>
-
-        <label class="field">
-          <span>Source</span>
-          <select id="setup-url"></select>
-        </label>
-
-        <label class="field">
-          <span>Or a URL of your own</span>
-          <input id="setup-custom" type="url" placeholder="https://example.org/regional.pmtiles" />
-        </label>
-
-        <label class="field">
-          <span>API token — only for a URL of your own</span>
-          <input id="setup-token" type="password" autocomplete="off" placeholder="value of FOGMAP_TOKEN" />
-        </label>
-
-        <div id="setup-progress-row" class="progress-row" hidden>
-          <progress id="setup-progress" max="100" value="0"></progress>
-          <p id="setup-progress-text" class="progress-text"></p>
+        <!-- Shown when an archive is already in place. -->
+        <div id="setup-ready" hidden>
+          <p id="setup-ready-text" class="setup-lede"></p>
+          <button id="setup-continue" type="button" class="wide primary">
+            Continue to the map
+          </button>
+          <button id="setup-replace" type="button" class="linky">
+            Download a different basemap instead
+          </button>
         </div>
 
-        <p id="setup-message" class="setup-message" hidden></p>
+        <!-- Shown when there is no archive yet. -->
+        <div id="setup-fetch">
+          <p class="setup-lede">
+            FogMap draws your fog and trails over a map of the world. That map
+            is a Protomaps PMTiles archive, far too large to ship in a
+            container, so it is downloaded once into the data directory and
+            served from there.
+          </p>
 
-        <div class="button-row">
-          <button id="setup-start" type="button" class="primary">Download</button>
-          <button id="setup-background" type="button">Continue download in the background</button>
-          <button id="setup-cancel" type="button" hidden>Cancel download</button>
+          <p id="setup-state" class="status-line">Checking.</p>
+
+          <label class="field">
+            <span>Source</span>
+            <select id="setup-url"></select>
+          </label>
+
+          <label class="field">
+            <span>Or a URL of your own</span>
+            <input id="setup-custom" type="url" placeholder="https://example.org/regional.pmtiles" />
+          </label>
+
+          <div id="setup-progress-row" class="progress-row" hidden>
+            <progress id="setup-progress" max="100" value="0"></progress>
+            <p id="setup-progress-text" class="progress-text"></p>
+          </div>
+
+          <p id="setup-message" class="setup-message" hidden></p>
+
+          <div class="button-row">
+            <button id="setup-start" type="button" class="primary">Download</button>
+            <button id="setup-background" type="button">Continue in the background</button>
+            <button id="setup-cancel" type="button" hidden>Cancel download</button>
+          </div>
+
+          <p class="hint">
+            The planet archive is around 128 GB. It resumes if interrupted, and
+            FogMap is usable while it runs. Progress and a re-download button
+            live under Settings, Basemap.
+          </p>
         </div>
 
-        <p class="hint">
-          The planet archive is around 128 GB. The download resumes if it is
-          interrupted, and FogMap is fully usable while it runs. Progress and a
-          re-download button live under Settings, Basemap.
-        </p>
+        <!-- Always shown: the token this browser needs to make changes. -->
+        <section class="token-card">
+          <h3>Your API token</h3>
+          <p class="hint">
+            Keep this somewhere safe. Every browser you want to edit from needs
+            it — drawing, places, imports and the data source switches all ask
+            for it. Reading the map never does.
+          </p>
+          <div class="token-row">
+            <code id="setup-token-value">…</code>
+            <button id="setup-token-copy" type="button" class="bar-button">Copy</button>
+          </div>
+          <p id="setup-token-source" class="hint"></p>
+        </section>
 
-        <button id="setup-skip" type="button" class="linky">Continue without a basemap</button>
+        <button id="setup-skip" type="button" class="linky">
+          Continue without a basemap
+        </button>
       </div>
     </section>
 

@@ -743,6 +743,37 @@ button:disabled {
   color: var(--muted);
 }
 
+.token-card {
+  margin-top: 1.25rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.token-card h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+}
+
+.token-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.token-row code {
+  flex: 1 1 auto;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.3rem;
+  background: var(--bg);
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
 .setup-message {
   margin: 0 0 1rem;
   padding: 0.5rem 0.7rem;

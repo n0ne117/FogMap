@@ -55,13 +55,18 @@ class TestTokenGate:
     """Reads are open. Writes need the shared token."""
 
     @pytest.mark.parametrize("method", ["post", "put", "patch", "delete"])
-    def test_mutations_are_refused_when_no_token_is_configured(
-        self, client, monkeypatch, method
-    ):
+    def test_mutations_are_refused_without_a_header(self, client, monkeypatch, method):
+        """There is always a token now.
+
+        One is generated on first start, so an unset FOGMAP_TOKEN no longer
+        means writes are impossible - it means the generated one is in force.
+        A request with no header is therefore unauthorised rather than
+        unconfigured.
+        """
         monkeypatch.delenv("FOGMAP_TOKEN", raising=False)
         response = getattr(client, method)("/api/events")
-        assert response.status_code == 503
-        assert "FOGMAP_TOKEN is not set" in response.json()["detail"]
+        assert response.status_code == 401
+        assert "Missing X-FogMap-Token header" in response.json()["detail"]
 
     def test_missing_header_is_rejected(self, client, monkeypatch):
         monkeypatch.setenv("FOGMAP_TOKEN", TOKEN)
@@ -180,3 +185,58 @@ class TestConcurrentReads:
             if response.status_code != 200
         ]
         assert not failures, f"concurrent reads failed: {failures}"
+
+
+class TestTokenResolution:
+    """A fresh install must not need a token invented before it works."""
+
+    def test_one_is_generated_when_the_environment_has_none(self, tmp_path, monkeypatch):
+        from fogmap import db, tokens
+
+        monkeypatch.delenv("FOGMAP_TOKEN", raising=False)
+        conn = db.open_initialised(tmp_path / "fogmap.db")
+        try:
+            token, source = tokens.resolve(conn)
+            assert source == "generated"
+            assert len(token) >= 32
+        finally:
+            conn.close()
+
+    def test_the_generated_token_survives_a_restart(self, tmp_path, monkeypatch):
+        from fogmap import db, tokens
+
+        monkeypatch.delenv("FOGMAP_TOKEN", raising=False)
+        target = tmp_path / "fogmap.db"
+
+        first = db.open_initialised(target)
+        token, _ = tokens.resolve(first)
+        first.close()
+
+        second = db.open_initialised(target)
+        try:
+            again, source = tokens.resolve(second)
+            assert again == token
+            assert source == "generated"
+        finally:
+            second.close()
+
+    def test_the_environment_wins_over_a_stored_one(self, tmp_path, monkeypatch):
+        from fogmap import db, tokens
+
+        monkeypatch.delenv("FOGMAP_TOKEN", raising=False)
+        conn = db.open_initialised(tmp_path / "fogmap.db")
+        try:
+            stored, _ = tokens.resolve(conn)
+
+            monkeypatch.setenv("FOGMAP_TOKEN", "chosen-by-the-operator")
+            token, source = tokens.resolve(conn)
+            assert token == "chosen-by-the-operator"
+            assert source == "environment"
+            assert token != stored
+        finally:
+            conn.close()
+
+    def test_the_setup_endpoint_hands_the_token_over(self, client):
+        body = client.get("/api/setup").json()
+        assert body["token"]["value"]
+        assert body["token"]["source"] in ("environment", "generated")

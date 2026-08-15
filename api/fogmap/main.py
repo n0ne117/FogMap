@@ -18,7 +18,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFi
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from fogmap import __version__, basemap, composite, db, places, raster
+from fogmap import __version__, basemap, composite, db, places, raster, tokens
 from fogmap.ingest import common, gpx, live, tcx
 
 MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -67,6 +67,12 @@ async def lifespan(app: FastAPI):
         for kind in composite.KINDS
     }
 
+    conn = db.open_initialised()
+    try:
+        app.state.token, app.state.token_source = tokens.resolve(conn)
+    finally:
+        conn.close()
+
     # A basemap download runs for hours, so a restart during one is the normal
     # way it ends rather than an edge case. Pick it up again.
     if basemap.downloader.resume_if_interrupted():
@@ -91,15 +97,32 @@ def get_conn() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+def effective_token(request: Request) -> tuple[str, str]:
+    """The token in force, and where it came from.
+
+    The environment is read on every call rather than once at startup, so
+    changing FOGMAP_TOKEN takes effect without anyone having to reason about
+    when it was last looked at. The generated fallback is resolved once, at
+    startup, because it lives in the database.
+    """
+    from_env = os.environ.get(tokens.ENV_NAME, "").strip()
+    if from_env:
+        return from_env, "environment"
+    return str(getattr(request.app.state, "token", "") or ""), "generated"
+
+
+def expected_token(request: Request) -> str:
+    return effective_token(request)[0]
+
+
 def token_error(request: Request) -> tuple[int, str] | None:
     """Check the shared token. Returns (status, detail) when it is not right."""
-    expected = os.environ.get("FOGMAP_TOKEN", "").strip()
+    expected = expected_token(request)
     if not expected:
         return (
             503,
-            "FOGMAP_TOKEN is not set on the server, so every mutating request "
-            "is refused. Set FOGMAP_TOKEN in the api environment and restart "
-            "the container.",
+            "This server has no API token, which should not be possible - one "
+            "is generated on first start. Restart the api container.",
         )
 
     presented = request.headers.get(TOKEN_HEADER, "")
@@ -215,7 +238,7 @@ def _live_token_ok(request: Request) -> bool:
     Overland has no way to add an arbitrary header, so its own mechanism is
     accepted as well rather than making the app unusable with it.
     """
-    expected = os.environ.get("FOGMAP_TOKEN", "").strip()
+    expected = expected_token(request)
     if not expected:
         return False
 
@@ -867,12 +890,13 @@ def remove_place(
 
 
 @app.get("/api/setup")
-def setup_status() -> dict[str, object]:
+def setup_status(request: Request) -> dict[str, object]:
     """What first-run setup still needs. Readable without a token."""
     from datetime import date
 
     return {
         "version": __version__,
+        "token": dict(zip(("value", "source"), effective_token(request))),
         "basemap": basemap.basemap_status(),
         "suggested_urls": basemap.suggested_planet_urls(
             date.today().strftime("%Y%m%d")

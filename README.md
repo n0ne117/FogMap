@@ -71,7 +71,13 @@ The map needs a [Protomaps](https://protomaps.com) PMTiles basemap. It is far to
 
 The full planet is around 128 GB, which is hours of downloading. It resumes if interrupted — restarting picks up from wherever it stopped rather than starting again — and the rest of FogMap works throughout. Only the map underneath your trails is missing until it finishes. The archive is verified before it is installed, so a URL that returns an error page is rejected rather than left sitting there looking like a basemap.
 
-Starting a download needs the API token, the same `FOGMAP_TOKEN` the write endpoints use. The setup screen has a field for it and remembers it in the browser.
+### The API token
+
+Reading the map needs nothing. Changing anything — drawing, places, imports, the data source switches — needs a shared token.
+
+FogMap generates one on first start and shows it on the setup screen. Keep it somewhere safe: every browser you want to edit from needs it, and the setup screen is the only place it is offered. Set `FOGMAP_TOKEN` in the environment to choose your own instead, in which case that value is used and the generated one is ignored.
+
+It is a doorstop, not a security model: it stops a misbehaving tracker or a stray `curl` from altering history. It does not protect reads, which are open to anyone who can reach the app — so run it somewhere only you can.
 
 PMTiles is read over HTTP range requests, so the archive doesn't have to sit on the same machine — point the basemap at any host that serves ranges.
 

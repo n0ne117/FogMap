@@ -11,6 +11,17 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.9.8] - 2026-08-15
+
+A first run that hands you what you need and gets out of the way.
+
+### Added
+- FogMap now generates its own API token on first start and shows it on the setup screen, so a fresh install works without inventing one first. Setting FOGMAP_TOKEN still overrides it.
+
+### Changed
+- The setup screen recognises a basemap that is already installed and simply offers to continue, rather than asking you to download one you have.
+- Fog is a dark grey rather than near black, and starts at 80% thickness, so thinning it actually reveals the map underneath.
+
 ## [0.9.7] - 2026-08-15
 
 The map draws.

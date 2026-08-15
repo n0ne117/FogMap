@@ -46,9 +46,13 @@ DEFAULT_FOG_EDGE_PX = 2.5
 
 # Fog is drawn where the ground is UNEXPLORED, so this is the colour of the
 # unknown.
+# A dark neutral grey rather than near-black. Over a dark basemap, near-black
+# fog and the ground beneath it differ by so little that thinning the fog
+# reveals almost nothing; a grey reads as haze over the map instead of as an
+# absence of one.
 FOG_COLOUR = {
-    "dark": (9, 11, 15),
-    "light": (236, 236, 231),
+    "dark": (28, 30, 35),
+    "light": (232, 232, 228),
 }
 
 # How solid the baked fog is, 0 to 255.

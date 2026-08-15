@@ -31,7 +31,7 @@ const FOG_OPACITY_KEY = 'fogmap.fog.opacity'
 // free, and no re-render. Baking one answer in would also be wrong for the
 // other theme: near-black fog over a dark basemap needs far more transparency
 // than pale fog over a light one to read at all.
-const DEFAULT_FOG_OPACITY = 0.6
+const DEFAULT_FOG_OPACITY = 0.8
 
 export function getFogOpacity(): number {
   try {
