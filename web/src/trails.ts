@@ -20,6 +20,11 @@ export const MIN_TRAIL_ZOOM = 14
  *
  *   detailed  one legible line per track, with a casing under it. Right when
  *             there are a handful; a white wall when there are a hundred.
+ *   single    one line per route rather than per journey. Tracks covering
+ *             ground an earlier one already covered are dropped, so the same
+ *             commute walked four hundred times is drawn once. How often you
+ *             went is what the trail colouring underneath is for; repeating
+ *             the line four hundred times says it again, illegibly.
  *   faint     hairlines at low opacity and no casing, so overlapping tracks
  *             accumulate instead of covering each other. A street crossed
  *             once is a whisper, a street crossed daily is bright: the
@@ -27,7 +32,7 @@ export const MIN_TRAIL_ZOOM = 14
  *   auto      whichever of those suits how much is on screen.
  *   off       none. The trail bitmap underneath still carries the passes.
  */
-export type TrailStyle = 'auto' | 'detailed' | 'faint' | 'off'
+export type TrailStyle = 'auto' | 'detailed' | 'single' | 'faint' | 'off'
 
 const STYLE_KEY = 'fogmap.trails.style'
 const POPUP_KEY = 'fogmap.trails.popups'
@@ -41,10 +46,94 @@ const POPUP_KEY = 'fogmap.trails.popups'
  */
 const DENSE_FROM = 24
 
+/**
+ * How close two tracks have to be to count as the same route, in metres.
+ *
+ * Wide enough to swallow GPS scatter down one street, narrow enough to keep
+ * the pavement on each side of a dual carriageway apart.
+ */
+const CORRIDOR_M = 25
+
+/** New ground a track must cover to be worth drawing as well as its neighbours. */
+const NOVELTY = 0.3
+
+type Ring = [number, number][]
+
+/**
+ * The grid cells a track passes through, walked at the corridor spacing.
+ *
+ * Vertices alone are not enough: a hand-drawn line is two points a kilometre
+ * apart, and snapping only its ends would say it covers two cells.
+ */
+function cellsOf(geometry: unknown, metres: number): Set<string> {
+  const cells = new Set<string>()
+  const coordinates = (geometry as { type?: string; coordinates?: unknown })?.coordinates
+  if (!Array.isArray(coordinates)) return cells
+
+  const points = (
+    (geometry as { type?: string }).type === 'Point' ? [coordinates] : coordinates
+  ) as Ring
+  if (!points.length) return cells
+
+  const at = (lon: number, lat: number) => {
+    const scale = Math.cos((lat * Math.PI) / 180)
+    return `${Math.round((lon * 111_320 * scale) / metres)},${Math.round((lat * 110_540) / metres)}`
+  }
+
+  cells.add(at(points[0][0], points[0][1]))
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const [aLon, aLat] = points[i]
+    const [bLon, bLat] = points[i + 1]
+    const scale = Math.cos((aLat * Math.PI) / 180)
+    const span = Math.hypot((bLon - aLon) * 111_320 * scale, (bLat - aLat) * 110_540)
+    const steps = Math.min(Math.ceil(span / metres), 4000)
+    for (let step = 1; step <= steps; step += 1) {
+      const t = step / steps
+      cells.add(at(aLon + (bLon - aLon) * t, aLat + (bLat - aLat) * t))
+    }
+  }
+  return cells
+}
+
+/**
+ * Keep one track per corridor.
+ *
+ * Newest first, because when the same route has been walked for years the
+ * most recent version of it is the one worth showing.
+ */
+export function oneEach<T extends { geometry: unknown }>(
+  features: T[],
+  metres = CORRIDOR_M,
+): T[] {
+  const seen = new Set<string>()
+  const kept: T[] = []
+
+  for (const feature of features) {
+    const cells = cellsOf(feature.geometry, metres)
+    if (!cells.size) continue
+
+    let fresh = 0
+    for (const cell of cells) if (!seen.has(cell)) fresh += 1
+
+    if (fresh / cells.size >= NOVELTY) {
+      kept.push(feature)
+      for (const cell of cells) seen.add(cell)
+    }
+  }
+  return kept
+}
+
 export function getTrailStyle(): TrailStyle {
   try {
     const stored = window.localStorage.getItem(STYLE_KEY)
-    if (stored === 'detailed' || stored === 'faint' || stored === 'off') return stored
+    if (
+      stored === 'detailed' ||
+      stored === 'single' ||
+      stored === 'faint' ||
+      stored === 'off'
+    ) {
+      return stored
+    }
   } catch {
     /* the default is a fine answer */
   }
@@ -171,6 +260,8 @@ export class Trails {
   private pending = 0
   /** Tracks the last refresh found in view, so a restyle needs no round trip. */
   private inView = 0
+  /** What the server last sent, kept so single mode can be turned on and off. */
+  private collection: TrailCollection | null = null
   view = 'all'
 
   constructor(map: MapLibreMap, onStatus: (message: string) => void) {
@@ -261,6 +352,28 @@ export class Trails {
       .addTo(this.map)
   }
 
+  /**
+   * Hand the layers the features this style wants to draw.
+   *
+   * Single mode thins them to one per corridor here rather than asking the
+   * server for something different, so switching in and out of it costs
+   * nothing and works on tracks the browser already has.
+   */
+  private applyData(style: TrailStyle): void {
+    if (!this.collection) {
+      this.setData(EMPTY)
+      return
+    }
+    if (style !== 'single') {
+      this.setData(this.collection)
+      return
+    }
+    this.setData({
+      ...this.collection,
+      features: oneEach(this.collection.features),
+    })
+  }
+
   private setData(collection: unknown): void {
     const source = this.map.getSource(SOURCE)
     if (source && 'setData' in source) {
@@ -283,6 +396,8 @@ export class Trails {
     const chosen = getTrailStyle()
     const style =
       chosen === 'auto' ? (inView > DENSE_FROM ? 'faint' : 'detailed') : chosen
+
+    this.applyData(style)
 
     const on = style !== 'off'
     const faint = style === 'faint'
@@ -310,6 +425,7 @@ export class Trails {
     if (!this.map.getSource(SOURCE)) return
 
     if (this.map.getZoom() < MIN_TRAIL_ZOOM) {
+      this.collection = null
       this.setData(EMPTY)
       this.onStatus('')
       return
@@ -340,7 +456,7 @@ export class Trails {
       // A slower earlier request must not overwrite a newer one.
       if (token !== this.pending) return
 
-      this.setData(collection)
+      this.collection = collection
       this.restyle(collection.features.length)
       this.onStatus(
         collection.truncated
@@ -348,7 +464,10 @@ export class Trails {
           : '',
       )
     } catch {
-      if (token === this.pending) this.setData(EMPTY)
+      if (token === this.pending) {
+        this.collection = null
+        this.setData(EMPTY)
+      }
     }
   }
 }

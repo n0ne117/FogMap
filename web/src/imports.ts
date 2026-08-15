@@ -9,6 +9,7 @@
 // settles the whole debt in one pass once the last file is in.
 
 import { ApiError, getToken } from './api'
+import { percentOf, runRender } from './render'
 import { element } from './ui'
 
 export interface ImportOutcome {
@@ -146,38 +147,12 @@ export class Imports {
     bar.max = 1
     text.textContent = `${imported}. Drawing the map…`
 
-    const response = await fetch('/api/render', {
-      method: 'POST',
-      headers: { 'X-FogMap-Token': getToken() },
-    })
-    if (!response.ok) {
-      throw new ApiError(response.status, `${response.status} ${response.statusText}`)
-    }
-    if (!response.body) return
-
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    const consume = (line: string) => {
-      if (!line.trim()) return
-      const step = JSON.parse(line) as { done: number; total: number }
+    await runRender((step) => {
       if (!step.total) return
       bar.max = step.total
       bar.value = step.done
-      const percent = Math.round((step.done / step.total) * 100)
-      text.textContent = `${imported}. Drawing the map — ${percent}%`
-    }
-
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-      for (const line of lines) consume(line)
-    }
-    consume(buffer)
+      text.textContent = `${imported}. Drawing the map —${percentOf(step)}`
+    })
   }
 
   private report(outcomes: ImportOutcome[], message = ''): void {

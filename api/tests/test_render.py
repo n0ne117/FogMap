@@ -665,3 +665,83 @@ class TestPerYearViews:
         rendered = composite.render_all(seeded, tmp_path / "tiles")
         assert set(rendered) == set(composite.available_views(seeded))
         assert all(count > 0 for count in rendered.values())
+
+
+class TestTrailColours:
+    """The ramp is a stored setting, baked into the tiles like the fog colour."""
+
+    def test_the_built_in_is_ember(self, conn):
+        assert composite.trail_ramp(conn) == "ember"
+
+    def test_a_stored_setting_wins(self, conn):
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('trail_ramp', 'ice') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+        assert composite.trail_ramp(conn) == "ice"
+
+    def test_an_unknown_ramp_is_refused_by_name(self, conn):
+        with pytest.raises(ValueError, match="Unknown trail colours 'tartan'"):
+            composite.check_ramp("tartan")
+
+    @pytest.mark.parametrize("ramp", sorted(composite.TRAIL_RAMP_SETS))
+    @pytest.mark.parametrize("theme", composite.THEMES)
+    def test_every_ramp_has_both_themes_and_a_sane_table(self, ramp, theme):
+        lut = composite.trail_lut(theme, ramp)
+        assert lut.shape == (256, 4)
+        # Never crossed is invisible; crossed once is not.
+        assert lut[0][3] == 0
+        assert lut[1][3] > 0
+        # More passes is never less visible.
+        assert lut[255][3] >= lut[1][3]
+
+    def test_the_ramps_differ_from_each_other(self, conn):
+        seen = {
+            ramp: composite.trail_lut("dark", ramp)[200].tobytes()
+            for ramp in composite.TRAIL_RAMP_SETS
+        }
+        assert len(set(seen.values())) == len(seen)
+
+    def test_the_setting_reaches_the_rendered_tiles(self, seeded, tmp_path):
+        root = tmp_path / "tiles"
+        composite.render_view(seeded, root, "all", themes=("dark",))
+        ember = _trail_rgb(root)
+
+        seeded.execute(
+            "INSERT INTO settings (key, value) VALUES ('trail_ramp', 'ice') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+        composite.render_view(seeded, root, "all", themes=("dark",))
+
+        assert ember is not None and _trail_rgb(root) != ember
+
+
+class TestDeepTrailSoftening:
+    """Below the native grid a track is wide enough that hard edges show."""
+
+    def test_softening_only_ever_adds_glow(self):
+        trail = np.zeros((composite.TILE, composite.TILE), dtype=np.uint8)
+        trail[100:104, 60:200] = 40
+
+        hard = composite.render_trail(trail, "dark")
+        soft = composite.render_trail(trail, "dark", "ember", composite.DEEP_TRAIL_SOFT_PX)
+
+        # The line itself is no dimmer, and its surroundings are brighter.
+        assert (soft[..., 3].astype(int) >= hard[..., 3].astype(int)).all()
+        assert soft[..., 3].sum() > hard[..., 3].sum()
+
+    def test_an_empty_tile_is_untouched(self):
+        trail = np.zeros((composite.TILE, composite.TILE), dtype=np.uint8)
+        hard = composite.render_trail(trail, "dark")
+        soft = composite.render_trail(trail, "dark", "ember", 2.0)
+        assert np.array_equal(hard, soft)
+
+
+def _trail_rgb(root):
+    tile = root / "dark" / "all" / "trail" / "14"
+    for path in sorted(tile.rglob("*.png")):
+        pixels = np.array(Image.open(path))
+        lit = pixels[..., 3] > 0
+        if lit.any():
+            return tuple(int(v) for v in pixels[lit][:, :3].mean(axis=0).round())
+    return None

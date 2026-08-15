@@ -11,6 +11,21 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.9.18] - 2026-08-15
+
+The trail colouring gets its own controls, and stops being drowned out.
+
+### Added
+- **Single** joins the track line modes: one line per route rather than per journey. Tracks covering ground an earlier one already covered are dropped, so a commute walked four hundred times is drawn once. How often you went is what the trail colouring is for; drawing the line four hundred times says the same thing illegibly.
+- **Trail colouring** in Settings, Appearance: a strength slider and four colour sets — ember, ice, moss and mono. Strength is applied in the browser and changes as you drag; the colours are baked into the tiles, so changing those re-renders them with a progress readout.
+
+### Changed
+- The trail colouring is feathered at the deep zoom levels. On the native grid a track is one pixel and softening it would erase it; two levels down it is a four-pixel stripe with visibly stepped diagonals, which reads as a bar chart rather than as heat. The feathering only ever adds glow around a track, never takes brightness off one.
+
+### Fixed
+- "Showing the first 500 tracks here" no longer appears on every viewport. Whether a track was in view was decided by whether its *bounding box* overlapped the screen — and a ten kilometre run across a city has a bounding box covering the city, so every run in the archive qualified for every viewport in it. The cap was hit every single time and the browser was handed five hundred tracks mostly nowhere near what was on screen.
+- Changing the fog or trail colours no longer blocks for minutes and time out at the proxy. Both now mark the tiles as owing a render and return immediately, and the render runs through the same reporting path as a bulk import.
+
 ## [0.9.17] - 2026-08-15
 
 Somewhere you go every day stops erasing itself.

@@ -27,9 +27,54 @@ const FOG_LAYER = 'fogmap-fog'
 const BORDERS_LAYER = 'fogmap-borders'
 const FOG_OPACITY_KEY = 'fogmap.fog.opacity'
 const BORDERS_KEY = 'fogmap.borders'
+const HEAT_KEY = 'fogmap.trail.opacity'
+const TRAIL_LAYER = 'fogmap-trail'
 
 /** Deepest zoom the server renders fog and trail tiles at. Matches geo.MAX_Z. */
 export const MAX_RENDERED_ZOOM = 16
+
+/**
+ * How strong the trail colouring is, as a multiplier on its own fade.
+ *
+ * A viewing choice, like fog thickness: MapLibre scales the raster layer on
+ * the GPU, so it changes as the slider moves and nothing is re-rendered.
+ */
+const DEFAULT_HEAT_OPACITY = 1
+
+export function getHeatOpacity(): number {
+  try {
+    const stored = window.localStorage.getItem(HEAT_KEY)
+    if (stored !== null) {
+      const value = Number(stored)
+      if (Number.isFinite(value) && value >= 0 && value <= 1) return value
+    }
+  } catch {
+    /* fall through to the default */
+  }
+  return DEFAULT_HEAT_OPACITY
+}
+
+export function setHeatOpacity(map: MapLibreMap, opacity: number): void {
+  try {
+    window.localStorage.setItem(HEAT_KEY, String(Math.max(0, Math.min(1, opacity))))
+  } catch {
+    /* remembering is optional */
+  }
+  applyHeatOpacity(map)
+}
+
+/**
+ * The trail raster keeps its own zoom fade - sharp to z16, a glow above it
+ * where the vector lines take over - and this scales the whole curve.
+ */
+export function applyHeatOpacity(map: MapLibreMap): void {
+  if (!map.getLayer(TRAIL_LAYER)) return
+  map.setPaintProperty(TRAIL_LAYER, 'raster-opacity', [
+    '*',
+    getHeatOpacity(),
+    ['interpolate', ['linear'], ['zoom'], MAX_RENDERED_ZOOM, 1, MAX_RENDERED_ZOOM + 1.5, 0.3],
+  ])
+}
 
 // Not baked into the tiles. How much of the map shows through the fog is a
 // viewing preference, and MapLibre scales a raster layer on the GPU - instant,
@@ -201,13 +246,17 @@ export function buildStyle(setup: MapSetup): StyleSpec {
         // opacity it reads as a glow under the crisp line.
         paint: {
           'raster-opacity': [
-            'interpolate',
-            ['linear'],
-            ['zoom'],
-            MAX_RENDERED_ZOOM,
-            1,
-            MAX_RENDERED_ZOOM + 1.5,
-            0.3,
+            '*',
+            getHeatOpacity(),
+            [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              MAX_RENDERED_ZOOM,
+              1,
+              MAX_RENDERED_ZOOM + 1.5,
+              0.3,
+            ],
           ],
         },
       },

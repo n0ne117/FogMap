@@ -194,6 +194,7 @@ def meta(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, object]:
         "blobs_by_kind": db.blob_counts_by_kind(conn),
         "tiles": 0,
         "settings": db.get_settings(conn),
+        "trail_ramps": sorted(composite.TRAIL_RAMP_SETS),
     }
 
 
@@ -394,6 +395,11 @@ FOG_COLOUR_KEYS = frozenset(
     composite.SETTING_FOG_COLOUR.format(theme=theme) for theme in composite.THEMES
 )
 
+# Settings baked into the tiles. Changing one of these costs a render; every
+# other setting is either a server behaviour or a viewing choice the browser
+# applies for free.
+BAKED_KEYS = FOG_COLOUR_KEYS | {composite.SETTING_TRAIL_RAMP}
+
 
 @app.patch("/api/settings")
 def patch_settings(
@@ -404,12 +410,15 @@ def patch_settings(
             status_code=400, detail="Send an object of settings to change."
         )
 
-    # Reject a bad colour before it is stored, not when the render trips over
-    # it and leaves the pyramid half written.
-    recolour = FOG_COLOUR_KEYS & {str(key) for key in payload}
+    # Reject a bad value before it is stored, not when the render trips over it
+    # and leaves the pyramid half written.
+    recolour = BAKED_KEYS & {str(key) for key in payload}
     for key in recolour:
         try:
-            composite.parse_colour(str(payload[key]), f"Setting {key}")
+            if key == composite.SETTING_TRAIL_RAMP:
+                composite.check_ramp(str(payload[key]))
+            else:
+                composite.parse_colour(str(payload[key]), f"Setting {key}")
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -421,15 +430,18 @@ def patch_settings(
                 (str(key), str(value)),
             )
 
-    # Fog colour is baked into the tiles, so it is the one setting that costs
-    # a render. Everything already on disk is the old colour.
+    # These are baked into the tiles, so everything already on disk still has
+    # the old ones. Every tile with data is marked as owing a render rather
+    # than rendered here: on a real archive that is minutes of work, and doing
+    # it inside the request means a request that times out somewhere between
+    # the browser and the proxy with the tiles half rewritten.
     if recolour:
-        root = tiles_root()
-        root.mkdir(parents=True, exist_ok=True)
-        composite.render_all(conn, root)
+        with db.transaction(conn):
+            db.defer_render(conn, composite.tiles_with_data(conn, None))
         load_placeholders(request.app, conn)
 
-    return get_settings(conn)
+    out = get_settings(conn)
+    return {**out, "render_pending": len(db.pending_render(conn))}
 
 
 def tiles_root() -> Path:
@@ -952,11 +964,7 @@ def trails(
         if not points:
             continue
 
-        lons = [lon for lon, _ in points]
-        lats = [lat for _, lat in points]
-        if max(lons) < west or min(lons) > east:
-            continue
-        if max(lats) < south or min(lats) > north:
+        if not _enters(points, west, south, east, north):
             continue
 
         if len(features) >= TRAIL_FEATURE_CAP:
@@ -985,6 +993,47 @@ def trails(
         "truncated": truncated,
         "cap": TRAIL_FEATURE_CAP,
     }
+
+
+def _enters(
+    points: list[tuple[float, float]],
+    west: float,
+    south: float,
+    east: float,
+    north: float,
+) -> bool:
+    """Does this track actually go through the viewport?
+
+    Not "does its bounding box overlap" - that was the old test, and it is
+    close to useless for the shape a track has. A ten kilometre run across a
+    city has a bounding box covering the city, so every run in the archive
+    passed the test for every viewport in it. The cap was hit every single
+    time, the browser was handed five hundred tracks mostly nowhere near what
+    was on screen, and the notice saying so never went away.
+
+    The whole-track box is still the first thing checked, because rejecting on
+    it is one comparison and it is right whenever it says no.
+    """
+    lons = [lon for lon, _ in points]
+    lats = [lat for _, lat in points]
+    if max(lons) < west or min(lons) > east:
+        return False
+    if max(lats) < south or min(lats) > north:
+        return False
+
+    if any(west <= lon <= east and south <= lat <= north for lon, lat in points):
+        return True
+
+    # A track can cross without putting a point inside - rare at GPS sampling
+    # rates, but a hand-drawn line straight through is exactly that. Segment
+    # boxes are tight enough to stand in for the segments themselves.
+    for (a_lon, a_lat), (b_lon, b_lat) in zip(points, points[1:]):
+        if max(a_lon, b_lon) < west or min(a_lon, b_lon) > east:
+            continue
+        if max(a_lat, b_lat) < south or min(a_lat, b_lat) > north:
+            continue
+        return True
+    return False
 
 
 @app.get("/api/places")

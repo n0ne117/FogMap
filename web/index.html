@@ -260,6 +260,7 @@
               <div id="trail-style" class="segmented" role="group" aria-label="Track lines">
                 <button type="button" data-value="auto" aria-pressed="true">Auto</button>
                 <button type="button" data-value="detailed" aria-pressed="false">Detailed</button>
+                <button type="button" data-value="single" aria-pressed="false">Single</button>
                 <button type="button" data-value="faint" aria-pressed="false">Faint</button>
                 <button type="button" data-value="off" aria-pressed="false">Off</button>
               </div>
@@ -267,16 +268,48 @@
             <p class="hint">
               Detailed draws one legible line per track, which is right until a
               hundred of them share a street and the whole area turns white.
-              Faint draws hairlines that add up instead, so how often you went
-              somewhere becomes the brightness. Auto picks whichever suits what
-              is on screen. The trail colouring underneath is unaffected either
-              way.
+              Single draws one line per route instead of per journey, so a
+              commute walked four hundred times is drawn once. Faint draws
+              hairlines that add up, so how often you went somewhere becomes
+              the brightness. Auto picks between detailed and faint to suit
+              what is on screen. The trail colouring underneath is unaffected
+              in every mode — that is what already says how often you went.
             </p>
 
             <label class="check">
               <input id="trail-popups" type="checkbox" checked />
               <span>Show track details when one is clicked</span>
             </label>
+
+            <h3>Trail colouring</h3>
+            <label class="field">
+              <span>Strength — <output id="heat-opacity-value">100%</output></span>
+              <input
+                id="heat-opacity"
+                class="wide-slider"
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                value="100"
+                aria-label="Trail colouring strength"
+              />
+            </label>
+            <label class="field">
+              <span>Colours</span>
+              <div id="trail-ramp" class="segmented" role="group" aria-label="Trail colours">
+                <button type="button" data-value="ember" aria-pressed="true">Ember</button>
+                <button type="button" data-value="ice" aria-pressed="false">Ice</button>
+                <button type="button" data-value="moss" aria-pressed="false">Moss</button>
+                <button type="button" data-value="mono" aria-pressed="false">Mono</button>
+              </div>
+            </label>
+            <p class="hint">
+              How often a pixel was crossed, on a log scale. Strength is applied
+              in the browser and changes as you drag; the colours are baked into
+              the tiles, so changing those re-renders them.
+            </p>
+            <p id="trail-ramp-status" class="notice" hidden></p>
           </section>
 
           <section>

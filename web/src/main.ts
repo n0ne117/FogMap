@@ -25,14 +25,18 @@ import {
   createMap,
   getBordersVisible,
   getFogOpacity,
+  getHeatOpacity,
   openArchive,
   pmtilesProtocol,
+  applyHeatOpacity,
   setBordersVisible,
   setFogOpacity,
+  setHeatOpacity,
   type MapSetup,
 } from './map'
 import { Labels } from './labels'
 import { Places } from './places'
+import { percentOf, runRender } from './render'
 import { Setup } from './setup'
 import { Sources } from './sources'
 import { Timeline } from './timeline'
@@ -55,6 +59,9 @@ import {
   type UiTheme,
 } from './theme'
 import { element, radioGroup, Sheets, wireTabs, wireTokenField, wireZoom } from './ui'
+
+/** Named trail colour ramps, matching composite.TRAIL_RAMP_SETS. */
+type TrailRamp = 'ember' | 'ice' | 'moss' | 'mono'
 
 const REPO_URL = 'https://github.com/n0ne117/FogMap'
 const CHANGELOG_URL = `${REPO_URL}/blob/main/CHANGELOG.md`
@@ -148,6 +155,11 @@ function wireFogColour(map: MapLibreMap, options: MapSetup): { load: () => Promi
     status.textContent = 'Re-rendering every tile in the new colour.'
 
     void apiSend('PATCH', '/api/settings', { [key()]: value })
+      .then(() =>
+        runRender((step) => {
+          status.textContent = `Re-rendering every tile in the new colour —${percentOf(step)}`
+        }),
+      )
       .then(() => {
         status.textContent = 'Fog recoloured.'
         bustTileCache()
@@ -392,6 +404,46 @@ async function start(): Promise<void> {
     setFogOpacity(map, percent / 100)
   })
 
+  // Trail colouring: strength is a viewing choice on the GPU, the colours are
+  // baked into the tiles and cost a render.
+  const heatSlider = element<HTMLInputElement>('heat-opacity')
+  const heatValue = element('heat-opacity-value')
+  heatSlider.value = String(Math.round(getHeatOpacity() * 100))
+  heatValue.textContent = `${heatSlider.value}%`
+  heatSlider.addEventListener('input', () => {
+    heatValue.textContent = `${heatSlider.value}%`
+    setHeatOpacity(map, Number(heatSlider.value) / 100)
+  })
+
+  const rampStatus = element('trail-ramp-status')
+  let rampReady = false
+  const rampButtons = radioGroup<TrailRamp>('trail-ramp', 'ember', (value) => {
+    if (!rampReady) return
+    rampStatus.hidden = false
+    rampStatus.dataset.state = ''
+    rampStatus.textContent = 'Re-rendering the trails in the new colours.'
+
+    void apiSend('PATCH', '/api/settings', { trail_ramp: value })
+      .then(() =>
+        runRender((step) => {
+          rampStatus.textContent = `Re-rendering the trails in the new colours —${percentOf(step)}`
+        }),
+      )
+      .then(() => {
+        rampStatus.textContent = 'Trails recoloured.'
+        bustTileCache()
+        applyView(map, options)
+      })
+      .catch((error: unknown) => {
+        rampStatus.dataset.state = 'bad'
+        rampStatus.textContent = error instanceof ApiError ? error.message : String(error)
+      })
+  })
+  void apiGet<{ settings: Record<string, string> }>('/api/settings')
+    .then((body) => rampButtons((body.settings?.trail_ramp ?? 'ember') as TrailRamp))
+    .catch(() => {})
+    .finally(() => (rampReady = true))
+
   const trailPopups = element<HTMLInputElement>('trail-popups')
   trailPopups.checked = getTrailPopups()
   trailPopups.addEventListener('change', () => setTrailPopups(trailPopups.checked))
@@ -419,6 +471,7 @@ async function start(): Promise<void> {
   const attachTrails = () => {
     try {
       applyFogOpacity(map)
+      applyHeatOpacity(map)
       applyBorders(map)
       trails.attach()
       void trails.refresh()

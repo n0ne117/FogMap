@@ -139,9 +139,14 @@ def fog_alpha() -> int:
     return max(0, min(255, value))
 
 
+SETTING_TRAIL_RAMP = "trail_ramp"
+
 # Pass count to colour. Counts are heavily skewed - most pixels are crossed
 # once - so the ramp is walked on a log scale, otherwise every trail but the
 # daily commute renders as the same dim first step.
+#
+# Each ramp has a dark and a light variant, because a colour that glows over a
+# dark basemap disappears over a pale one.
 TRAIL_RAMPS = {
     "dark": [
         (0.00, (90, 30, 90, 0)),
@@ -160,6 +165,91 @@ TRAIL_RAMPS = {
         (1.00, (140, 60, 0, 255)),
     ],
 }
+
+TRAIL_RAMP_SETS: dict[str, dict[str, list]] = {
+    "ember": TRAIL_RAMPS,
+    "ice": {
+        "dark": [
+            (0.00, (10, 40, 80, 0)),
+            (0.01, (20, 70, 130, 205)),
+            (0.35, (30, 130, 190, 230)),
+            (0.65, (60, 190, 220, 242)),
+            (0.85, (150, 230, 240, 250)),
+            (1.00, (235, 252, 255, 255)),
+        ],
+        "light": [
+            (0.00, (10, 30, 70, 0)),
+            (0.01, (25, 60, 130, 195)),
+            (0.35, (20, 105, 170, 220)),
+            (0.65, (25, 150, 180, 238)),
+            (0.85, (40, 175, 190, 248)),
+            (1.00, (10, 70, 100, 255)),
+        ],
+    },
+    "moss": {
+        "dark": [
+            (0.00, (20, 50, 30, 0)),
+            (0.01, (35, 85, 55, 205)),
+            (0.35, (70, 140, 70, 230)),
+            (0.65, (140, 190, 70, 242)),
+            (0.85, (210, 230, 110, 250)),
+            (1.00, (245, 255, 210, 255)),
+        ],
+        "light": [
+            (0.00, (20, 50, 30, 0)),
+            (0.01, (40, 95, 55, 195)),
+            (0.35, (70, 135, 55, 220)),
+            (0.65, (120, 165, 40, 238)),
+            (0.85, (165, 185, 40, 248)),
+            (1.00, (60, 85, 10, 255)),
+        ],
+    },
+    "mono": {
+        "dark": [
+            (0.00, (255, 255, 255, 0)),
+            (0.01, (200, 205, 215, 190)),
+            (0.50, (235, 238, 245, 226)),
+            (1.00, (255, 255, 255, 255)),
+        ],
+        "light": [
+            (0.00, (20, 22, 28, 0)),
+            (0.01, (90, 95, 105, 190)),
+            (0.50, (50, 54, 62, 226)),
+            (1.00, (10, 12, 16, 255)),
+        ],
+    },
+}
+
+
+def trail_ramp(conn: sqlite3.Connection | None = None) -> str:
+    """Which colour ramp the trails are drawn with.
+
+    Environment, then the stored setting, then ember - the one section 8
+    picked. Like the fog colour, this is baked into the tiles, so changing it
+    costs a render.
+    """
+    from_env = os.environ.get("FOGMAP_TRAIL_RAMP", "").strip().lower()
+    if from_env:
+        return check_ramp(from_env)
+
+    if conn is not None:
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key = ?", (SETTING_TRAIL_RAMP,)
+        ).fetchone()
+        if row and str(row["value"]).strip():
+            return check_ramp(str(row["value"]))
+
+    return "ember"
+
+
+def check_ramp(name: str) -> str:
+    cleaned = name.strip().lower()
+    if cleaned not in TRAIL_RAMP_SETS:
+        raise ValueError(
+            f"Unknown trail colours {name!r}. FogMap has "
+            f"{', '.join(sorted(TRAIL_RAMP_SETS))}."
+        )
+    return cleaned
 
 
 def view_layers(view: str) -> set[str] | None:
@@ -485,7 +575,7 @@ def parent_tile(
     return parent
 
 
-def trail_lut(theme: str) -> np.ndarray:
+def trail_lut(theme: str, ramp: str = "ember") -> np.ndarray:
     """A 256-entry pass-count to RGBA lookup table.
 
     Counts are mapped through log1p before the ramp is walked, so the
@@ -493,7 +583,7 @@ def trail_lut(theme: str) -> np.ndarray:
     into the bottom of a linear scale.
     """
     try:
-        anchors = TRAIL_RAMPS[theme]
+        anchors = TRAIL_RAMP_SETS[check_ramp(ramp)][theme]
     except KeyError:
         raise ValueError(
             f"Unknown theme {theme!r}. FogMap renders {' and '.join(THEMES)}."
@@ -573,8 +663,30 @@ def render_fog(
     return rgba
 
 
-def render_trail(trail: np.ndarray, theme: str) -> np.ndarray:
-    return trail_lut(theme)[trail]
+# How far a trail is feathered at the deep zoom levels, in pixels.
+#
+# On the native grid a track is one pixel and softening it would erase it. Two
+# levels down it is four or five pixels of hard-edged stripe with visibly
+# stepped diagonals, which is the difference between a heat map and a bar
+# chart. Feathering the counts before the ramp is walked turns it back into
+# something that reads as heat.
+DEEP_TRAIL_SOFT_PX = 0.7
+
+
+def render_trail(
+    trail: np.ndarray, theme: str, ramp: str = "ember", soft_px: float = 0.0
+) -> np.ndarray:
+    if soft_px > 0 and trail.any():
+        spread = np.asarray(
+            Image.fromarray(trail, mode="L").filter(
+                ImageFilter.GaussianBlur(radius=soft_px)
+            ),
+            dtype=np.uint8,
+        )
+        # Never dimmer than it was: the blur may only add glow around a track,
+        # not take brightness off the middle of one.
+        trail = np.maximum(trail, spread)
+    return trail_lut(theme, ramp)[trail]
 
 
 def encode_png(rgba: np.ndarray) -> bytes:
@@ -613,7 +725,9 @@ def placeholder_tile(
                 colour=fog_colour(theme, conn),
             )
         )
-    return encode_png(render_trail(np.zeros((TILE, TILE), dtype=np.uint8), theme))
+    return encode_png(
+        render_trail(np.zeros((TILE, TILE), dtype=np.uint8), theme, trail_ramp(conn))
+    )
 
 
 def write_placeholders(
@@ -688,6 +802,7 @@ def render_deep(
     themes: tuple[str, ...],
     scope: dict[int, set[tuple[int, int]]] | None,
     colours: dict[str, tuple[int, int, int]],
+    ramp: str = "ember",
 ) -> tuple[int, set[Path]]:
     """Stamp the deep levels under one native tile, straight from geometry.
 
@@ -718,7 +833,7 @@ def render_deep(
                     rgba = (
                         render_fog(fog, theme, colour=colours[theme])
                         if kind == "fog"
-                        else render_trail(trail, theme)
+                        else render_trail(trail, theme, ramp)
                     )
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     destination.write_bytes(encode_png(rgba))
@@ -753,7 +868,7 @@ def _render_job(job: Job) -> tuple[int, list[str]]:
         else:
             colours = {theme: fog_colour(theme, conn) for theme in themes}
             written, kept = render_deep(
-                conn, Path(root), view, parent, themes, scope, colours
+                conn, Path(root), view, parent, themes, scope, colours, trail_ramp(conn)
             )
         return written, [str(path) for path in kept]
     finally:
@@ -793,6 +908,7 @@ def render_shallow(
     written = 0
     kept: set[Path] = set()
     colours = {theme: fog_colour(theme, conn) for theme in themes}
+    ramp = trail_ramp(conn)
 
     def in_scope(zoom: int, x: int, y: int) -> bool:
         return scope is None or (x, y) in scope.get(zoom, frozenset())
@@ -831,7 +947,7 @@ def render_shallow(
                 rgba = (
                     render_fog(fog, theme, colour=colours[theme])
                     if kind == "fog"
-                    else render_trail(trail, theme)
+                    else render_trail(trail, theme, ramp)
                 )
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(encode_png(rgba))
