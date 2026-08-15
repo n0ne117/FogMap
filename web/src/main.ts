@@ -36,7 +36,14 @@ import { Places } from './places'
 import { Setup } from './setup'
 import { Sources } from './sources'
 import { Timeline } from './timeline'
-import { Trails } from './trails'
+import {
+  getTrailPopups,
+  getTrailStyle,
+  setTrailPopups,
+  setTrailStyle,
+  Trails,
+  type TrailStyle,
+} from './trails'
 import {
   applyUiTheme,
   getMapTheme,
@@ -385,6 +392,10 @@ async function start(): Promise<void> {
     setFogOpacity(map, percent / 100)
   })
 
+  const trailPopups = element<HTMLInputElement>('trail-popups')
+  trailPopups.checked = getTrailPopups()
+  trailPopups.addEventListener('change', () => setTrailPopups(trailPopups.checked))
+
   const borders = element<HTMLInputElement>('show-borders')
   borders.checked = getBordersVisible()
   borders.addEventListener('change', () => setBordersVisible(map, borders.checked))
@@ -426,6 +437,14 @@ async function start(): Promise<void> {
   }
   map.on('style.load', attachTrails)
   if (map.isStyleLoaded()) attachTrails()
+
+  // Restyled rather than refreshed: which way the same tracks are drawn does
+  // not depend on fetching them again, and a round trip to change a paint
+  // property is a round trip nobody asked for.
+  radioGroup<TrailStyle>('trail-style', getTrailStyle(), (value) => {
+    setTrailStyle(value)
+    trails.restyle()
+  })
 
   const timeline = new Timeline((view) => {
     options.view = view

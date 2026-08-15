@@ -11,6 +11,16 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.9.17] - 2026-08-15
+
+Somewhere you go every day stops erasing itself.
+
+### Added
+- **Track lines** in Settings, Appearance: Auto, Detailed, Faint or Off. Detailed is what shipped before — one legible line per track with a casing under it, which is right until a hundred of them share a street and the whole neighbourhood turns into a white slab. Faint draws hairlines at low opacity with no casing, so overlapping tracks add up instead of covering each other: a street crossed once is a whisper, a street crossed every morning is bright. Auto uses whichever suits how much is on screen. The trail colouring underneath is untouched in every mode.
+- Clicking a track to see its details is now a setting, on by default, in the same place.
+
+Both are viewing choices applied in the browser, so switching between them is instant and nothing is re-rendered or re-fetched.
+
 ## [0.9.16] - 2026-08-15
 
 Places, properly.

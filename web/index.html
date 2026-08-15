@@ -254,6 +254,32 @@
           </section>
 
           <section>
+            <h2>Tracks</h2>
+            <label class="field">
+              <span>Individual track lines</span>
+              <div id="trail-style" class="segmented" role="group" aria-label="Track lines">
+                <button type="button" data-value="auto" aria-pressed="true">Auto</button>
+                <button type="button" data-value="detailed" aria-pressed="false">Detailed</button>
+                <button type="button" data-value="faint" aria-pressed="false">Faint</button>
+                <button type="button" data-value="off" aria-pressed="false">Off</button>
+              </div>
+            </label>
+            <p class="hint">
+              Detailed draws one legible line per track, which is right until a
+              hundred of them share a street and the whole area turns white.
+              Faint draws hairlines that add up instead, so how often you went
+              somewhere becomes the brightness. Auto picks whichever suits what
+              is on screen. The trail colouring underneath is unaffected either
+              way.
+            </p>
+
+            <label class="check">
+              <input id="trail-popups" type="checkbox" checked />
+              <span>Show track details when one is clicked</span>
+            </label>
+          </section>
+
+          <section>
             <h2>Borders</h2>
             <label class="check">
               <input id="show-borders" type="checkbox" />

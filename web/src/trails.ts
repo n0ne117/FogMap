@@ -16,6 +16,66 @@ import { apiGet } from './api'
 export const MIN_TRAIL_ZOOM = 14
 
 /**
+ * How the individual tracks are drawn.
+ *
+ *   detailed  one legible line per track, with a casing under it. Right when
+ *             there are a handful; a white wall when there are a hundred.
+ *   faint     hairlines at low opacity and no casing, so overlapping tracks
+ *             accumulate instead of covering each other. A street crossed
+ *             once is a whisper, a street crossed daily is bright: the
+ *             density becomes the picture rather than destroying it.
+ *   auto      whichever of those suits how much is on screen.
+ *   off       none. The trail bitmap underneath still carries the passes.
+ */
+export type TrailStyle = 'auto' | 'detailed' | 'faint' | 'off'
+
+const STYLE_KEY = 'fogmap.trails.style'
+const POPUP_KEY = 'fogmap.trails.popups'
+
+/**
+ * Tracks in view above which "auto" stops drawing them individually.
+ *
+ * Not a measurement of anything - it is the point where counting the lines
+ * stops being possible, which is when drawing them separately stops being
+ * worth the ink.
+ */
+const DENSE_FROM = 24
+
+export function getTrailStyle(): TrailStyle {
+  try {
+    const stored = window.localStorage.getItem(STYLE_KEY)
+    if (stored === 'detailed' || stored === 'faint' || stored === 'off') return stored
+  } catch {
+    /* the default is a fine answer */
+  }
+  return 'auto'
+}
+
+export function setTrailStyle(value: TrailStyle): void {
+  try {
+    window.localStorage.setItem(STYLE_KEY, value)
+  } catch {
+    /* a preference that cannot be stored is still worth applying now */
+  }
+}
+
+export function getTrailPopups(): boolean {
+  try {
+    return window.localStorage.getItem(POPUP_KEY) !== 'false'
+  } catch {
+    return true
+  }
+}
+
+export function setTrailPopups(value: boolean): void {
+  try {
+    window.localStorage.setItem(POPUP_KEY, String(value))
+  } catch {
+    /* as above */
+  }
+}
+
+/**
  * Where the vector lines take over from the trail bitmap.
  *
  * The bitmap is rendered natively to z16, so up to there it is sharper than a
@@ -30,6 +90,17 @@ const FADE_IN: DataDrivenPropertyValueSpecification<number> = [
   0,
   17.5,
   1,
+]
+
+/** The faint end of the same cross-fade, low enough that overlap accumulates. */
+const FADE_IN_FAINT: DataDrivenPropertyValueSpecification<number> = [
+  'interpolate',
+  ['linear'],
+  ['zoom'],
+  16,
+  0,
+  17.5,
+  0.14,
 ]
 
 const SOURCE = 'fogmap-trail-vector'
@@ -98,6 +169,8 @@ export class Trails {
   private readonly onStatus: (message: string) => void
   private attached = false
   private pending = 0
+  /** Tracks the last refresh found in view, so a restyle needs no round trip. */
+  private inView = 0
   view = 'all'
 
   constructor(map: MapLibreMap, onStatus: (message: string) => void) {
@@ -167,6 +240,7 @@ export class Trails {
       this.map.on('moveend', () => void this.refresh())
       this.map.on('click', HIT_LAYER, (event) => this.identify(event as never))
       this.map.on('mouseenter', HIT_LAYER, () => {
+        if (!getTrailPopups() || getTrailStyle() === 'off') return
         this.map.getCanvas().style.cursor = 'pointer'
       })
       this.map.on('mouseleave', HIT_LAYER, () => {
@@ -176,6 +250,8 @@ export class Trails {
   }
 
   private identify(event: { lngLat: unknown; features?: { properties: TrailProperties }[] }): void {
+    if (!getTrailPopups() || getTrailStyle() === 'off') return
+
     const feature = event.features?.[0]
     if (!feature) return
 
@@ -190,6 +266,44 @@ export class Trails {
     if (source && 'setData' in source) {
       ;(source as { setData: (data: unknown) => void }).setData(collection)
     }
+  }
+
+  /**
+   * Draw the lines to suit how many of them there are.
+   *
+   * Called with the number of tracks in view, because that is the thing that
+   * decides whether one line per track is information or noise. Overlapping
+   * hairlines at low opacity add up, which turns a hundred tracks down one
+   * street from a white wall into a bright line - the same fact, legibly.
+   */
+  restyle(inView: number = this.inView): void {
+    if (!this.map.getLayer(LAYER)) return
+    this.inView = inView
+
+    const chosen = getTrailStyle()
+    const style =
+      chosen === 'auto' ? (inView > DENSE_FROM ? 'faint' : 'detailed') : chosen
+
+    const on = style !== 'off'
+    const faint = style === 'faint'
+
+    this.map.setLayoutProperty(CASING_LAYER, 'visibility', on && !faint ? 'visible' : 'none')
+    this.map.setLayoutProperty(LAYER, 'visibility', on ? 'visible' : 'none')
+    this.map.setLayoutProperty(HIT_LAYER, 'visibility', on ? 'visible' : 'none')
+    if (!on) return
+
+    this.map.setPaintProperty(
+      LAYER,
+      'line-width',
+      faint
+        ? ['interpolate', ['linear'], ['zoom'], 14, 0.8, 18, 1.4, 22, 2]
+        : ['interpolate', ['linear'], ['zoom'], 14, 1, 18, 2.2, 22, 3],
+    )
+    this.map.setPaintProperty(
+      LAYER,
+      'line-opacity',
+      faint ? FADE_IN_FAINT : FADE_IN,
+    )
   }
 
   async refresh(): Promise<void> {
@@ -227,6 +341,7 @@ export class Trails {
       if (token !== this.pending) return
 
       this.setData(collection)
+      this.restyle(collection.features.length)
       this.onStatus(
         collection.truncated
           ? `Showing the first ${collection.cap} tracks here. Zoom in for the rest.`
