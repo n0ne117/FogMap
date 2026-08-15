@@ -393,6 +393,13 @@ a {
   color: var(--accent-fg);
 }
 
+/* The eraser takes ground away. Selecting it should not look like selecting
+   the brush, so it is the one segment that goes red when it is armed. */
+.segmented button[data-value='eraser'][aria-pressed='true'] {
+  background: var(--bad);
+  color: #fff;
+}
+
 .segmented button:disabled {
   cursor: not-allowed;
 }

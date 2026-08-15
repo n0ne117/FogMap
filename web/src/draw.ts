@@ -4,7 +4,7 @@
 // /api/events, which puts it through exactly the path a GPX import takes.
 // Drawing is not a special case anywhere below this file.
 
-import { ApiError, apiSend } from './api'
+import { ApiError, apiGet, apiSend } from './api'
 
 /** Below this the brush is meaningless: one screen pixel exceeds its diameter. */
 export const MIN_DRAW_ZOOM = 14
@@ -12,7 +12,19 @@ export const MIN_DRAW_ZOOM = 14
 /** Points closer together than this add nothing but bytes. */
 const THIN_METRES = 5
 
-export type Tool = 'off' | 'freehand' | 'line'
+/**
+ * Corner-cutting passes run over a freehand stroke before it is posted.
+ *
+ * A pointer trace is a staircase of screen pixels, and thinning it to five
+ * metres leaves the staircase, just with longer steps. Two Chaikin passes turn
+ * the corners into curves - four times the points, still under a hundred for a
+ * normal stroke - which is what "smooth" has to mean here: the geometry is
+ * smooth, so it is still smooth at z18 and after a rebuild. Smoothing only the
+ * drawn line would leave the fog underneath it faceted.
+ */
+const SMOOTH_PASSES = 2
+
+export type Tool = 'off' | 'freehand' | 'line' | 'eraser'
 export type Mode = 'add' | 'erase'
 
 export interface Point {
@@ -76,6 +88,33 @@ export function simplify(points: Point[], tolerance = THIN_METRES): Point[] {
   return [...left.slice(0, -1), ...right]
 }
 
+/**
+ * Chaikin corner cutting. Each pass replaces every span with its quarter and
+ * three-quarter points, so the polyline converges on a quadratic B-spline.
+ *
+ * The endpoints are kept exactly. A stroke that ends where the user lifted the
+ * pointer is the one thing about a freehand line they aimed at.
+ */
+export function smooth(points: Point[], passes = SMOOTH_PASSES): Point[] {
+  let current = points.slice()
+
+  for (let pass = 0; pass < passes; pass += 1) {
+    if (current.length < 3) return current
+
+    const next: Point[] = [current[0]]
+    for (let i = 0; i < current.length - 1; i += 1) {
+      const a = current[i]
+      const b = current[i + 1]
+      next.push({ lng: a.lng * 0.75 + b.lng * 0.25, lat: a.lat * 0.75 + b.lat * 0.25 })
+      next.push({ lng: a.lng * 0.25 + b.lng * 0.75, lat: a.lat * 0.25 + b.lat * 0.75 })
+    }
+    next.push(current[current.length - 1])
+    current = next
+  }
+
+  return current
+}
+
 function perpendicularMetres(point: Point, start: Point, end: Point): number {
   const spanLength = metresBetween(start, end)
   if (spanLength === 0) return metresBetween(point, start)
@@ -101,8 +140,8 @@ export interface DrawResult {
 
 export class Draw {
   private tool: Tool = 'off'
-  private mode: Mode = 'add'
   private drawing = false
+  private undoing = false
   private points: Point[] = []
   private readonly undoStack: number[] = []
   private readonly map: MapLike
@@ -122,6 +161,18 @@ export class Draw {
     return this.tool
   }
 
+  /**
+   * What a stroke with the current tool does.
+   *
+   * The eraser is a tool rather than a mode next to the brush. A control that
+   * says "Erase" and sits away from the tool it modifies reads as a button
+   * that erases something, which is the last thing a drawing app should be
+   * ambiguous about.
+   */
+  get mode(): Mode {
+    return this.tool === 'eraser' ? 'erase' : 'add'
+  }
+
   get canDraw(): boolean {
     return this.map.getZoom() >= MIN_DRAW_ZOOM
   }
@@ -130,18 +181,19 @@ export class Draw {
     return this.undoStack.length
   }
 
+  get busy(): boolean {
+    return this.undoing
+  }
+
   setTool(tool: Tool): void {
     this.tool = tool
     this.points = []
     this.drawing = false
-    this.map.getCanvas().style.cursor = tool === 'off' ? '' : 'crosshair'
+    this.map.getCanvas().style.cursor =
+      tool === 'off' ? '' : tool === 'eraser' ? 'cell' : 'crosshair'
     if (tool === 'off') {
       this.map.dragPan.enable()
     }
-  }
-
-  setMode(mode: Mode): void {
-    this.mode = mode
   }
 
   attach(): void {
@@ -189,7 +241,7 @@ export class Draw {
   }
 
   private extend(event: PointerEvent): void {
-    if (!this.drawing || this.tool !== 'freehand') return
+    if (!this.drawing || this.tool === 'line') return
     this.points.push(this.at(event))
   }
 
@@ -209,8 +261,11 @@ export class Draw {
       return
     }
 
+    // A point-to-point line is meant to be straight, so it is left alone.
     const thinned =
-      this.tool === 'line' ? raw : simplify(thinByDistance(raw), THIN_METRES)
+      this.tool === 'line'
+        ? raw
+        : smooth(simplify(thinByDistance(raw), THIN_METRES))
 
     const geometry =
       thinned.length === 1
@@ -220,17 +275,18 @@ export class Draw {
             coordinates: thinned.map((p) => [p.lng, p.lat]),
           }
 
+    const mode = this.mode
     try {
       const saved = await apiSend<DrawResult>('POST', '/api/events', {
         source: 'manual',
-        op: this.mode,
+        op: mode,
         geometry,
         radius_m: this.radiusM,
-        layers: this.mode === 'erase' ? undefined : this.layerList(),
+        layers: mode === 'erase' ? undefined : this.layerList(),
       })
       this.undoStack.push(saved.id)
       this.onStatus(
-        `${this.mode === 'erase' ? 'Erased' : 'Drew'} ${thinned.length} points ` +
+        `${mode === 'erase' ? 'Erased' : 'Drew'} ${thinned.length} points ` +
           `into ${saved.layers.join(', ')}`,
       )
       this.onSaved()
@@ -245,21 +301,47 @@ export class Draw {
     return trimmed ? trimmed.split(/[,\s]+/).filter(Boolean) : undefined
   }
 
+  /**
+   * Remove the most recent hand-drawn stroke.
+   *
+   * The stack of ids this session drew is only a fast path. When it is empty
+   * the most recent manual event is fetched instead, so undo still works after
+   * a reload rather than claiming there is nothing to undo while the stroke is
+   * plainly on screen.
+   */
   async undo(): Promise<void> {
-    const id = this.undoStack.pop()
-    if (id === undefined) {
-      this.onStatus('Nothing to undo.')
-      return
-    }
+    if (this.undoing) return
+
+    this.undoing = true
+    this.onStatus('Undoing the last stroke.')
+    let id = this.undoStack.pop()
 
     try {
+      if (id === undefined) id = await lastManualEvent()
+      if (id === undefined) {
+        this.onStatus('Nothing to undo. Only hand-drawn strokes can be undone.')
+        return
+      }
+
       await apiSend('DELETE', `/api/events/${id}`)
       this.onStatus(`Undid stroke ${id}`)
-      this.onSaved()
     } catch (error) {
       const message = error instanceof ApiError ? error.message : String(error)
       this.onStatus(message, true)
-      this.undoStack.push(id)
+      if (id !== undefined) this.undoStack.push(id)
+    } finally {
+      this.undoing = false
+      this.onSaved()
     }
   }
+}
+
+interface EventList {
+  events: { id: number }[]
+}
+
+/** The newest manual event, or undefined if nothing has been drawn by hand. */
+async function lastManualEvent(): Promise<number | undefined> {
+  const list = await apiGet<EventList>('/api/events?source=manual&limit=1')
+  return list.events[0]?.id
 }

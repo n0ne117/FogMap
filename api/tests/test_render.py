@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import io
+import json
 
 import numpy as np
 import pytest
@@ -197,6 +198,117 @@ class TestPyramid:
         assert len(written) == 4
         for path in written:
             assert path.is_file()
+
+class TestScopedRender:
+    """Section 6: an edit rebuilds its tiles and their ancestors, not a view.
+
+    Every one of these compares a scoped render against the full render of the
+    same database. Scoping is only ever allowed to make rendering cheaper - if
+    it can also make it different, undo and import quietly stop agreeing with
+    a rebuild, which is invariant 1.
+    """
+
+    def test_a_scoped_render_writes_only_the_scope(self, conn, tmp_path):
+        root = tmp_path / "tiles"
+        from datetime import datetime, timezone
+
+        # Two tracks far enough apart to land in different z14 tiles, so the
+        # whole-view render has strictly more to do than one tile's chain. The
+        # start times differ or the second import is deduplicated away.
+        for index, offset in enumerate((0.0, 0.08)):
+            points = [
+                (synthetic.BASE_LON + offset + n * 0.0001, synthetic.BASE_LAT)
+                for n in range(40)
+            ]
+            document = synthetic.gpx_document(
+                points,
+                name=f"track {index}",
+                start=datetime(2024, 5, 1, 8 + index, 0, tzinfo=timezone.utc),
+            )
+            common.ingest_tracks(conn, "workout", gpx.parse(document))
+
+        native = composite.tiles_with_data(conn, None)
+        assert len(native) > 1
+
+        full = composite.render_view(conn, root, "all")
+        scoped = composite.render_view(
+            conn, root, "all", scope=composite.rebuild_scope({sorted(native)[0]})
+        )
+
+        # Fifteen zooms, two themes, two kinds.
+        assert scoped == 15 * 2 * 2
+        assert scoped < full
+
+    def test_a_scoped_render_leaves_the_tiles_outside_it_alone(self, seeded, tmp_path):
+        root = tmp_path / "tiles"
+        composite.render_view(seeded, root, "all")
+        before = {path: path.read_bytes() for path in sorted(root.rglob("*.png"))}
+
+        touched = {sorted(composite.tiles_with_data(seeded, None))[0]}
+        composite.render_view(
+            seeded, root, "all", scope=composite.rebuild_scope(touched)
+        )
+
+        after = {path: path.read_bytes() for path in sorted(root.rglob("*.png"))}
+        assert after == before
+
+    def test_a_scoped_render_still_removes_tiles_that_lost_their_data(
+        self, conn, tmp_path
+    ):
+        from fogmap import raster
+
+        root = tmp_path / "tiles"
+        document = synthetic.gpx_document(synthetic.square_loop(40))
+        result = common.ingest_tracks(conn, "workout", gpx.parse(document))
+        composite.render_view(conn, root, "all")
+        assert list(root.glob("dark/all/fog/14/*/*.png"))
+
+        conn.execute("DELETE FROM events")
+        raster.rebuild_tiles(conn, result.tiles_touched)
+        composite.render_view(
+            conn, root, "all", scope=composite.rebuild_scope(result.tiles_touched)
+        )
+
+        assert not list(root.glob("dark/all/fog/14/*/*.png"))
+
+    def test_a_scoped_render_matches_a_full_one_after_a_new_event(
+        self, seeded, tmp_path
+    ):
+        from fogmap import raster
+
+        scoped_root = tmp_path / "scoped"
+        full_root = tmp_path / "full"
+        composite.render_view(seeded, scoped_root, "all")
+
+        points = [
+            (synthetic.BASE_LON + n * 0.0001, synthetic.BASE_LAT + 0.0004)
+            for n in range(30)
+        ]
+        cursor = seeded.execute(
+            "INSERT INTO events "
+            "(source, op, geometry, radius_m, layers, external_id, created_at, meta) "
+            "VALUES ('manual', 'add', ?, 15.0, '[\"2024\"]', NULL, "
+            "'2024-05-01T08:00:00+00:00', NULL)",
+            (json.dumps({"type": "LineString", "coordinates": points}),),
+        )
+        row = seeded.execute(
+            "SELECT * FROM events WHERE id = ?", (cursor.lastrowid,)
+        ).fetchone()
+        touched = raster.stamp_event(seeded, row)
+
+        composite.render_view(
+            seeded, scoped_root, "all", scope=composite.rebuild_scope(touched)
+        )
+        composite.render_view(seeded, full_root, "all")
+
+        scoped = sorted(scoped_root.rglob("*.png"))
+        full = sorted(full_root.rglob("*.png"))
+        assert [p.relative_to(scoped_root) for p in scoped] == [
+            p.relative_to(full_root) for p in full
+        ]
+        for a, b in zip(scoped, full):
+            assert a.read_bytes() == b.read_bytes(), a.relative_to(scoped_root)
+
 
 class TestPerYearViews:
     """Phase 3: every year present in the data gets its own rendered pyramid."""

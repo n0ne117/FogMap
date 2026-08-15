@@ -141,6 +141,36 @@ def available_views(conn: sqlite3.Connection) -> list[str]:
     return views
 
 
+def views_touching(
+    conn: sqlite3.Connection, tiles: set[tuple[int, int]]
+) -> list[str]:
+    """Canonical views with pixels inside a set of z14 tiles.
+
+    An erase is subtracted from every view, so every view has to be
+    re-rendered - but a year nobody travelled in the tiles the erase covers
+    renders back to exactly the bytes already on disk. With a view per year
+    that is the difference between an erase costing four seconds and half a
+    second, and it changes nothing about what ends up on disk.
+    """
+    if not tiles:
+        return []
+
+    clause = " OR ".join(["(x = ? AND y = ?)"] * len(tiles))
+    params: list[object] = [value for tile in sorted(tiles) for value in tile]
+    rows = conn.execute(
+        f"SELECT DISTINCT layer FROM blobs WHERE kind IN ('fog', 'trail') "
+        f"AND ({clause})",
+        params,
+    ).fetchall()
+    layers = {row["layer"] for row in rows}
+
+    views = [VIEW_ALL]
+    views += [f"{YEAR_PREFIX}{layer}" for layer in sorted(layers) if layer.isdigit()]
+    if VIEW_PREHISTORY in layers:
+        views.append(VIEW_PREHISTORY)
+    return views
+
+
 def _blobs(
     conn: sqlite3.Connection, kind: str, x: int, y: int, layers: set[str] | None
 ) -> list[np.ndarray]:
@@ -431,12 +461,25 @@ def prune_stale(root: Path, view: str, keep: set[Path]) -> int:
 
 
 def render_view(
-    conn: sqlite3.Connection, root: Path, view: str, themes: tuple[str, ...] = THEMES
+    conn: sqlite3.Connection,
+    root: Path,
+    view: str,
+    themes: tuple[str, ...] = THEMES,
+    scope: dict[int, set[tuple[int, int]]] | None = None,
 ) -> int:
-    """Render one view's whole PNG pyramid, both themes. Returns tiles written.
+    """Render one view's PNG pyramid, both themes. Returns tiles written.
 
     Walks depth first from z0, so at most four tiles per zoom are held at once
     and memory stays flat however large the archive grows.
+
+    `scope` limits which tiles are encoded and written, and is what section 6's
+    rebuild scope buys: one edit touches one z14 tile and its fourteen
+    ancestors, so encoding the other few hundred tiles of a view produces
+    byte-identical files nobody asked for. The walk itself still covers the
+    whole view - a parent is the maximum of its children, so its array cannot
+    be built without them - but composing arrays is cheap and encoding PNGs is
+    not. Tiles outside the scope keep their files: they are counted as kept so
+    the pruning pass leaves them alone.
     """
     native = tiles_with_data(conn, view_layers(view))
     if not native:
@@ -447,6 +490,9 @@ def render_view(
     levels = pyramid_levels(native)
     written = 0
     kept: set[Path] = set()
+
+    def in_scope(zoom: int, x: int, y: int) -> bool:
+        return scope is None or (x, y) in scope.get(zoom, frozenset())
 
     def build(zoom: int, x: int, y: int) -> tuple[np.ndarray, np.ndarray] | None:
         nonlocal written
@@ -472,33 +518,51 @@ def render_view(
             fog = parent_tile(fog_children, "max")
             trail = parent_tile(trail_children, "sum")
 
+        wanted = in_scope(zoom, x, y)
         for theme in themes:
-            for kind, rgba in (
-                ("fog", render_fog(fog, theme)),
-                ("trail", render_trail(trail, theme)),
-            ):
+            for kind in KINDS:
                 destination = tile_path(root, theme, view, kind, zoom, x, y)
+                kept.add(destination)
+                if not wanted:
+                    continue
+                rgba = render_fog(fog, theme) if kind == "fog" else render_trail(trail, theme)
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(encode_png(rgba))
-                kept.add(destination)
                 written += 1
 
         return fog, trail
 
     build(0, 0, 0)
-    prune_stale(root, view, kept)
+
+    if scope is None:
+        prune_stale(root, view, kept)
+    else:
+        # Only a tile inside the scope can have lost its data, so the sweep
+        # over the whole view is not just wasted - with a view per year it is
+        # most of what an edit costs.
+        for zoom, tiles in scope.items():
+            for tile_x, tile_y in tiles:
+                for theme in themes:
+                    for kind in KINDS:
+                        path = tile_path(root, theme, view, kind, zoom, tile_x, tile_y)
+                        if path not in kept:
+                            path.unlink(missing_ok=True)
+
     return written
 
 
 def render_all(
-    conn: sqlite3.Connection, root: Path, themes: tuple[str, ...] = THEMES
+    conn: sqlite3.Connection,
+    root: Path,
+    themes: tuple[str, ...] = THEMES,
+    scope: dict[int, set[tuple[int, int]]] | None = None,
 ) -> dict[str, int]:
     """Render every canonical view. Returns tiles written per view."""
     root.mkdir(parents=True, exist_ok=True)
     write_placeholders(root)
 
     views = available_views(conn)
-    rendered = {view: render_view(conn, root, view, themes) for view in views}
+    rendered = {view: render_view(conn, root, view, themes, scope) for view in views}
 
     # A view can disappear entirely - delete the last event of a year and that
     # year is no longer a view at all. Its directory has to go too.

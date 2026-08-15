@@ -7,6 +7,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -209,11 +210,7 @@ def _ingest_upload(
     if result.events_created:
         # Re-render now rather than at request time, so the tile endpoint
         # stays a file read. Only the views this import changed are touched.
-        root = tiles_root()
-        root.mkdir(parents=True, exist_ok=True)
-        composite.write_placeholders(root)
-        for view in result.affected_views():
-            composite.render_view(conn, root, view)
+        _render_views(conn, result.affected_views(), result.tiles_touched)
 
     return result.as_dict()
 
@@ -287,7 +284,11 @@ def _ingest_live(
         result = live.append(conn, source, fixes, meta)
 
     if result.accepted:
-        _render_views(conn, _views_for_layers(_live_layers(conn, result.event_id)))
+        _render_views(
+            conn,
+            _views_for_layers(_live_layers(conn, result.event_id)),
+            result.tiles_touched,
+        )
 
     return result.as_dict()
 
@@ -515,12 +516,23 @@ def serve_basemap(request: Request, name: str) -> Response:
     )
 
 
-def _render_views(conn: sqlite3.Connection, views: list[str]) -> None:
+def _render_views(
+    conn: sqlite3.Connection,
+    views: list[str],
+    touched: set[tuple[int, int]] | None = None,
+) -> None:
+    """Re-render views, limited to the ground an edit actually covered.
+
+    `touched` is the set of z14 tiles an event wrote. Passing it turns a
+    several-second whole-view re-encode into fifteen tiles, which is the
+    difference between undo feeling instant and looking like it did nothing.
+    """
     root = tiles_root()
     root.mkdir(parents=True, exist_ok=True)
     composite.write_placeholders(root)
+    scope = None if touched is None else composite.rebuild_scope(touched)
     for view in views:
-        composite.render_view(conn, root, view)
+        composite.render_view(conn, root, view, scope=scope)
 
 
 def _views_for_layers(layers: list[str]) -> list[str]:
@@ -620,9 +632,10 @@ def create_event(
     # showing fog that has just been rubbed out.
     _render_views(
         conn,
-        composite.available_views(conn)
+        composite.views_touching(conn, touched)
         if op == "erase"
         else _views_for_layers(layers),
+        touched,
     )
 
     return {
@@ -648,20 +661,37 @@ def delete_event(
         raise HTTPException(status_code=404, detail=f"No event with id {event_id}.")
 
     layers = raster.parse_layers(row["layers"], event_id)
+    was_erase = row["op"] == "erase"
+    before = set(composite.available_views(conn))
 
     with db.transaction(conn):
         tiles = raster.event_tiles(row)
         conn.execute("DELETE FROM events WHERE id = ?", (event_id,))
         raster.rebuild_tiles(conn, tiles)
 
-    # Deleting can empty a view completely, and an erase applied to every
-    # view anyway. render_all prunes tiles and views that no longer have
-    # anything behind them, which rendering a named list would not.
-    root = tiles_root()
-    root.mkdir(parents=True, exist_ok=True)
-    composite.render_all(conn, root)
+    # An erase was subtracted from every view, so removing it puts fog back
+    # into every view. Anything else only ever touched its own layers.
+    _render_views(
+        conn,
+        composite.views_touching(conn, tiles)
+        if was_erase
+        else _views_for_layers(layers),
+        tiles,
+    )
+
+    # Deleting the last event of a year retires that year as a view. Its
+    # directory goes with it, or the tile endpoint keeps serving a year that
+    # no longer exists.
+    _retire_views(before - set(composite.available_views(conn)))
 
     return {"deleted": event_id, "tiles_rebuilt": len(tiles)}
+
+
+def _retire_views(gone: set[str]) -> None:
+    root = tiles_root()
+    for view in gone:
+        for theme in composite.THEMES:
+            shutil.rmtree(root / theme / view.replace(":", "-"), ignore_errors=True)
 
 
 @app.get("/api/events")

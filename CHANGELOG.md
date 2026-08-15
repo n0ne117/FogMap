@@ -11,6 +11,21 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.9.9] - 2026-08-15
+
+Drawing that behaves like drawing.
+
+### Changed
+- The eraser is a tool now, sitting alongside Brush and Line, instead of a separate Reveal/Erase switch. A control labelled "Erase" that lives away from the tool it modifies reads as a button that erases something, which is the wrong thing for a drawing app to be ambiguous about. It turns red while it is armed.
+- Tracks are drawn much thinner. Above z14 the trail bitmap was being magnified up to sixteen times, turning a one-pixel track into a wide, blurred, visibly stepped stripe. The real track geometry now fades in over it as you zoom past z14 and the bitmap fades out, so a track stays a hairline at every zoom. The bitmap itself is also drawn at the thinnest width the grid can hold.
+- Freehand strokes are smoothed before they are saved. The stroke is thinned, simplified and then run through two passes of corner cutting, so the curve is smooth in the stored geometry rather than only in how it is drawn — it survives a rebuild and still looks right at z18. Point-to-point lines are left straight, which is the point of them.
+- Undo says what it is doing while it does it. Deleting a stroke rebuilds tiles, which took long enough that it looked like nothing had happened.
+
+### Fixed
+- Undo works after a page reload. It used to remember only the strokes drawn since the page loaded and would claim there was nothing to undo while the stroke was plainly still on screen; it now falls back to the most recent hand-drawn stroke on the server.
+- Drawing, erasing, undoing and importing now rebuild only the tiles they touched and those tiles' ancestors, as section 6 always specified, rather than re-encoding every tile of every affected view. A single stroke re-encodes sixty tiles instead of several hundred per view, and the difference is the difference between an edit landing immediately and appearing to hang.
+- An erase no longer re-renders years it cannot have changed. Erasing is subtracted from every view, so every view was being rebuilt — including years nobody travelled anywhere near the erased ground, which rendered back to exactly the bytes already on disk. On a nineteen-year archive an erase took about four seconds; it now takes about one.
+
 ## [0.9.8] - 2026-08-15
 
 A first run that hands you what you need and gets out of the way.

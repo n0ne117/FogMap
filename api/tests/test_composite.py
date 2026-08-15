@@ -279,6 +279,33 @@ class TestRebuildScope:
         assert composite.rebuild_scope(set()) == {14: set()}
 
 
+class TestViewsTouching:
+    """An erase re-renders every view that has anything where it landed."""
+
+    def test_only_the_views_with_pixels_in_the_tiles_come_back(self, conn):
+        add_event(conn, synthetic.straight_line(20), layers=["2024"])
+        far = [(lon + 0.5, lat) for lon, lat in synthetic.straight_line(20)]
+        add_event(conn, far, layers=["2015"])
+
+        near_tiles = composite.tiles_with_data(conn, {"2024"})
+        assert composite.views_touching(conn, near_tiles) == ["all", "year:2024"]
+
+        everything = composite.tiles_with_data(conn, None)
+        assert composite.views_touching(conn, everything) == [
+            "all",
+            "year:2015",
+            "year:2024",
+        ]
+
+    def test_nowhere_touches_nothing(self, conn):
+        add_event(conn, synthetic.straight_line(20), layers=["2024"])
+        assert composite.views_touching(conn, set()) == []
+
+    def test_empty_ground_still_gets_the_cumulative_view(self, conn):
+        add_event(conn, synthetic.straight_line(20), layers=["2024"])
+        assert composite.views_touching(conn, {(1, 1)}) == ["all"]
+
+
 class TestViewNames:
     def test_the_canonical_views_resolve(self):
         assert composite.view_layers("all") is None

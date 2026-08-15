@@ -247,8 +247,11 @@ class TestFogAndTrailWidths:
         ):
             raster.trail_max_radius_m()
 
-    def test_the_default_cap_is_five_metres(self):
-        assert raster.DEFAULT_TRAIL_MAX_RADIUS_M == 5.0
+    def test_the_default_cap_is_a_single_pixel_at_z14(self):
+        # The point of the default is that it floors to the thinnest line the
+        # native grid can hold, so the client never magnifies a fat one.
+        assert raster.DEFAULT_TRAIL_MAX_RADIUS_M == 3.0
+        assert geo.radius_px(raster.DEFAULT_TRAIL_MAX_RADIUS_M, 48.0) < 1.0
 
 
 class TestGeometryParsing:

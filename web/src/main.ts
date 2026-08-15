@@ -10,7 +10,7 @@ import {
   watchLifecycle,
   wireDiagnostics,
 } from './diagnostics'
-import { Draw, MIN_DRAW_ZOOM, type Mode, type Tool } from './draw'
+import { Draw, MIN_DRAW_ZOOM, type Tool } from './draw'
 import { Imports } from './imports'
 import {
   applyFogOpacity,
@@ -97,7 +97,7 @@ function wireDrawing(
       applyView(map, options)
       void timeline.load()
       void trails.refresh()
-      undoButton.disabled = draw.undoDepth === 0
+      refreshUndo()
     },
     (message, bad) => {
       status.textContent = message
@@ -108,6 +108,13 @@ function wireDrawing(
   )
   draw.attach()
 
+  // Deleting a stroke rebuilds tiles, which takes long enough to look like
+  // nothing happened. The button says what it is doing instead.
+  const refreshUndo = () => {
+    undoButton.disabled = draw.busy
+    undoButton.textContent = draw.busy ? 'Undoing…' : 'Undo'
+  }
+
   let paintTool: (value: Tool) => void = () => {}
 
   /** Drawing below z14 produces meaningless geometry, so it is locked out. */
@@ -115,18 +122,18 @@ function wireDrawing(
     const allowed = draw.canDraw
     const zoom = map.getZoom()
 
-    for (const id of ['draw-tool', 'draw-mode']) {
-      const group = element(id)
-      group.dataset.locked = String(!allowed)
-      for (const button of group.querySelectorAll('button')) button.disabled = !allowed
-    }
+    const group = element('draw-tool')
+    group.dataset.locked = String(!allowed)
+    for (const button of group.querySelectorAll('button')) button.disabled = !allowed
 
     hint.textContent = allowed
       ? draw.activeTool === 'line'
         ? 'Click to add points, double click to finish.'
         : draw.activeTool === 'freehand'
-          ? 'Drag on the map to draw.'
-          : 'Pick a tool to start drawing.'
+          ? 'Drag on the map to reveal.'
+          : draw.activeTool === 'eraser'
+            ? 'Drag on the map to rub fog back in.'
+            : 'Pick a tool to start drawing.'
       : `Zoom to ${MIN_DRAW_ZOOM} or closer to draw. Currently ${zoom.toFixed(1)}.`
 
     if (!allowed && draw.activeTool !== 'off') {
@@ -139,8 +146,6 @@ function wireDrawing(
     draw.setTool(value)
     refreshLock()
   })
-  radioGroup<Mode>('draw-mode', 'add', (value) => draw.setMode(value))
-
   element<HTMLInputElement>('draw-layers').addEventListener('input', (event) => {
     draw.layers = (event.target as HTMLInputElement).value
   })
@@ -148,7 +153,11 @@ function wireDrawing(
     const value = Number((event.target as HTMLInputElement).value)
     if (Number.isFinite(value) && value > 0) draw.radiusM = value
   })
-  undoButton.addEventListener('click', () => void draw.undo())
+  undoButton.addEventListener('click', () => {
+    void draw.undo()
+    refreshUndo()
+  })
+  refreshUndo()
 
   // The pencil opens the toolbar. Closing it puts the brush away too, so the
   // map is never left in drawing mode with nothing on screen saying so.

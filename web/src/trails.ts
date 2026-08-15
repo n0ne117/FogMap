@@ -101,10 +101,18 @@ export class Trails {
       type: 'line',
       source: SOURCE,
       minzoom: MIN_TRAIL_ZOOM,
+      // Round joins and caps, so a track reads as one continuous line rather
+      // than a chain of segments with notches at every bend.
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
       paint: {
         'line-color': '#ffffff',
-        'line-width': 1.5,
-        'line-opacity': 0.55,
+        // Deliberately hairline. A track is a record of where someone went,
+        // not a road, and at z18 a two-pixel line still covers eight metres
+        // of ground.
+        'line-width': ['interpolate', ['linear'], ['zoom'], 14, 1, 18, 2, 22, 3],
+        // Fades in as the raster underneath fades out, so the handover is a
+        // cross-fade rather than both being drawn at once.
+        'line-opacity': ['interpolate', ['linear'], ['zoom'], 14, 0, 15.5, 0.7],
       },
     })
     // A wider invisible line, so clicking near a track counts as clicking it.

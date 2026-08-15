@@ -42,7 +42,12 @@ ERASE_LAYER = "*"
 #
 # This is a ceiling, not a radius. The per-event radius still governs the fog,
 # which is what invariant 4 is about.
-DEFAULT_TRAIL_MAX_RADIUS_M = 5.0
+#
+# Three metres is a hair under half a pixel at z14 in the mid latitudes, which
+# the kernel floors to a single pixel: the thinnest line the native grid can
+# hold. Anything wider is magnified along with everything else once the client
+# overzooms past z14, and a track drawn four pixels wide there reads as a road.
+DEFAULT_TRAIL_MAX_RADIUS_M = 3.0
 
 
 def trail_max_radius_m() -> float:

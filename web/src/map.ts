@@ -149,7 +149,27 @@ export function buildStyle(setup: MapSetup): StyleSpec {
     sources,
     layers: [
       ...basemapLayers,
-      { id: 'fogmap-trail', type: 'raster', source: TRAIL_SOURCE },
+      {
+        id: 'fogmap-trail',
+        type: 'raster',
+        source: TRAIL_SOURCE,
+        // The trail raster stops at z14, so above that it is magnified: a
+        // one-pixel track becomes a sixteen-pixel blurred stripe with visibly
+        // stepped edges. The vector trail layer draws the same tracks from
+        // their real geometry from z14 up, so the raster is faded out as it
+        // arrives rather than left underneath it looking thick and jagged.
+        paint: {
+          'raster-opacity': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            14,
+            1,
+            15.5,
+            0,
+          ],
+        },
+      },
       {
         id: FOG_LAYER,
         type: 'raster',
