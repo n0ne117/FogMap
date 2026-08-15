@@ -11,6 +11,13 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.9.4] - 2026-08-15
+
+Makes an empty-looking map explain itself.
+
+### Added
+- A diagnostics panel under Settings, About, reporting what the map thinks is going on, and map errors are now shown on screen instead of only in the browser console.
+
 ## [0.9.3] - 2026-08-15
 
 A fog slider, and room to see what it does.

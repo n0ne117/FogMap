@@ -4,6 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 
 import type { Map as MapLibreMap } from 'maplibre-gl'
 
+import { recordMapError, wireDiagnostics } from './diagnostics'
 import { Draw, MIN_DRAW_ZOOM, type Mode, type Tool } from './draw'
 import { Imports } from './imports'
 import {
@@ -188,7 +189,17 @@ async function start(): Promise<void> {
   }
 
   map.on('error', (event) => {
-    console.warn('maplibre', event.error?.message ?? event)
+    const message = event.error?.message ?? String(event)
+    console.warn('maplibre', message)
+    recordMapError(message)
+
+    // Tiles missing at the edge of the world are normal; anything about the
+    // basemap or the style is worth putting in front of someone.
+    if (/pmtiles|protomaps|style|source|glyph|sprite/i.test(message)) {
+      const notice = element('map-error')
+      notice.textContent = `Map problem: ${message}`
+      notice.hidden = false
+    }
   })
 
   const handle: Record<string, unknown> = { map, options, buildStyle }
@@ -206,6 +217,7 @@ async function start(): Promise<void> {
 
   wireTabs('tabs')
   wireZoom(map as never)
+  wireDiagnostics(map, hasBasemap)
 
   // Fog thickness is a viewing choice applied on the GPU: it changes as the
   // slider moves, with no re-render and no request to the server.
