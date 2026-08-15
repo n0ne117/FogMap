@@ -17,7 +17,7 @@ import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from fogmap import db
+from irfaran import db
 
 # PMTiles v3 archives begin with this magic, so a wrong URL is caught before
 # it has been written over a good archive.
@@ -27,7 +27,7 @@ HEADER_BYTES = 127
 
 CHUNK = 1024 * 1024
 STATE_FILE = "basemap-download.json"
-USER_AGENT = "FogMap basemap downloader"
+USER_AGENT = "Irfaran basemap downloader"
 
 # Protomaps publishes a daily planet build and keeps roughly the last week.
 PLANET_URL_TEMPLATE = "https://build.protomaps.com/{date}.pmtiles"
@@ -332,7 +332,7 @@ class Downloader:
         version = header[7]
         if version != PMTILES_VERSION:
             raise ValueError(
-                f"{path.name} is PMTiles version {version}, and FogMap serves "
+                f"{path.name} is PMTiles version {version}, and Irfaran serves "
                 f"version {PMTILES_VERSION}."
             )
 

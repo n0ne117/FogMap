@@ -14,8 +14,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 from fastapi.testclient import TestClient
 
-from fogmap import basemap, db
-from fogmap.main import app
+from irfaran import basemap, db
+from irfaran.main import app
 
 # A minimal but structurally valid PMTiles v3 header.
 VALID_HEADER = basemap.PMTILES_MAGIC + bytes([3]) + b"\x00" * 119
@@ -261,7 +261,7 @@ class TestSetupEndpoint:
         assert body["suggested_urls"]
 
     def test_a_url_of_your_own_needs_the_token(self, client, monkeypatch):
-        monkeypatch.setenv("FOGMAP_TOKEN", "a-token")
+        monkeypatch.setenv("IRFARAN_TOKEN", "a-token")
         response = client.post(
             "/api/setup/basemap", json={"url": "https://example.org/a.pmtiles"}
         )
@@ -277,7 +277,7 @@ class TestSetupEndpoint:
         data into a cache. It changes nobody's history, which is what the
         token is there to protect.
         """
-        monkeypatch.setenv("FOGMAP_TOKEN", "a-token")
+        monkeypatch.setenv("IRFARAN_TOKEN", "a-token")
         suggested = client.get("/api/setup").json()["suggested_urls"][0]
 
         response = client.post("/api/setup/basemap", json={"url": suggested})
@@ -285,7 +285,7 @@ class TestSetupEndpoint:
         basemap.downloader.cancel()
 
     def test_cancelling_needs_no_token_either(self, client, monkeypatch):
-        monkeypatch.setenv("FOGMAP_TOKEN", "a-token")
+        monkeypatch.setenv("IRFARAN_TOKEN", "a-token")
         assert client.delete("/api/setup/basemap").status_code == 200
 
     @pytest.mark.parametrize(
@@ -297,21 +297,21 @@ class TestSetupEndpoint:
         ],
     )
     def test_only_the_real_host_over_https_is_trusted(self, url):
-        from fogmap.main import is_trusted_basemap
+        from irfaran.main import is_trusted_basemap
 
         assert is_trusted_basemap(url) is False
 
     def test_the_real_host_is_trusted(self):
-        from fogmap.main import is_trusted_basemap
+        from irfaran.main import is_trusted_basemap
 
         assert is_trusted_basemap("https://build.protomaps.com/20260814.pmtiles")
 
     def test_a_non_http_url_is_refused(self, client, monkeypatch):
-        monkeypatch.setenv("FOGMAP_TOKEN", "a-token")
+        monkeypatch.setenv("IRFARAN_TOKEN", "a-token")
         response = client.post(
             "/api/setup/basemap",
             json={"url": "file:///etc/passwd"},
-            headers={"X-FogMap-Token": "a-token"},
+            headers={"X-Irfaran-Token": "a-token"},
         )
         assert response.status_code == 400
         assert "is not an http or https URL" in response.json()["detail"]
@@ -319,11 +319,11 @@ class TestSetupEndpoint:
     def test_a_filename_that_escapes_the_data_directory_is_refused(
         self, client, monkeypatch
     ):
-        monkeypatch.setenv("FOGMAP_TOKEN", "a-token")
+        monkeypatch.setenv("IRFARAN_TOKEN", "a-token")
         response = client.post(
             "/api/setup/basemap",
             json={"url": "https://example.org/a.pmtiles", "filename": "../evil.pmtiles"},
-            headers={"X-FogMap-Token": "a-token"},
+            headers={"X-Irfaran-Token": "a-token"},
         )
         assert response.status_code == 400
         assert "not a valid PMTiles filename" in response.json()["detail"]
@@ -417,7 +417,7 @@ class TestPauseAndCancel:
         target.unlink()
 
     def test_the_endpoint_passes_discard_through(self, client, monkeypatch):
-        monkeypatch.setenv("FOGMAP_TOKEN", "a-token")
+        monkeypatch.setenv("IRFARAN_TOKEN", "a-token")
 
         # Pausing reports whatever the downloader is doing, which depends on
         # what ran before; only that it is accepted matters here.

@@ -6,7 +6,7 @@ rather than files. One event per fix would give thousands of rows a day and a
 map made of dots, so fixes append to a same-day open track per source: one
 event, growing, with the points held in time order.
 
-Every source is opt-in and off by default. FogMap is entirely usable with none
+Every source is opt-in and off by default. Irfaran is entirely usable with none
 of them configured - these are optional data sources, not dependencies.
 """
 
@@ -17,8 +17,8 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from fogmap import raster
-from fogmap.ingest.common import (
+from irfaran import raster
+from irfaran.ingest.common import (
     Fix,
     RADIUS_DEFAULTS_M,
     drop_inaccurate,

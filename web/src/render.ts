@@ -27,7 +27,7 @@ export interface RenderStep {
 export async function runRender(report: (step: RenderStep) => void): Promise<void> {
   const response = await fetch('/api/render', {
     method: 'POST',
-    headers: { 'X-FogMap-Token': getToken() },
+    headers: { 'X-Irfaran-Token': getToken() },
   })
   if (!response.ok) {
     throw new ApiError(response.status, `${response.status} ${response.statusText}`)

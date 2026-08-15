@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to FogMap are documented here.
+All notable changes to Irfaran are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions are `MAJOR.MINOR.PATCH` — patch bumps on every code change, minor bumps on phase completion, `1.0.0` when running live on real data.
@@ -10,6 +10,23 @@ Entries are written for someone reading the release page, not for someone readin
 ## [Unreleased]
 
 Nothing yet.
+
+## [0.10.0] - 2026-08-15
+
+The project is called Irfaran.
+
+*Irfaran* is Old High German for travelling through a thing and so coming to know it — *ir-* on *faran*, to go, which became *erfahren*, to experience, and *Erfahrung*, experience itself. A map that stays under fog until you have been there does not record where you went; it records what you have come to know by going. It was called FogMap until now, and that name was taken.
+
+### Changed
+- Every FogMap became Irfaran: the Python package, the container images, the API token header, the environment variables, the settings the browser remembers, and the map layers.
+
+Nothing an existing install depends on breaks, because none of the old names were simply dropped:
+
+- **The database keeps its filename.** An install that already has `fogmap.db` goes on using it. Renaming somebody's archive to tidy up a filename is not a trade worth making, and a fresh empty database beside a full one looks exactly like losing everything.
+- **`FOGMAP_` environment variables still work.** `IRFARAN_` wins where both are set, so a `.env` can be updated whenever it suits rather than before the next restart.
+- **The `X-FogMap-Token` header is still accepted.** A tracker configured months ago does not reconfigure itself, and an install that starts rejecting its own tracker on upgrade is worse than a spelling nobody sees.
+- **Browser settings are carried over on first load**, the API token among them. Losing that would look identical to being locked out.
+- **Compose forwards both spellings.** The code inside the container can be as forgiving as it likes; a variable Compose never passes in is a variable that is simply not there.
 
 ## [0.9.18] - 2026-08-15
 
@@ -79,7 +96,7 @@ Importing a workout archive stops taking an afternoon.
 
 ### Changed
 - A bulk import renders once at the end instead of once per file. Rendering costs roughly the whole archive rather than the file just added, so a few hundred workouts were paying that price a few hundred times over — the later a file was imported, the more it cost. Files are now stamped into the archive as they arrive, the server writes down which tiles went stale, and one pass at the end settles the lot. The progress line says when it switches from importing to drawing.
-- Rendering uses the cores available to it. Work is queued as one flat list of (view, tile) jobs and handed to a pool of worker processes — not one worker per view, because the cumulative view is a single job that takes longer than every year view put together, so that arrangement leaves most of the machine watching one job finish. A full re-render of a 318-event archive went from 161 s to 57 s on eight cores. Set FOGMAP_RENDER_WORKERS to override; the default leaves one core free.
+- Rendering uses the cores available to it. Work is queued as one flat list of (view, tile) jobs and handed to a pool of worker processes — not one worker per view, because the cumulative view is a single job that takes longer than every year view put together, so that arrangement leaves most of the machine watching one job finish. A full re-render of a 318-event archive went from 161 s to 57 s on eight cores. Set IRFARAN_RENDER_WORKERS to override; the default leaves one core free.
 - Deep zoom levels only rasterise the part of a track that could reach the tile being built. A morning run crossing ten tiles was being stamped end to end once per tile, and at z16 each pass resamples at four times the density.
 
 ### Added
@@ -145,7 +162,7 @@ Drawing that behaves like drawing.
 A first run that hands you what you need and gets out of the way.
 
 ### Added
-- FogMap now generates its own API token on first start and shows it on the setup screen, so a fresh install works without inventing one first. Setting FOGMAP_TOKEN still overrides it.
+- Irfaran now generates its own API token on first start and shows it on the setup screen, so a fresh install works without inventing one first. Setting IRFARAN_TOKEN still overrides it.
 
 ### Changed
 - The setup screen recognises a basemap that is already installed and simply offers to continue, rather than asking you to download one you have.
@@ -212,7 +229,7 @@ A reorganised interface, and a fix for pages coming up half empty.
 
 ### Fixed
 - Per-machine editor and agent settings are now ignored by the repository itself rather than relying on a global ignore file, so the protection travels with a clone.
-- Pages no longer come up half empty. Opening FogMap fires several requests at once, and under that load most of them were failing with a server error while the same request made on its own succeeded. Places, markers, data sources and the year slider could all silently fail to appear.
+- Pages no longer come up half empty. Opening Irfaran fires several requests at once, and under that load most of them were failing with a server error while the same request made on its own succeeded. Places, markers, data sources and the year slider could all silently fail to appear.
 
 ### Changed
 - Settings is now organised into tabs, so importing files and configuring data sources each have room to breathe.
@@ -317,7 +334,7 @@ publish themselves.
 - Tiles are served straight from disk, and a Protomaps basemap can be served from the data directory over range requests.
 - A `render` command to rebuild the tile pyramid on demand, reporting how long each view took.
 - An actual map. Basemap, trails and fog, with independent light and dark themes for the interface and the map, each remembered between visits.
-- First-run setup screen. FogMap now fetches its own basemap - pick one of the recent Protomaps planet builds or give it a URL, and watch the progress. The download resumes if it is interrupted, and the archive is checked before it is installed.
+- First-run setup screen. Irfaran now fetches its own basemap - pick one of the recent Protomaps planet builds or give it a URL, and watch the progress. The download resumes if it is interrupted, and the archive is checked before it is installed.
 - Tagged releases now build and publish themselves to GitHub Container Registry, with the release notes on the GitHub release page taken straight from this file. A release whose version, tag and notes disagree fails to build rather than shipping.
 
 ### Fixed
@@ -346,14 +363,14 @@ get the same bytes back.
 - Upload endpoints for GPX and TCX files, reporting how many events were created, how many points were stamped and how many tiles changed.
 - Command line tools to rebuild every bitmap from the event log, import a file from disk, and dump a single tile to a PNG for inspection. `selfcheck` now reports a digest over all stored bitmaps.
 
-[Unreleased]: https://github.com/n0ne117/FogMap/compare/v0.8.3...HEAD
-[0.8.3]: https://github.com/n0ne117/FogMap/releases/tag/v0.8.3
-[0.8.2]: https://github.com/n0ne117/FogMap/releases/tag/v0.8.2
-[0.8.1]: https://github.com/n0ne117/FogMap/releases/tag/v0.8.1
-[0.8.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.8.0
-[0.6.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.6.0
-[0.5.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.5.0
-[0.4.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.4.0
-[0.3.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.3.0
-[0.2.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.2.0
-[0.1.0]: https://github.com/n0ne117/FogMap/releases/tag/v0.1.0
+[Unreleased]: https://github.com/n0ne117/Irfaran/compare/v0.8.3...HEAD
+[0.8.3]: https://github.com/n0ne117/Irfaran/releases/tag/v0.8.3
+[0.8.2]: https://github.com/n0ne117/Irfaran/releases/tag/v0.8.2
+[0.8.1]: https://github.com/n0ne117/Irfaran/releases/tag/v0.8.1
+[0.8.0]: https://github.com/n0ne117/Irfaran/releases/tag/v0.8.0
+[0.6.0]: https://github.com/n0ne117/Irfaran/releases/tag/v0.6.0
+[0.5.0]: https://github.com/n0ne117/Irfaran/releases/tag/v0.5.0
+[0.4.0]: https://github.com/n0ne117/Irfaran/releases/tag/v0.4.0
+[0.3.0]: https://github.com/n0ne117/Irfaran/releases/tag/v0.3.0
+[0.2.0]: https://github.com/n0ne117/Irfaran/releases/tag/v0.2.0
+[0.1.0]: https://github.com/n0ne117/Irfaran/releases/tag/v0.1.0

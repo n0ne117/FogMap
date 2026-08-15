@@ -64,7 +64,7 @@ def gpx_document(
     joined = "\n".join(rows)
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<gpx version="1.1" creator="FogMap tests" '
+        '<gpx version="1.1" creator="Irfaran tests" '
         'xmlns="http://www.topografix.com/GPX/1/1">\n'
         "  <trk>\n"
         f"    <name>{name}</name>\n"

@@ -1,5 +1,5 @@
 [project]
-name = "fogmap"
+name = "irfaran"
 description = "Self-hosted fog-of-war location map"
 requires-python = ">=3.12"
 dynamic = ["version"]
@@ -10,7 +10,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["fogmap", "fogmap.ingest"]
+packages = ["irfaran", "irfaran.ingest"]
 
 [tool.setuptools.dynamic]
 version = { file = ["../VERSION"] }

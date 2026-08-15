@@ -22,7 +22,7 @@ from typing import Iterable, Iterator, Sequence
 import numpy as np
 from PIL import Image, ImageDraw
 
-from fogmap import geo
+from irfaran import geo, settings_env
 
 TILE = geo.TILE_PX
 MASK_ON = 255
@@ -52,14 +52,14 @@ DEFAULT_TRAIL_MAX_RADIUS_M = 3.0
 
 
 def trail_max_radius_m() -> float:
-    raw = os.environ.get("FOGMAP_TRAIL_MAX_RADIUS_M", "").strip()
+    raw = settings_env.get("TRAIL_MAX_RADIUS_M")
     if not raw:
         return DEFAULT_TRAIL_MAX_RADIUS_M
     try:
         return float(raw)
     except ValueError:
         raise ValueError(
-            f"FOGMAP_TRAIL_MAX_RADIUS_M must be a number, got {raw!r}. Unset it "
+            f"IRFARAN_TRAIL_MAX_RADIUS_M must be a number, got {raw!r}. Unset it "
             f"to use the default of {DEFAULT_TRAIL_MAX_RADIUS_M} m."
         ) from None
 
@@ -414,7 +414,7 @@ def geometry_points(geometry: str, event_id: int) -> list[tuple[float, float]]:
         return geometry_ring(geometry, event_id)
 
     raise ValueError(
-        f"Event {event_id} has geometry type {kind!r}. FogMap stores only "
+        f"Event {event_id} has geometry type {kind!r}. Irfaran stores only "
         "Point, LineString and Polygon."
     )
 
@@ -632,7 +632,7 @@ def stamp_event(
                 merge_trail(conn, source, layer, trail_tiles)
     else:
         raise ValueError(
-            f"Event {event_id} has op {op!r}. FogMap stores only "
+            f"Event {event_id} has op {op!r}. Irfaran stores only "
             f"{', '.join(repr(name) for name in OPS)}."
         )
 

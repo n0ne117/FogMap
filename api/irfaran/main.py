@@ -19,7 +19,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFi
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from fogmap import (
+from irfaran import (  # noqa: I001
     __version__,
     basemap,
     composite,
@@ -27,12 +27,19 @@ from fogmap import (
     organise,
     places,
     raster,
+    settings_env,
     tokens,
 )
-from fogmap.ingest import common, gpx, live, tcx
+from irfaran.ingest import common, gpx, live, tcx
 
 MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
-TOKEN_HEADER = "X-FogMap-Token"
+TOKEN_HEADER = "X-Irfaran-Token"
+
+# The header this was called before the project was renamed. A tracker app
+# configured months ago is not going to reconfigure itself, and an install
+# that starts rejecting its own tracker on upgrade is worse than a spelling
+# nobody sees.
+LEGACY_TOKEN_HEADER = "X-FogMap-Token"
 
 TILE_CACHE_CONTROL = "public, max-age=300, must-revalidate"
 BASEMAP_NAME = re.compile(r"^[A-Za-z0-9._-]+\.pmtiles$")
@@ -97,7 +104,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="FogMap",
+    title="Irfaran",
     version=__version__,
     summary="Self-hosted fog-of-war location map",
     lifespan=lifespan,
@@ -116,11 +123,11 @@ def effective_token(request: Request) -> tuple[str, str]:
     """The token in force, and where it came from.
 
     The environment is read on every call rather than once at startup, so
-    changing FOGMAP_TOKEN takes effect without anyone having to reason about
+    changing IRFARAN_TOKEN takes effect without anyone having to reason about
     when it was last looked at. The generated fallback is resolved once, at
     startup, because it lives in the database.
     """
-    from_env = os.environ.get(tokens.ENV_NAME, "").strip()
+    from_env = settings_env.get(tokens.ENV_VAR)
     if from_env:
         return from_env, "environment"
     return str(getattr(request.app.state, "token", "") or ""), "generated"
@@ -140,7 +147,9 @@ def token_error(request: Request) -> tuple[int, str] | None:
             "is generated on first start. Restart the api container.",
         )
 
-    presented = request.headers.get(TOKEN_HEADER, "")
+    presented = request.headers.get(TOKEN_HEADER, "") or request.headers.get(
+        LEGACY_TOKEN_HEADER, ""
+    )
     if not presented:
         return (
             401,
@@ -273,7 +282,9 @@ def _live_token_ok(request: Request) -> bool:
     if not expected:
         return False
 
-    presented = request.headers.get(TOKEN_HEADER, "")
+    presented = request.headers.get(TOKEN_HEADER, "") or request.headers.get(
+        LEGACY_TOKEN_HEADER, ""
+    )
     if presented and secrets.compare_digest(presented, expected):
         return True
 
@@ -292,7 +303,7 @@ def _ingest_live(
             status_code=503,
             detail=(
                 f"The {source} ingest endpoint is switched off. Enable it under "
-                "Settings, data sources, in the FogMap web interface. Nothing "
+                "Settings, data sources, in the Irfaran web interface. Nothing "
                 "was recorded."
             ),
         )
@@ -705,7 +716,7 @@ def create_event(
     if op not in raster.OPS:
         raise HTTPException(
             status_code=400,
-            detail=f"Unknown op {op!r}. FogMap stores only "
+            detail=f"Unknown op {op!r}. Irfaran stores only "
             f"{', '.join(repr(name) for name in raster.OPS)}.",
         )
 
@@ -720,7 +731,7 @@ def create_event(
         raise HTTPException(
             status_code=400,
             detail=f"Geometry type {geometry.get('type')!r} is not stored. "
-            f"FogMap stores {', '.join(raster.GEOMETRIES)}.",
+            f"Irfaran stores {', '.join(raster.GEOMETRIES)}.",
         )
 
     # Not `or`: a radius of 0 is falsy, and would silently become the default
@@ -1234,7 +1245,7 @@ def setup_status(request: Request) -> dict[str, object]:
 
 
 def is_trusted_basemap(url: str) -> bool:
-    """Is this one of the published builds FogMap offers by name?"""
+    """Is this one of the published builds Irfaran offers by name?"""
     try:
         parsed = urlparse(url)
     except ValueError:

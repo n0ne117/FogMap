@@ -21,7 +21,7 @@ function readVersion(): string {
     }
   }
   throw new Error(
-    `FogMap web cannot determine its version. No readable VERSION file at ${candidates.join(
+    `Irfaran web cannot determine its version. No readable VERSION file at ${candidates.join(
       ' or ',
     )}. The build context did not include the repository root.`,
   )
@@ -29,7 +29,7 @@ function readVersion(): string {
 
 export default defineConfig({
   define: {
-    __FOGMAP_VERSION__: JSON.stringify(readVersion()),
+    __IRFARAN_VERSION__: JSON.stringify(readVersion()),
   },
   build: {
     outDir: 'dist',

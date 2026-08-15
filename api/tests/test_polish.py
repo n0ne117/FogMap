@@ -7,9 +7,9 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from fogmap import composite, db, geo
-from fogmap.ingest import common, gpx
-from fogmap.main import TRAIL_FEATURE_CAP, app
+from irfaran import composite, db, geo
+from irfaran.ingest import common, gpx
+from irfaran.main import TRAIL_FEATURE_CAP, app
 
 from . import synthetic
 
@@ -19,7 +19,7 @@ TOKEN = "synthetic-polish-token"
 
 @pytest.fixture
 def client(monkeypatch):
-    monkeypatch.setenv("FOGMAP_TOKEN", TOKEN)
+    monkeypatch.setenv("IRFARAN_TOKEN", TOKEN)
     conn = db.open_initialised()
     conn.execute("DELETE FROM blobs")
     conn.execute("DELETE FROM events")
@@ -81,11 +81,11 @@ class TestFogEdge:
         assert (alpha == composite.fog_alpha()).all()
 
     def test_the_radius_is_configurable(self, monkeypatch):
-        monkeypatch.setenv("FOGMAP_FOG_EDGE_PX", "7")
+        monkeypatch.setenv("IRFARAN_FOG_EDGE_PX", "7")
         assert composite.fog_edge_px() == 7.0
 
     def test_zero_turns_softening_off(self, monkeypatch):
-        monkeypatch.setenv("FOGMAP_FOG_EDGE_PX", "0")
+        monkeypatch.setenv("IRFARAN_FOG_EDGE_PX", "0")
         assert composite.fog_edge_px() == 0.0
 
     def test_the_baked_fog_is_fully_opaque(self):
@@ -100,7 +100,7 @@ class TestFogEdge:
         assert composite.DEFAULT_FOG_ALPHA == 255
 
     def test_the_opacity_is_configurable(self, monkeypatch):
-        monkeypatch.setenv("FOGMAP_FOG_ALPHA", "180")
+        monkeypatch.setenv("IRFARAN_FOG_ALPHA", "180")
         assert composite.fog_alpha() == 180
         alpha = composite.render_fog(
             np.zeros((TILE, TILE), dtype=bool), "dark", edge_px=0.0
@@ -108,19 +108,19 @@ class TestFogEdge:
         assert (alpha == 180).all()
 
     def test_the_opacity_is_clamped_to_a_byte(self, monkeypatch):
-        monkeypatch.setenv("FOGMAP_FOG_ALPHA", "400")
+        monkeypatch.setenv("IRFARAN_FOG_ALPHA", "400")
         assert composite.fog_alpha() == 255
-        monkeypatch.setenv("FOGMAP_FOG_ALPHA", "-5")
+        monkeypatch.setenv("IRFARAN_FOG_ALPHA", "-5")
         assert composite.fog_alpha() == 0
 
     def test_a_nonsense_opacity_is_refused_loudly(self, monkeypatch):
-        monkeypatch.setenv("FOGMAP_FOG_ALPHA", "thick")
-        with pytest.raises(ValueError, match="FOGMAP_FOG_ALPHA must be a number"):
+        monkeypatch.setenv("IRFARAN_FOG_ALPHA", "thick")
+        with pytest.raises(ValueError, match="IRFARAN_FOG_ALPHA must be a number"):
             composite.fog_alpha()
 
     def test_a_nonsense_radius_is_refused_loudly(self, monkeypatch):
-        monkeypatch.setenv("FOGMAP_FOG_EDGE_PX", "soft")
-        with pytest.raises(ValueError, match="FOGMAP_FOG_EDGE_PX must be a number"):
+        monkeypatch.setenv("IRFARAN_FOG_EDGE_PX", "soft")
+        with pytest.raises(ValueError, match="IRFARAN_FOG_EDGE_PX must be a number"):
             composite.fog_edge_px()
 
 
@@ -197,7 +197,7 @@ class TestTrailsEndpoint:
     def test_erase_events_are_not_offered_as_trails(self, seeded):
         seeded.post(
             "/api/events",
-            headers={"X-FogMap-Token": TOKEN},
+            headers={"X-Irfaran-Token": TOKEN},
             json={
                 "source": "manual",
                 "op": "erase",

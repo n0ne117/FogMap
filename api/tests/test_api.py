@@ -10,8 +10,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from fogmap import __version__
-from fogmap.main import app
+from irfaran import __version__
+from irfaran.main import app
 
 TOKEN = "synthetic-test-token"
 
@@ -58,51 +58,51 @@ class TestTokenGate:
     def test_mutations_are_refused_without_a_header(self, client, monkeypatch, method):
         """There is always a token now.
 
-        One is generated on first start, so an unset FOGMAP_TOKEN no longer
+        One is generated on first start, so an unset IRFARAN_TOKEN no longer
         means writes are impossible - it means the generated one is in force.
         A request with no header is therefore unauthorised rather than
         unconfigured.
         """
-        monkeypatch.delenv("FOGMAP_TOKEN", raising=False)
+        monkeypatch.delenv("IRFARAN_TOKEN", raising=False)
         response = getattr(client, method)("/api/events")
         assert response.status_code == 401
-        assert "Missing X-FogMap-Token header" in response.json()["detail"]
+        assert "Missing X-Irfaran-Token header" in response.json()["detail"]
 
     def test_missing_header_is_rejected(self, client, monkeypatch):
-        monkeypatch.setenv("FOGMAP_TOKEN", TOKEN)
+        monkeypatch.setenv("IRFARAN_TOKEN", TOKEN)
         response = client.post("/api/events")
         assert response.status_code == 401
-        assert "Missing X-FogMap-Token header" in response.json()["detail"]
+        assert "Missing X-Irfaran-Token header" in response.json()["detail"]
 
     def test_wrong_token_is_rejected(self, client, monkeypatch):
-        monkeypatch.setenv("FOGMAP_TOKEN", TOKEN)
-        response = client.post("/api/events", headers={"X-FogMap-Token": "wrong"})
+        monkeypatch.setenv("IRFARAN_TOKEN", TOKEN)
+        response = client.post("/api/events", headers={"X-Irfaran-Token": "wrong"})
         assert response.status_code == 401
         assert "does not match" in response.json()["detail"]
 
     def test_correct_token_passes_the_gate(self, client, monkeypatch):
-        monkeypatch.setenv("FOGMAP_TOKEN", TOKEN)
-        response = client.post("/api/events", headers={"X-FogMap-Token": TOKEN})
+        monkeypatch.setenv("IRFARAN_TOKEN", TOKEN)
+        response = client.post("/api/events", headers={"X-Irfaran-Token": TOKEN})
         # 422 for the missing body, which is the point: the request got past
         # the middleware and was refused by the route instead.
         assert response.status_code == 422
 
     def test_the_header_is_matched_case_insensitively(self, client, monkeypatch):
-        monkeypatch.setenv("FOGMAP_TOKEN", TOKEN)
-        response = client.post("/api/events", headers={"x-fogmap-token": TOKEN})
+        monkeypatch.setenv("IRFARAN_TOKEN", TOKEN)
+        response = client.post("/api/events", headers={"x-irfaran-token": TOKEN})
         assert response.status_code == 422
 
     @pytest.mark.parametrize("path", ["/healthz", "/api/meta"])
     def test_reads_never_need_a_token(self, client, monkeypatch, path):
-        monkeypatch.setenv("FOGMAP_TOKEN", TOKEN)
+        monkeypatch.setenv("IRFARAN_TOKEN", TOKEN)
         assert client.get(path).status_code == 200
 
 
 class TestDatabase:
     def test_init_is_idempotent(self, tmp_path):
-        from fogmap import db
+        from irfaran import db
 
-        target = tmp_path / "fogmap.db"
+        target = tmp_path / "irfaran.db"
         first = db.open_initialised(target)
         first.execute(
             "INSERT INTO settings (key, value) VALUES ('map_theme_probe', 'kept')"
@@ -118,9 +118,9 @@ class TestDatabase:
             second.close()
 
     def test_defaults_are_not_reset_on_reinit(self, tmp_path):
-        from fogmap import db
+        from irfaran import db
 
-        target = tmp_path / "fogmap.db"
+        target = tmp_path / "irfaran.db"
         conn = db.open_initialised(target)
         conn.execute("UPDATE settings SET value = 'true' WHERE key = 'ha_ingest_enabled'")
         db.init(conn)
@@ -130,9 +130,9 @@ class TestDatabase:
     def test_dedup_index_blocks_a_repeated_external_id(self, tmp_path):
         import sqlite3
 
-        from fogmap import db
+        from irfaran import db
 
-        conn = db.open_initialised(tmp_path / "fogmap.db")
+        conn = db.open_initialised(tmp_path / "irfaran.db")
         row = (
             "workout",
             "add",
@@ -191,10 +191,10 @@ class TestTokenResolution:
     """A fresh install must not need a token invented before it works."""
 
     def test_one_is_generated_when_the_environment_has_none(self, tmp_path, monkeypatch):
-        from fogmap import db, tokens
+        from irfaran import db, tokens
 
-        monkeypatch.delenv("FOGMAP_TOKEN", raising=False)
-        conn = db.open_initialised(tmp_path / "fogmap.db")
+        monkeypatch.delenv("IRFARAN_TOKEN", raising=False)
+        conn = db.open_initialised(tmp_path / "irfaran.db")
         try:
             token, source = tokens.resolve(conn)
             assert source == "generated"
@@ -203,10 +203,10 @@ class TestTokenResolution:
             conn.close()
 
     def test_the_generated_token_survives_a_restart(self, tmp_path, monkeypatch):
-        from fogmap import db, tokens
+        from irfaran import db, tokens
 
-        monkeypatch.delenv("FOGMAP_TOKEN", raising=False)
-        target = tmp_path / "fogmap.db"
+        monkeypatch.delenv("IRFARAN_TOKEN", raising=False)
+        target = tmp_path / "irfaran.db"
 
         first = db.open_initialised(target)
         token, _ = tokens.resolve(first)
@@ -221,14 +221,14 @@ class TestTokenResolution:
             second.close()
 
     def test_the_environment_wins_over_a_stored_one(self, tmp_path, monkeypatch):
-        from fogmap import db, tokens
+        from irfaran import db, tokens
 
-        monkeypatch.delenv("FOGMAP_TOKEN", raising=False)
-        conn = db.open_initialised(tmp_path / "fogmap.db")
+        monkeypatch.delenv("IRFARAN_TOKEN", raising=False)
+        conn = db.open_initialised(tmp_path / "irfaran.db")
         try:
             stored, _ = tokens.resolve(conn)
 
-            monkeypatch.setenv("FOGMAP_TOKEN", "chosen-by-the-operator")
+            monkeypatch.setenv("IRFARAN_TOKEN", "chosen-by-the-operator")
             token, source = tokens.resolve(conn)
             assert token == "chosen-by-the-operator"
             assert source == "environment"

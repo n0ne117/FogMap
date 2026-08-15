@@ -5,12 +5,12 @@ from __future__ import annotations
 
 import pytest
 
-from fogmap import db, organise, places
+from irfaran import db, organise, places
 
 
 @pytest.fixture
 def conn(tmp_path):
-    connection = db.open_initialised(tmp_path / "fogmap.db")
+    connection = db.open_initialised(tmp_path / "irfaran.db")
     yield connection
     connection.close()
 

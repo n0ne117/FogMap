@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 from lxml import etree
 
-from fogmap.ingest.common import Fix, Track
+from irfaran.ingest.common import Fix, Track
 
 
 def _local(element: etree._Element, name: str) -> list[etree._Element]:

@@ -20,15 +20,15 @@ const BASEMAP_URL = `/api/basemap/${BASEMAP_FILE}`
 // one thing on this page not served by this deployment.
 export const ASSETS = 'https://protomaps.github.io/basemaps-assets'
 
-const FOG_SOURCE = 'fogmap-fog'
-const TRAIL_SOURCE = 'fogmap-trail'
+const FOG_SOURCE = 'irfaran-fog'
+const TRAIL_SOURCE = 'irfaran-trail'
 const BASEMAP_SOURCE = 'protomaps'
-const FOG_LAYER = 'fogmap-fog'
-const BORDERS_LAYER = 'fogmap-borders'
-const FOG_OPACITY_KEY = 'fogmap.fog.opacity'
-const BORDERS_KEY = 'fogmap.borders'
-const HEAT_KEY = 'fogmap.trail.opacity'
-const TRAIL_LAYER = 'fogmap-trail'
+const FOG_LAYER = 'irfaran-fog'
+const BORDERS_LAYER = 'irfaran-borders'
+const FOG_OPACITY_KEY = 'irfaran.fog.opacity'
+const BORDERS_KEY = 'irfaran.borders'
+const HEAT_KEY = 'irfaran.trail.opacity'
+const TRAIL_LAYER = 'irfaran-trail'
 
 /** Deepest zoom the server renders fog and trail tiles at. Matches geo.MAX_Z. */
 export const MAX_RENDERED_ZOOM = 16
@@ -236,7 +236,7 @@ export function buildStyle(setup: MapSetup): StyleSpec {
     layers: [
       ...basemapLayers,
       {
-        id: 'fogmap-trail',
+        id: 'irfaran-trail',
         type: 'raster',
         source: TRAIL_SOURCE,
         // Sharp to z16, magnified past it. The vector trail layer draws the

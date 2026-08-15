@@ -14,8 +14,8 @@ import json
 import numpy as np
 import pytest
 
-from fogmap import composite, db, geo, raster
-from fogmap.ingest import common, gpx
+from irfaran import composite, db, geo, raster
+from irfaran.ingest import common, gpx
 
 from . import synthetic
 
@@ -24,7 +24,7 @@ TILE = geo.TILE_PX
 
 @pytest.fixture
 def conn(tmp_path):
-    connection = db.open_initialised(tmp_path / "fogmap.db")
+    connection = db.open_initialised(tmp_path / "irfaran.db")
     yield connection
     connection.close()
 
@@ -503,7 +503,7 @@ class TestAreaReveal:
         assert _blob_snapshot(conn) == before
 
     def test_the_deep_levels_fill_it_too(self, conn, tmp_path):
-        from fogmap import geo
+        from irfaran import geo
         from PIL import Image
 
         self.insert(conn, self.square())

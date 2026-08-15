@@ -5,20 +5,25 @@
 #   docker compose -f docker-compose.prod.yml pull
 #   docker compose -f docker-compose.prod.yml up -d
 #
-# FOGMAP_IMAGE_TAG must name an explicit version. `latest` is deliberately not
+# IRFARAN_IMAGE_TAG must name an explicit version. `latest` is deliberately not
 # the default: a production host that silently changes version when it happens
 # to pull is a host nobody can debug.
 
+# The FOGMAP_ fallbacks are for installs that predate the rename in 0.10.0.
+# Compose forwards named variables, so a .env still saying FOGMAP_TOKEN would
+# otherwise never reach the container however forgiving the code inside is.
+# IRFARAN_ wins where both are set.
+
 services:
   api:
-    image: ghcr.io/n0ne117/fogmap-api:${FOGMAP_IMAGE_TAG:?set FOGMAP_IMAGE_TAG to an explicit version, for example 0.2.0}
+    image: ghcr.io/n0ne117/irfaran-api:${IRFARAN_IMAGE_TAG:-${FOGMAP_IMAGE_TAG:?set IRFARAN_IMAGE_TAG to an explicit version, for example 0.2.0}}
     environment:
-      FOGMAP_TOKEN: ${FOGMAP_TOKEN:?set FOGMAP_TOKEN in .env}
-      FOGMAP_DATA_DIR: /data
+      IRFARAN_TOKEN: ${IRFARAN_TOKEN:-${FOGMAP_TOKEN:?set IRFARAN_TOKEN in .env}}
+      IRFARAN_DATA_DIR: /data
     volumes:
-      - ${FOGMAP_DATA_HOST:-./data}:/data:z
+      - ${IRFARAN_DATA_HOST:-${FOGMAP_DATA_HOST:-./data}}:/data:z
     ports:
-      - "${FOGMAP_API_PORT:-8000}:8000"
+      - "${IRFARAN_API_PORT:-${FOGMAP_API_PORT:-8000}}:8000"
     healthcheck:
       test:
         - CMD
@@ -32,9 +37,9 @@ services:
     restart: unless-stopped
 
   web:
-    image: ghcr.io/n0ne117/fogmap-web:${FOGMAP_IMAGE_TAG:?set FOGMAP_IMAGE_TAG to an explicit version, for example 0.2.0}
+    image: ghcr.io/n0ne117/irfaran-web:${IRFARAN_IMAGE_TAG:-${FOGMAP_IMAGE_TAG:?set IRFARAN_IMAGE_TAG to an explicit version, for example 0.2.0}}
     ports:
-      - "${FOGMAP_WEB_PORT:-8080}:80"
+      - "${IRFARAN_WEB_PORT:-${FOGMAP_WEB_PORT:-8080}}:80"
     depends_on:
       - api
     restart: unless-stopped

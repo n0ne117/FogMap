@@ -23,14 +23,14 @@ RUN pip install --no-cache-dir -r requirements-dev.txt
 
 FROM deps AS runtime
 COPY api/pyproject.toml ./pyproject.toml
-COPY api/fogmap ./fogmap
+COPY api/irfaran ./irfaran
 COPY VERSION ./VERSION
 EXPOSE 8000
-CMD ["uvicorn", "fogmap.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "irfaran.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 FROM testdeps AS test
 COPY api/pyproject.toml ./pyproject.toml
-COPY api/fogmap ./fogmap
+COPY api/irfaran ./irfaran
 COPY api/tests ./tests
 # The release guard and the changelog it checks, so CI's gate is itself tested.
 COPY scripts ./scripts

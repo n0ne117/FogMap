@@ -13,8 +13,18 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
+from irfaran import settings_env
+
 DEFAULT_DATA_DIR = Path("/data")
-DB_FILENAME = "fogmap.db"
+DB_FILENAME = "irfaran.db"
+
+# What the database was called before the project was renamed.
+#
+# An install that already has one keeps using it. Renaming somebody's archive
+# out from under them to tidy up a filename is not a trade worth making, and
+# the alternative - a fresh empty database beside a full one - looks exactly
+# like losing everything.
+LEGACY_DB_FILENAME = "fogmap.db"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -111,22 +121,28 @@ DEFAULT_SETTINGS = {
 
 def data_dir() -> Path:
     """The directory holding the database, blobs, tiles and the basemap."""
-    configured = os.environ.get("FOGMAP_DATA_DIR", "").strip()
+    configured = settings_env.get("DATA_DIR")
     return Path(configured) if configured else DEFAULT_DATA_DIR
 
 
 def db_path() -> Path:
-    return data_dir() / DB_FILENAME
+    directory = data_dir()
+    current = directory / DB_FILENAME
+    if not current.exists():
+        legacy = directory / LEGACY_DB_FILENAME
+        if legacy.exists():
+            return legacy
+    return current
 
 
 def connect(path: Path | str | None = None) -> sqlite3.Connection:
-    """Open a connection with the settings FogMap relies on everywhere."""
+    """Open a connection with the settings Irfaran relies on everywhere."""
     target = Path(path) if path is not None else db_path()
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         raise RuntimeError(
-            f"Cannot create the FogMap data directory at {target.parent}. "
+            f"Cannot create the Irfaran data directory at {target.parent}. "
             f"The bind mount is missing or not writable ({exc}). On an "
             "SELinux host every bind mount needs a :z label."
         ) from exc
@@ -142,7 +158,7 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
         conn = sqlite3.connect(target, isolation_level=None, check_same_thread=False)
     except sqlite3.Error as exc:
         raise RuntimeError(
-            f"Cannot open the FogMap database at {target} ({exc})."
+            f"Cannot open the Irfaran database at {target} ({exc})."
         ) from exc
 
     conn.row_factory = sqlite3.Row
@@ -156,7 +172,7 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
 #
 # CREATE TABLE IF NOT EXISTS does nothing to a table that is already there, so
 # a column added later has to be added by hand. Kept as data rather than as a
-# migration framework: FogMap has one database, on one machine, and a list of
+# migration framework: Irfaran has one database, on one machine, and a list of
 # (table, column, definition) is easier to read than anything that manages it.
 MIGRATIONS = (
     ("places", "label_id", "INTEGER REFERENCES labels(id) ON DELETE SET NULL"),

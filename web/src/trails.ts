@@ -2,7 +2,7 @@
 //
 // The vector trail layer. Above z14 the raster has less detail than the
 // geometry behind it, so the individual lines are worth sending - and only
-// there. This is the one response in FogMap allowed to grow with the data,
+// there. This is the one response in Irfaran allowed to grow with the data,
 // and it is bounded by the viewport and a hard cap.
 
 import { Popup } from 'maplibre-gl'
@@ -34,8 +34,8 @@ export const MIN_TRAIL_ZOOM = 14
  */
 export type TrailStyle = 'auto' | 'detailed' | 'single' | 'faint' | 'off'
 
-const STYLE_KEY = 'fogmap.trails.style'
-const POPUP_KEY = 'fogmap.trails.popups'
+const STYLE_KEY = 'irfaran.trails.style'
+const POPUP_KEY = 'irfaran.trails.popups'
 
 /**
  * Tracks in view above which "auto" stops drawing them individually.
@@ -192,10 +192,10 @@ const FADE_IN_FAINT: DataDrivenPropertyValueSpecification<number> = [
   0.14,
 ]
 
-const SOURCE = 'fogmap-trail-vector'
-const CASING_LAYER = 'fogmap-trail-casing'
-const LAYER = 'fogmap-trail-lines'
-const HIT_LAYER = 'fogmap-trail-hit'
+const SOURCE = 'irfaran-trail-vector'
+const CASING_LAYER = 'irfaran-trail-casing'
+const LAYER = 'irfaran-trail-lines'
+const HIT_LAYER = 'irfaran-trail-hit'
 
 interface TrailProperties {
   id: number

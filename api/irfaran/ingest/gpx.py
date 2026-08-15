@@ -10,7 +10,7 @@ from __future__ import annotations
 import gpxpy
 import gpxpy.gpx
 
-from fogmap.ingest.common import Fix, Track
+from irfaran.ingest.common import Fix, Track
 
 
 def parse(data: bytes | str, filename: str = "upload.gpx") -> list[Track]:
@@ -58,7 +58,7 @@ def parse(data: bytes | str, filename: str = "upload.gpx") -> list[Track]:
     if not tracks:
         raise ValueError(
             f"{filename} parsed as GPX but contains no track points. Routes "
-            "and waypoints are ignored - FogMap imports recorded tracks only."
+            "and waypoints are ignored - Irfaran imports recorded tracks only."
         )
 
     return tracks

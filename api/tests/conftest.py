@@ -2,7 +2,7 @@
 """Test setup.
 
 The data directory is redirected to a temporary path before anything imports
-`fogmap.db`, so a test run can never touch a real database.
+`irfaran.db`, so a test run can never touch a real database.
 """
 
 from __future__ import annotations
@@ -10,5 +10,5 @@ from __future__ import annotations
 import os
 import tempfile
 
-os.environ["FOGMAP_DATA_DIR"] = tempfile.mkdtemp(prefix="fogmap-test-")
-os.environ.pop("FOGMAP_TOKEN", None)
+os.environ["IRFARAN_DATA_DIR"] = tempfile.mkdtemp(prefix="irfaran-test-")
+os.environ.pop("IRFARAN_TOKEN", None)

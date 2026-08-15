@@ -11,7 +11,7 @@ import type { MapTheme } from './theme'
 import { element } from './ui'
 
 const BASEMAP_SOURCE = 'protomaps'
-const FOG_LAYER = 'fogmap-fog'
+const FOG_LAYER = 'irfaran-fog'
 
 const errors: string[] = []
 const seen: string[] = []
@@ -132,7 +132,7 @@ function basemapTraffic(): string[] {
 
 export function report(map: MapLibreMap, hasBasemap: boolean): string {
   const rows: string[] = []
-  rows.push(line('web build', __FOGMAP_VERSION__))
+  rows.push(line('web build', __IRFARAN_VERSION__))
   rows.push(line('bundle', bundleName()))
 
   type Sketch = { layers?: unknown[]; sources?: Record<string, unknown> }

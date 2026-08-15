@@ -7,7 +7,7 @@
 import { apiGet } from './api'
 import { element } from './ui'
 
-const VIEW_KEY = 'fogmap.view'
+const VIEW_KEY = 'irfaran.view'
 const PREHISTORY = 'prehistory'
 
 export interface Stop {

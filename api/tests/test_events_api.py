@@ -11,9 +11,9 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from fogmap import composite, db, geo
-from fogmap.ingest import common
-from fogmap.main import app, tiles_root
+from irfaran import composite, db, geo
+from irfaran.ingest import common
+from irfaran.main import app, tiles_root
 
 TOKEN = "synthetic-draw-token"
 
@@ -24,7 +24,7 @@ LAT = 0.30
 
 @pytest.fixture
 def client(monkeypatch):
-    monkeypatch.setenv("FOGMAP_TOKEN", TOKEN)
+    monkeypatch.setenv("IRFARAN_TOKEN", TOKEN)
     conn = db.open_initialised()
     conn.execute("DELETE FROM blobs")
     conn.execute("DELETE FROM events")
@@ -36,7 +36,7 @@ def client(monkeypatch):
 
 
 def auth(extra: dict | None = None) -> dict:
-    return {"X-FogMap-Token": TOKEN, **(extra or {})}
+    return {"X-Irfaran-Token": TOKEN, **(extra or {})}
 
 
 def line(start: float, end: float, lat: float = LAT) -> dict:

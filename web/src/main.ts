@@ -14,6 +14,7 @@ import { ApiError, apiGet, apiSend } from './api'
 import { Brush } from './brush'
 import { Draw, MIN_DRAW_ZOOM, type Tool } from './draw'
 import { Imports } from './imports'
+import { carryOldSettings } from './legacy'
 import {
   applyBorders,
   applyFogOpacity,
@@ -63,15 +64,15 @@ import { element, radioGroup, Sheets, wireTabs, wireTokenField, wireZoom } from 
 /** Named trail colour ramps, matching composite.TRAIL_RAMP_SETS. */
 type TrailRamp = 'ember' | 'ice' | 'moss' | 'mono'
 
-const REPO_URL = 'https://github.com/n0ne117/FogMap'
+const REPO_URL = 'https://github.com/n0ne117/Irfaran'
 const CHANGELOG_URL = `${REPO_URL}/blob/main/CHANGELOG.md`
-const webVersion = __FOGMAP_VERSION__
+const webVersion = __IRFARAN_VERSION__
 
 function showVersion(): void {
   const corner = element<HTMLAnchorElement>('version-corner')
   corner.textContent = `v${webVersion}`
   corner.href = `${REPO_URL}/releases/tag/v${webVersion}`
-  corner.title = `FogMap ${webVersion} — release notes`
+  corner.title = `Irfaran ${webVersion} — release notes`
 
   const link = element<HTMLAnchorElement>('version-link')
   link.textContent = `v${webVersion}`
@@ -333,6 +334,10 @@ function wireDrawing(
 }
 
 async function start(): Promise<void> {
+  // Before anything reads a preference: the browser stored them all under the
+  // old name until 0.10.0, and the API token is among them.
+  carryOldSettings()
+
   countFrames()
   showVersion()
   void checkApiVersion()
@@ -353,7 +358,7 @@ async function start(): Promise<void> {
     map = createMap(options)
   } catch (error) {
     element('map-error').hidden = false
-    console.error('FogMap could not create the map', error)
+    console.error('Irfaran could not create the map', error)
     return
   }
 
@@ -372,7 +377,7 @@ async function start(): Promise<void> {
   })
 
   const handle: Record<string, unknown> = { map, options, buildStyle, openArchive, pmtilesProtocol }
-  ;(window as unknown as { fogmap: unknown }).fogmap = handle
+  ;(window as unknown as { irfaran: unknown }).irfaran = handle
 
   // The sheets are mutually exclusive: opening places closes settings.
   const sheets = new Sheets(['panel', 'places-page'])
@@ -476,7 +481,7 @@ async function start(): Promise<void> {
       trails.attach()
       void trails.refresh()
     } catch (error) {
-      console.error('FogMap could not attach the trail layer', error)
+      console.error('Irfaran could not attach the trail layer', error)
     }
     // Its own try: losing the trail layer should not also cost the drawing
     // preview, which is what someone is actively looking at when it matters.
@@ -485,7 +490,7 @@ async function start(): Promise<void> {
     try {
       brush.attach()
     } catch (error) {
-      console.error('FogMap could not attach the drawing preview', error)
+      console.error('Irfaran could not attach the drawing preview', error)
     }
   }
   map.on('style.load', attachTrails)

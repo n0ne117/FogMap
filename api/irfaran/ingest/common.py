@@ -17,7 +17,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from fogmap import raster
+from irfaran import raster
 
 # Section 5. Radius is stored per event, never read from a global at render
 # time - these are only the defaults used when an event is created.
@@ -62,15 +62,15 @@ def _env_float(name: str, fallback: float) -> float:
 
 
 def gap_seconds() -> float:
-    return _env_float("FOGMAP_GAP_SECONDS", DEFAULT_GAP_SECONDS)
+    return _env_float("IRFARAN_GAP_SECONDS", DEFAULT_GAP_SECONDS)
 
 
 def gap_metres() -> float:
-    return _env_float("FOGMAP_GAP_METRES", DEFAULT_GAP_METRES)
+    return _env_float("IRFARAN_GAP_METRES", DEFAULT_GAP_METRES)
 
 
 def max_accuracy_m() -> float:
-    return _env_float("FOGMAP_MAX_ACCURACY_M", DEFAULT_MAX_ACCURACY_M)
+    return _env_float("IRFARAN_MAX_ACCURACY_M", DEFAULT_MAX_ACCURACY_M)
 
 
 @dataclass(frozen=True)

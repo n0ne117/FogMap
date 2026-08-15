@@ -13,10 +13,10 @@ import type { Map as MapLibreMap } from 'maplibre-gl'
 
 import type { Op, Point, Tool } from './draw'
 
-const SOURCE = 'fogmap-draw-preview'
-const AREA_LAYER = 'fogmap-draw-area'
-const SWATH_LAYER = 'fogmap-draw-swath'
-const SPINE_LAYER = 'fogmap-draw-spine'
+const SOURCE = 'irfaran-draw-preview'
+const AREA_LAYER = 'irfaran-draw-area'
+const SWATH_LAYER = 'irfaran-draw-swath'
+const SPINE_LAYER = 'irfaran-draw-spine'
 
 /** Ground covered by one screen pixel at zoom 0 on the equator. */
 const M_PER_PX_Z0 = 156_543.03392

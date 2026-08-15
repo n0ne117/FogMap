@@ -7,20 +7,25 @@
 # container access to ./data. It is harmless on non-SELinux hosts, so it is
 # set unconditionally.
 
+# The FOGMAP_ fallbacks are for installs that predate the rename in 0.10.0.
+# Compose forwards named variables, so a .env still saying FOGMAP_TOKEN would
+# otherwise never reach the container however forgiving the code inside is.
+# IRFARAN_ wins where both are set.
+
 services:
   api:
     build:
       context: .
       dockerfile: api/Dockerfile
       target: runtime
-    image: fogmap-api:dev
+    image: irfaran-api:dev
     environment:
-      FOGMAP_TOKEN: ${FOGMAP_TOKEN:-}
-      FOGMAP_DATA_DIR: /data
+      IRFARAN_TOKEN: ${IRFARAN_TOKEN:-${FOGMAP_TOKEN:-}}
+      IRFARAN_DATA_DIR: /data
     volumes:
-      - ${FOGMAP_DATA_HOST:-./data}:/data:z
+      - ${IRFARAN_DATA_HOST:-${FOGMAP_DATA_HOST:-./data}}:/data:z
     ports:
-      - "${FOGMAP_API_PORT:-8000}:8000"
+      - "${IRFARAN_API_PORT:-${FOGMAP_API_PORT:-8000}}:8000"
     healthcheck:
       test:
         - CMD
@@ -38,9 +43,9 @@ services:
       context: .
       dockerfile: web/Dockerfile
       target: runtime
-    image: fogmap-web:dev
+    image: irfaran-web:dev
     ports:
-      - "${FOGMAP_WEB_PORT:-8080}:80"
+      - "${IRFARAN_WEB_PORT:-${FOGMAP_WEB_PORT:-8080}}:80"
     depends_on:
       - api
     restart: unless-stopped
@@ -51,9 +56,9 @@ services:
       context: .
       dockerfile: api/Dockerfile
       target: test
-    image: fogmap-api-test:dev
+    image: irfaran-api-test:dev
     profiles:
       - test
     environment:
-      FOGMAP_DATA_DIR: /tmp/fogmap-test
+      IRFARAN_DATA_DIR: /tmp/irfaran-test
     command: ["pytest"]

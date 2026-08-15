@@ -11,7 +11,7 @@ import math
 
 import pytest
 
-from fogmap import geo
+from irfaran import geo
 
 # St Stephen's Cathedral, Vienna. A public landmark, chosen because the build
 # plan quotes its ground resolution.

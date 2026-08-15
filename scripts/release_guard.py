@@ -146,7 +146,7 @@ def cut(version: str, date: str, summary: str = "") -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="FogMap release checks")
+    parser = argparse.ArgumentParser(description="Irfaran release checks")
     sub = parser.add_subparsers(dest="command", required=True)
 
     for name in ("check", "section"):

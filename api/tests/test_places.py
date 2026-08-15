@@ -10,8 +10,8 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from fogmap import db, geo, places
-from fogmap.main import app
+from irfaran import db, geo, places
+from irfaran.main import app
 
 TOKEN = "synthetic-places-token"
 
@@ -22,7 +22,7 @@ LON = 0.71
 
 @pytest.fixture
 def client(monkeypatch):
-    monkeypatch.setenv("FOGMAP_TOKEN", TOKEN)
+    monkeypatch.setenv("IRFARAN_TOKEN", TOKEN)
     conn = db.open_initialised()
     conn.execute("DELETE FROM blobs")
     conn.execute("DELETE FROM events")
@@ -34,7 +34,7 @@ def client(monkeypatch):
 
 
 def auth() -> dict:
-    return {"X-FogMap-Token": TOKEN}
+    return {"X-Irfaran-Token": TOKEN}
 
 
 def explored(client, view: str = "all", lat: float = LAT, lon: float = LON) -> int:

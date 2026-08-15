@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""FogMap - a self-hosted fog-of-war location map."""
+"""Irfaran - a self-hosted fog-of-war location map."""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
+
+from irfaran import settings_env  # noqa: E402  (submodule, no cycle)
 
 __all__ = ["__version__", "read_version"]
 
@@ -24,7 +26,7 @@ def read_version() -> str:
     broken, and finding that out at startup is far cheaper than finding it out
     while comparing a browser against a repository.
     """
-    override = os.environ.get("FOGMAP_VERSION", "").strip()
+    override = settings_env.get("VERSION")
     if override:
         return override
 
@@ -38,8 +40,8 @@ def read_version() -> str:
 
     searched = ", ".join(str(path) for path in _VERSION_CANDIDATES)
     raise RuntimeError(
-        "FogMap cannot determine its version. No readable VERSION file was "
-        f"found at any of {searched}, and FOGMAP_VERSION is unset. The image "
+        "Irfaran cannot determine its version. No readable VERSION file was "
+        f"found at any of {searched}, and IRFARAN_VERSION is unset. The image "
         "was built without copying VERSION into it."
     )
 

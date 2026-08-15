@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from fogmap import composite
+from irfaran import composite
 
 DEFAULT_COLOUR = "#4d8fd6"
 

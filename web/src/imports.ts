@@ -53,7 +53,7 @@ export class Imports {
 
     const response = await fetch(path, {
       method: 'POST',
-      headers: { 'X-FogMap-Token': getToken() },
+      headers: { 'X-Irfaran-Token': getToken() },
       body,
     })
 

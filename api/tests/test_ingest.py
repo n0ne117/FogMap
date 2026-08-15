@@ -9,8 +9,8 @@ from unittest import mock
 import gpxpy
 import pytest
 
-from fogmap import db, geo, raster
-from fogmap.ingest import common, gpx, tcx
+from irfaran import db, geo, raster
+from irfaran.ingest import common, gpx, tcx
 
 from . import synthetic
 
@@ -19,7 +19,7 @@ UTC = timezone.utc
 
 @pytest.fixture
 def conn(tmp_path):
-    connection = db.open_initialised(tmp_path / "fogmap.db")
+    connection = db.open_initialised(tmp_path / "irfaran.db")
     yield connection
     connection.close()
 
@@ -70,7 +70,7 @@ class TestGpxParsing:
             gpx.parse("this is not xml at all", "broken.gpx")
 
     def test_a_point_missing_latitude_names_the_file_and_the_problem(self):
-        # gpxpy rejects a point with no lat attribute before FogMap sees it,
+        # gpxpy rejects a point with no lat attribute before Irfaran sees it,
         # so the loud message here is the wrapper's: which file, and why.
         document = synthetic.gpx_document(synthetic.straight_line(3), name="Morgenlauf")
         broken = document.replace('lat="0.2500000" lon="0.5001000"', 'lon="0.5001000"')
@@ -149,12 +149,12 @@ class TestAccuracyFilter:
         assert common.DEFAULT_MAX_ACCURACY_M == 50.0
 
     def test_the_limit_is_configurable_by_environment(self, monkeypatch):
-        monkeypatch.setenv("FOGMAP_MAX_ACCURACY_M", "10")
+        monkeypatch.setenv("IRFARAN_MAX_ACCURACY_M", "10")
         assert common.max_accuracy_m() == 10.0
 
     def test_a_nonsense_setting_is_refused_loudly(self, monkeypatch):
-        monkeypatch.setenv("FOGMAP_MAX_ACCURACY_M", "quite accurate")
-        with pytest.raises(ValueError, match="FOGMAP_MAX_ACCURACY_M must be a number"):
+        monkeypatch.setenv("IRFARAN_MAX_ACCURACY_M", "quite accurate")
+        with pytest.raises(ValueError, match="IRFARAN_MAX_ACCURACY_M must be a number"):
             common.max_accuracy_m()
 
 
@@ -181,8 +181,8 @@ class TestSegmentation:
         assert len(common.segment(fixes, metres=1000)) == 2
 
     def test_thresholds_are_configurable_by_environment(self, monkeypatch):
-        monkeypatch.setenv("FOGMAP_GAP_SECONDS", "30")
-        monkeypatch.setenv("FOGMAP_GAP_METRES", "250")
+        monkeypatch.setenv("IRFARAN_GAP_SECONDS", "30")
+        monkeypatch.setenv("IRFARAN_GAP_METRES", "250")
         assert common.gap_seconds() == 30.0
         assert common.gap_metres() == 250.0
         assert len(common.segment(fixes_at([0, 5, 100, 105]))) == 2

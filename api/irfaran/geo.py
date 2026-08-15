@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Web-Mercator coordinate math on the native FogMap grid.
+"""Web-Mercator coordinate math on the native Irfaran grid.
 
 Pure functions with no I/O and no state. Everything that converts between
 geographic coordinates and the raster grid lives here so it can be tested

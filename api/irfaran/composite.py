@@ -30,7 +30,7 @@ from typing import Iterator
 import numpy as np
 from PIL import Image, ImageFilter
 
-from fogmap import db, geo, raster
+from irfaran import db, geo, raster, settings_env
 
 TILE = geo.TILE_PX
 HALF = TILE // 2
@@ -106,11 +106,11 @@ def fog_colour(theme: str, conn: sqlite3.Connection | None = None) -> tuple[int,
     """
     if theme not in FOG_COLOUR:
         raise ValueError(
-            f"Unknown theme {theme!r}. FogMap renders {' and '.join(THEMES)}."
+            f"Unknown theme {theme!r}. Irfaran renders {' and '.join(THEMES)}."
         )
 
-    name = f"FOGMAP_FOG_COLOUR_{theme.upper()}"
-    from_env = os.environ.get(name, "").strip()
+    name = f"IRFARAN_FOG_COLOUR_{theme.upper()}"
+    from_env = settings_env.get(f"FOG_COLOUR_{theme.upper()}")
     if from_env:
         return parse_colour(from_env, name)
 
@@ -126,14 +126,14 @@ def fog_colour(theme: str, conn: sqlite3.Connection | None = None) -> tuple[int,
 
 
 def fog_alpha() -> int:
-    raw = os.environ.get("FOGMAP_FOG_ALPHA", "").strip()
+    raw = settings_env.get("FOG_ALPHA")
     if not raw:
         return DEFAULT_FOG_ALPHA
     try:
         value = int(float(raw))
     except ValueError:
         raise ValueError(
-            f"FOGMAP_FOG_ALPHA must be a number from 0 to 255, got {raw!r}. "
+            f"IRFARAN_FOG_ALPHA must be a number from 0 to 255, got {raw!r}. "
             f"Unset it to use the default of {DEFAULT_FOG_ALPHA}."
         ) from None
     return max(0, min(255, value))
@@ -228,7 +228,7 @@ def trail_ramp(conn: sqlite3.Connection | None = None) -> str:
     picked. Like the fog colour, this is baked into the tiles, so changing it
     costs a render.
     """
-    from_env = os.environ.get("FOGMAP_TRAIL_RAMP", "").strip().lower()
+    from_env = settings_env.get("TRAIL_RAMP").lower()
     if from_env:
         return check_ramp(from_env)
 
@@ -246,7 +246,7 @@ def check_ramp(name: str) -> str:
     cleaned = name.strip().lower()
     if cleaned not in TRAIL_RAMP_SETS:
         raise ValueError(
-            f"Unknown trail colours {name!r}. FogMap has "
+            f"Unknown trail colours {name!r}. Irfaran has "
             f"{', '.join(sorted(TRAIL_RAMP_SETS))}."
         )
     return cleaned
@@ -586,7 +586,7 @@ def trail_lut(theme: str, ramp: str = "ember") -> np.ndarray:
         anchors = TRAIL_RAMP_SETS[check_ramp(ramp)][theme]
     except KeyError:
         raise ValueError(
-            f"Unknown theme {theme!r}. FogMap renders {' and '.join(THEMES)}."
+            f"Unknown theme {theme!r}. Irfaran renders {' and '.join(THEMES)}."
         ) from None
 
     counts = np.arange(256, dtype=np.float64)
@@ -604,14 +604,14 @@ def trail_lut(theme: str, ramp: str = "ember") -> np.ndarray:
 
 def fog_edge_px() -> float:
     """How far the fog fades out from explored ground, in pixels."""
-    raw = os.environ.get("FOGMAP_FOG_EDGE_PX", "").strip()
+    raw = settings_env.get("FOG_EDGE_PX")
     if not raw:
         return DEFAULT_FOG_EDGE_PX
     try:
         return max(0.0, float(raw))
     except ValueError:
         raise ValueError(
-            f"FOGMAP_FOG_EDGE_PX must be a number, got {raw!r}. Unset it to "
+            f"IRFARAN_FOG_EDGE_PX must be a number, got {raw!r}. Unset it to "
             f"use the default of {DEFAULT_FOG_EDGE_PX} px, or set 0 for a hard "
             "edge."
         ) from None
@@ -646,7 +646,7 @@ def render_fog(
     """Paint the unexplored ground, leaving explored ground transparent."""
     if theme not in FOG_COLOUR:
         raise ValueError(
-            f"Unknown theme {theme!r}. FogMap renders {' and '.join(THEMES)}."
+            f"Unknown theme {theme!r}. Irfaran renders {' and '.join(THEMES)}."
         )
     if colour is None:
         colour = FOG_COLOUR[theme]
@@ -1115,13 +1115,13 @@ def render_workers() -> int:
     Defaults to leaving a core free, so a bulk import does not make the rest
     of the machine unusable while it runs.
     """
-    raw = os.environ.get("FOGMAP_RENDER_WORKERS", "").strip()
+    raw = settings_env.get("RENDER_WORKERS")
     if raw:
         try:
             return max(1, int(raw))
         except ValueError:
             raise ValueError(
-                f"FOGMAP_RENDER_WORKERS must be a whole number, got {raw!r}. "
+                f"IRFARAN_RENDER_WORKERS must be a whole number, got {raw!r}. "
                 "Unset it to use one less than the number of cores."
             ) from None
     return max(1, (os.cpu_count() or 2) - 1)

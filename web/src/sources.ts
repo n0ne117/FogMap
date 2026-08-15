@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // Live tracking sources. All off by default and independently toggleable -
-// FogMap is entirely usable with none of them on, so nothing here is allowed
+// Irfaran is entirely usable with none of them on, so nothing here is allowed
 // to imply they are required.
 
 import { ApiError, apiGet, apiSend } from './api'

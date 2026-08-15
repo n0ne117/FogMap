@@ -6,8 +6,8 @@
 export type UiTheme = 'light' | 'dark' | 'system'
 export type MapTheme = 'light' | 'dark'
 
-const UI_KEY = 'fogmap.ui.theme'
-const MAP_KEY = 'fogmap.map.theme'
+const UI_KEY = 'irfaran.ui.theme'
+const MAP_KEY = 'irfaran.map.theme'
 
 const UI_VALUES: readonly UiTheme[] = ['light', 'dark', 'system']
 const MAP_VALUES: readonly MapTheme[] = ['light', 'dark']

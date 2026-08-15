@@ -9,7 +9,7 @@ export function element<T extends HTMLElement>(id: string): T {
   const found = document.getElementById(id)
   if (!found) {
     throw new Error(
-      `FogMap is missing the element #${id}. index.html and the TypeScript are out of sync.`,
+      `Irfaran is missing the element #${id}. index.html and the TypeScript are out of sync.`,
     )
   }
   return found as T

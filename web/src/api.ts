@@ -4,7 +4,7 @@
 // localStorage rather than the web container injecting it, so the token stays
 // a real gate instead of something anyone reaching the page gets for free.
 
-const TOKEN_KEY = 'fogmap.token'
+const TOKEN_KEY = 'irfaran.token'
 
 export function getToken(): string {
   try {
@@ -69,7 +69,7 @@ export async function apiSend<T>(
   if (!token && !options.tokenOptional) {
     throw new ApiError(
       401,
-      'No API token set. Put the value of FOGMAP_TOKEN into ' +
+      'No API token set. Put the value of IRFARAN_TOKEN into ' +
         'Settings, Data sources, API token.',
     )
   }
@@ -79,7 +79,7 @@ export async function apiSend<T>(
     headers: {
       // Sent when there is one. Some routes decide for themselves whether
       // they need it, so refusing here would pre-empt the server's answer.
-      ...(token ? { 'X-FogMap-Token': token } : {}),
+      ...(token ? { 'X-Irfaran-Token': token } : {}),
       accept: 'application/json',
       ...(body === undefined ? {} : { 'content-type': 'application/json' }),
     },

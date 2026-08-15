@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
-# Pushing a v* tag is what publishes FogMap. Nothing else does.
+# Pushing a v* tag is what publishes Irfaran. Nothing else does.
 # The tag, the VERSION file and the image tag must always agree, and every
 # version must have release notes - both are hard failures, not warnings.
 
@@ -75,8 +75,8 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/fogmap-${{ matrix.service }}:${{ needs.guard.outputs.version }}
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/fogmap-${{ matrix.service }}:latest
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/irfaran-${{ matrix.service }}:${{ needs.guard.outputs.version }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/irfaran-${{ matrix.service }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -96,7 +96,7 @@ jobs:
       - name: Create the GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: FogMap ${{ needs.guard.outputs.version }}
+          name: Irfaran ${{ needs.guard.outputs.version }}
           body_path: release-notes.md
           draft: false
           prerelease: ${{ startsWith(needs.guard.outputs.version, '0.') }}

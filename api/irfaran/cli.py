@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-from fogmap import __version__, composite, db, geo, raster
+from irfaran import __version__, composite, db, geo, raster
 
 # St Stephen's Cathedral, Vienna. A public landmark, used because the ground
 # resolution there is quoted in the build plan.
@@ -113,7 +113,7 @@ def selfcheck() -> int:
     out = sys.stdout.write
     failures = 0
 
-    out("FogMap selfcheck\n\n")
+    out("Irfaran selfcheck\n\n")
     out(f"version {__version__}\n\n")
 
     out("coordinate fixtures\n")
@@ -296,7 +296,7 @@ def dump_blob(args: argparse.Namespace) -> int:
 
 def import_file(args: argparse.Namespace) -> int:
     """Import a GPX or TCX file straight from disk."""
-    from fogmap.ingest import common, gpx, tcx
+    from irfaran.ingest import common, gpx, tcx
 
     out = sys.stdout.write
     path = Path(args.file)
@@ -327,8 +327,8 @@ def import_file(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="python -m fogmap.cli",
-        description="FogMap maintenance commands",
+        prog="python -m irfaran.cli",
+        description="Irfaran maintenance commands",
     )
     parser.add_argument("--version", action="version", version=__version__)
     sub = parser.add_subparsers(dest="command", required=True)

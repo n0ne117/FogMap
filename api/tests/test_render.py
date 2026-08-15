@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from fogmap import composite, db, geo
-from fogmap.ingest import common, gpx
+from irfaran import composite, db, geo
+from irfaran.ingest import common, gpx
 
 from . import synthetic
 
@@ -20,7 +20,7 @@ TILE = geo.TILE_PX
 
 @pytest.fixture
 def conn(tmp_path):
-    connection = db.open_initialised(tmp_path / "fogmap.db")
+    connection = db.open_initialised(tmp_path / "irfaran.db")
     yield connection
     connection.close()
 
@@ -232,7 +232,7 @@ class TestDeepPyramid:
         assert deep > native * factor * 0.5
 
     def test_an_erase_still_applies_at_the_deep_levels(self, conn, tmp_path):
-        from fogmap import raster
+        from irfaran import raster
 
         root = tmp_path / "tiles"
         line = synthetic.straight_line(40)
@@ -297,7 +297,7 @@ class TestDeepPyramid:
 
 def _insert(conn, points, *, op="add", layers=("2024",), source="workout", radius_m=15.0):
     """Insert an event and rasterise it onto the native grid."""
-    from fogmap import raster
+    from irfaran import raster
 
     cursor = conn.execute(
         "INSERT INTO events "
@@ -389,17 +389,17 @@ class TestParallelRender:
         assert not list(root.glob("dark/all/fog/14/*/*.png"))
 
     def test_workers_are_configurable_and_sane(self, monkeypatch):
-        monkeypatch.setenv("FOGMAP_RENDER_WORKERS", "3")
+        monkeypatch.setenv("IRFARAN_RENDER_WORKERS", "3")
         assert composite.render_workers() == 3
 
-        monkeypatch.setenv("FOGMAP_RENDER_WORKERS", "0")
+        monkeypatch.setenv("IRFARAN_RENDER_WORKERS", "0")
         assert composite.render_workers() == 1
 
-        monkeypatch.setenv("FOGMAP_RENDER_WORKERS", "loads")
+        monkeypatch.setenv("IRFARAN_RENDER_WORKERS", "loads")
         with pytest.raises(ValueError, match="whole number"):
             composite.render_workers()
 
-        monkeypatch.delenv("FOGMAP_RENDER_WORKERS")
+        monkeypatch.delenv("IRFARAN_RENDER_WORKERS")
         assert composite.render_workers() >= 1
 
 
@@ -421,7 +421,7 @@ class TestFogColour:
     @pytest.mark.parametrize("bad", ["", "#12345", "orange", "#gg0011", "#12345678"])
     def test_anything_else_is_refused_by_name(self, bad):
         with pytest.raises(ValueError, match="hex colour"):
-            composite.parse_colour(bad, "FOGMAP_FOG_COLOUR_DARK")
+            composite.parse_colour(bad, "IRFARAN_FOG_COLOUR_DARK")
 
     def test_the_built_in_is_used_when_nothing_is_set(self, conn):
         assert composite.fog_colour("dark", conn) == composite.FOG_COLOUR["dark"]
@@ -439,7 +439,7 @@ class TestFogColour:
             "INSERT INTO settings (key, value) VALUES ('fog_colour_dark', '#402030') "
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
         )
-        monkeypatch.setenv("FOGMAP_FOG_COLOUR_DARK", "#010203")
+        monkeypatch.setenv("IRFARAN_FOG_COLOUR_DARK", "#010203")
         assert composite.fog_colour("dark", conn) == (1, 2, 3)
 
     def test_an_unknown_theme_is_refused_by_name(self, conn):
@@ -536,7 +536,7 @@ class TestScopedRender:
     def test_a_scoped_render_still_removes_tiles_that_lost_their_data(
         self, conn, tmp_path
     ):
-        from fogmap import raster
+        from irfaran import raster
 
         root = tmp_path / "tiles"
         document = synthetic.gpx_document(synthetic.square_loop(40))
@@ -555,7 +555,7 @@ class TestScopedRender:
     def test_a_scoped_render_matches_a_full_one_after_a_new_event(
         self, seeded, tmp_path
     ):
-        from fogmap import raster
+        from irfaran import raster
 
         scoped_root = tmp_path / "scoped"
         full_root = tmp_path / "full"

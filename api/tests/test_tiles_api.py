@@ -10,9 +10,9 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from fogmap import composite, db
-from fogmap.ingest import common, gpx
-from fogmap.main import app, tiles_root
+from irfaran import composite, db
+from irfaran.ingest import common, gpx
+from irfaran.main import app, tiles_root
 
 from . import synthetic
 
@@ -89,7 +89,7 @@ class TestTileEndpoint:
         assert "Unknown tile kind" in response.json()["detail"]
 
     def test_reading_a_tile_needs_no_token(self, client, monkeypatch):
-        monkeypatch.setenv("FOGMAP_TOKEN", "a-token")
+        monkeypatch.setenv("IRFARAN_TOKEN", "a-token")
         assert client.get("/api/tiles/dark/all/fog/0/0/0.png").status_code == 200
 
 
@@ -104,7 +104,7 @@ class TestBasemapEndpoint:
         assert client.get("/api/basemap/..%2F..%2Fetc%2Fpasswd").status_code == 404
 
     def test_a_name_that_is_not_pmtiles_is_refused(self, client):
-        assert client.get("/api/basemap/fogmap.db").status_code == 404
+        assert client.get("/api/basemap/irfaran.db").status_code == 404
 
     def test_a_range_request_returns_only_that_slice(self, client):
         archive = db.data_dir() / "test.pmtiles"

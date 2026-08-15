@@ -6,7 +6,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from fogmap import db, geo, raster
+from irfaran import db, geo, raster
 
 from . import synthetic
 
@@ -15,7 +15,7 @@ TILE = geo.TILE_PX
 
 @pytest.fixture
 def conn(tmp_path):
-    connection = db.open_initialised(tmp_path / "fogmap.db")
+    connection = db.open_initialised(tmp_path / "irfaran.db")
     yield connection
     connection.close()
 
@@ -237,13 +237,13 @@ class TestFogAndTrailWidths:
         assert self._painted(conn, "fog") == self._painted(conn, "trail")
 
     def test_the_cap_is_configurable_by_environment(self, monkeypatch):
-        monkeypatch.setenv("FOGMAP_TRAIL_MAX_RADIUS_M", "9")
+        monkeypatch.setenv("IRFARAN_TRAIL_MAX_RADIUS_M", "9")
         assert raster.trail_max_radius_m() == 9.0
 
     def test_a_nonsense_cap_is_refused_loudly(self, monkeypatch):
-        monkeypatch.setenv("FOGMAP_TRAIL_MAX_RADIUS_M", "thin")
+        monkeypatch.setenv("IRFARAN_TRAIL_MAX_RADIUS_M", "thin")
         with pytest.raises(
-            ValueError, match="FOGMAP_TRAIL_MAX_RADIUS_M must be a number"
+            ValueError, match="IRFARAN_TRAIL_MAX_RADIUS_M must be a number"
         ):
             raster.trail_max_radius_m()
 

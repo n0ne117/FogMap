@@ -1,10 +1,20 @@
-# FogMap
+# Irfaran
 
 A self-hosted fog-of-war map of everywhere you've been.
 
 Feed it GPS tracks — live from Overland, OwnTracks or Home Assistant, imported from workout files, or drawn by hand for the years before GPS existed — and it renders a persistent map where the places you've visited are revealed and everywhere else stays under fog. Inspired by [Fog of World](https://fogofworld.app/), but self-hosted, on your own hardware, with your data staying on it.
 
 **Status:** early development. See [CHANGELOG.md](CHANGELOG.md) for what works right now.
+
+## The name
+
+*Irfaran* is Old High German: **to travel through a thing, and so to come to know it.**
+
+It is *ir-* (through, to completion) on *faran*, to go — the same root that gives modern German *fahren* and English *fare*, *ferry* and *wayfarer*. What it became is *erfahren*, to experience, and *Erfahrung*, experience itself: in German, what you know is quite literally what you have travelled through.
+
+Which is the whole idea. A map that stays under fog until you have been there does not record where you went — it records what you have come to know by going. The Anglo-Saxons had the same thought in *wīdsīþ*, the wide journey, and there is a pleasing accident in Arabic, where *ʿirfān* also means knowledge, arrived at rather than taught.
+
+The project was called FogMap until version 0.10.0. That name was taken.
 
 ---
 
@@ -43,39 +53,39 @@ Requires Docker and Docker Compose. Both machines this was developed against are
 ### Run from published images
 
 ```bash
-curl -O https://raw.githubusercontent.com/n0ne117/FogMap/main/docker-compose.prod.yml
+curl -O https://raw.githubusercontent.com/n0ne117/Irfaran/main/docker-compose.prod.yml
 cp .env.example .env    # edit it
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-Images are published to GitHub Container Registry as `ghcr.io/n0ne117/fogmap-api` and `ghcr.io/n0ne117/fogmap-web`. Pin an explicit version tag rather than `latest`.
+Images are published to GitHub Container Registry as `ghcr.io/n0ne117/irfaran-api` and `ghcr.io/n0ne117/irfaran-web`. Pin an explicit version tag rather than `latest`.
 
 ### Build from source
 
 ```bash
-git clone https://github.com/n0ne117/FogMap.git
-cd fogmap
+git clone https://github.com/n0ne117/Irfaran.git
+cd irfaran
 cp .env.example .env
 docker compose build
 docker compose run --rm test
 docker compose up -d
-docker compose exec api python -m fogmap.cli selfcheck
+docker compose exec api python -m irfaran.cli selfcheck
 ```
 
 On Fedora or any SELinux-enforcing host, bind mounts need a `:z` label. The bundled compose files already have it.
 
 ### Basemap
 
-The map needs a [Protomaps](https://protomaps.com) PMTiles basemap. It is far too large to ship in a container, so FogMap fetches it on first run: open the web interface and a setup screen offers the recent Protomaps daily planet builds, or takes a URL of your own if you'd rather use a regional extract.
+The map needs a [Protomaps](https://protomaps.com) PMTiles basemap. It is far too large to ship in a container, so Irfaran fetches it on first run: open the web interface and a setup screen offers the recent Protomaps daily planet builds, or takes a URL of your own if you'd rather use a regional extract.
 
-The full planet is around 128 GB, which is hours of downloading. It resumes if interrupted — restarting picks up from wherever it stopped rather than starting again — and the rest of FogMap works throughout. Only the map underneath your trails is missing until it finishes. The archive is verified before it is installed, so a URL that returns an error page is rejected rather than left sitting there looking like a basemap.
+The full planet is around 128 GB, which is hours of downloading. It resumes if interrupted — restarting picks up from wherever it stopped rather than starting again — and the rest of Irfaran works throughout. Only the map underneath your trails is missing until it finishes. The archive is verified before it is installed, so a URL that returns an error page is rejected rather than left sitting there looking like a basemap.
 
 ### The API token
 
 Reading the map needs nothing. Changing anything — drawing, places, imports, the data source switches — needs a shared token.
 
-FogMap generates one on first start and shows it on the setup screen. Keep it somewhere safe: every browser you want to edit from needs it, and the setup screen is the only place it is offered. Set `FOGMAP_TOKEN` in the environment to choose your own instead, in which case that value is used and the generated one is ignored.
+Irfaran generates one on first start and shows it on the setup screen. Keep it somewhere safe: every browser you want to edit from needs it, and the setup screen is the only place it is offered. Set `IRFARAN_TOKEN` in the environment to choose your own instead, in which case that value is used and the generated one is ignored.
 
 It is a doorstop, not a security model: it stops a misbehaving tracker or a stray `curl` from altering history. It does not protect reads, which are open to anyone who can reach the app — so run it somewhere only you can.
 
@@ -83,7 +93,7 @@ PMTiles is read over HTTP range requests, so the archive doesn't have to sit on 
 
 ## Live tracking (optional)
 
-All live sources are off by default and toggled independently under Settings → Data sources. FogMap works fine with none of them enabled.
+All live sources are off by default and toggled independently under Settings → Data sources. Irfaran works fine with none of them enabled.
 
 There's no custom app to install and no plugin. Each source is a small HTTP endpoint that an existing tracker app posts to.
 
@@ -99,13 +109,13 @@ There's no custom app to install and no plugin. Each source is a small HTTP endp
 
 1. Install Overland and grant location permission **Always**.
 2. Settings → slide to unlock → Receiver Endpoint URL:
-   `http://fogmap.internal:8000/api/ingest/overland`
-3. Set the access token to your FogMap token — Overland sends it as an `Authorization` header.
+   `http://irfaran.internal:8000/api/ingest/overland`
+3. Set the access token to your Irfaran token — Overland sends it as an `Authorization` header.
 4. Optionally set a Device ID.
 5. Choose *reduced* resolution limited by distance for a sane battery/detail trade-off. *Significant Location Only* uses almost no battery but yields neighbourhood-level dots rather than routes.
-6. Enable the Overland toggle in FogMap's settings.
+6. Enable the Overland toggle in Irfaran's settings.
 
-Each point carries a motion state — walking, running, driving, cycling or stationary — which FogMap stores alongside it.
+Each point carries a motion state — walking, running, driving, cycling or stationary — which Irfaran stores alongside it.
 
 iOS does not let any app guarantee a collection interval. Overland's own documentation is blunt about this: you can suggest what you want from CoreLocation and take what you get.
 
@@ -114,9 +124,9 @@ iOS does not let any app guarantee a collection interval. Overland's own documen
 [OwnTracks](https://owntracks.org/) works on iOS and Android and offers four monitoring modes.
 
 1. Install OwnTracks and open settings via the **i** icon, top left.
-2. Choose **HTTP** mode and set the URL to `http://fogmap.internal:8000/api/ingest/owntracks`.
-3. Add the token through the `httpHeaders` setting (iOS only) as `X-FogMap-Token:<token>`.
-4. Enable the OwnTracks toggle in FogMap's settings.
+2. Choose **HTTP** mode and set the URL to `http://irfaran.internal:8000/api/ingest/owntracks`.
+3. Add the token through the `httpHeaders` setting (iOS only) as `X-Irfaran-Token:<token>`.
+4. Enable the OwnTracks toggle in Irfaran's settings.
 
 **Mode choice matters.** *Significant changes* uses Apple's low-power API, firing roughly every 500 m or 5 minutes — fine for presence, too sparse for routes. *Move* mode polls continuously and publishes whenever you've moved `locatorDisplacement` metres or `locatorInterval` seconds have elapsed, defaulting to 100 m / 300 s and adjustable in iOS Settings. Move mode draws battery comparable to a navigation app.
 
@@ -124,17 +134,17 @@ The useful trick is geofence-driven mode switching: name a region `Home|1|2` and
 
 ### Home Assistant
 
-No custom component needed. The Companion app already reports location to HA as a `device_tracker` entity; an automation forwards each new fix to FogMap.
+No custom component needed. The Companion app already reports location to HA as a `device_tracker` entity; an automation forwards each new fix to Irfaran.
 
 **1. `configuration.yaml`:**
 
 ```yaml
 rest_command:
-  fogmap_point:
-    url: http://fogmap.internal:8000/api/ingest/ha
+  irfaran_point:
+    url: http://irfaran.internal:8000/api/ingest/ha
     method: POST
     headers:
-      X-FogMap-Token: !secret fogmap_token
+      X-Irfaran-Token: !secret irfaran_token
       Content-Type: application/json
     payload: >
       {"lat": {{ lat }}, "lon": {{ lon }},
@@ -143,13 +153,13 @@ rest_command:
     timeout: 10
 ```
 
-Put the token in `secrets.yaml` as `fogmap_token`, matching FogMap's `.env`.
+Put the token in `secrets.yaml` as `irfaran_token`, matching Irfaran's `.env`.
 
 **2. The automation:**
 
 ```yaml
 automation:
-  - alias: FogMap location push
+  - alias: Irfaran location push
     mode: queued
     max: 25
     triggers:
@@ -161,7 +171,7 @@ automation:
         value_template: >
           {{ state_attr(trigger.entity_id, 'gps_accuracy') | float(999) <= 50 }}
     actions:
-      - action: rest_command.fogmap_point
+      - action: rest_command.irfaran_point
         data:
           lat: "{{ state_attr(trigger.entity_id, 'latitude') }}"
           lon: "{{ state_attr(trigger.entity_id, 'longitude') }}"
@@ -170,11 +180,11 @@ automation:
           device: "{{ trigger.entity_id }}"
 ```
 
-This uses the `triggers:` / `conditions:` / `actions:` syntax from HA 2024.10. On older versions use `trigger:` / `condition:` / `action:` with `platform: state` and `service: rest_command.fogmap_point`.
+This uses the `triggers:` / `conditions:` / `actions:` syntax from HA 2024.10. On older versions use `trigger:` / `condition:` / `action:` with `platform: state` and `service: rest_command.irfaran_point`.
 
 `mode: queued` is load-bearing — updates arrive in bursts and the default `single` mode silently drops the overlapping ones.
 
-**Understand what HA can and cannot give you.** The Companion app is event-driven: it reports on zone transitions, app open, throttled background fetch, an explicit notification request, and significant location change. There is no interval setting. On a motorway the only trigger firing is significant location change — Apple's cell-tower-handoff API — so a long drive produces fixes kilometres apart joined by straight lines. HA also doesn't retry failed `rest_command` calls, and its recorder purges after roughly ten days, so a push that fails while FogMap is down is a permanently lost point.
+**Understand what HA can and cannot give you.** The Companion app is event-driven: it reports on zone transitions, app open, throttled background fetch, an explicit notification request, and significant location change. There is no interval setting. On a motorway the only trigger firing is significant location change — Apple's cell-tower-handoff API — so a long drive produces fixes kilometres apart joined by straight lines. HA also doesn't retry failed `rest_command` calls, and its recorder purges after roughly ten days, so a push that fails while Irfaran is down is a permanently lost point.
 
 Treat HA as ambient coverage — "I was in this city, this neighbourhood" — not as a route recorder. Where the road matters, use Overland or record a GPX.
 
@@ -186,8 +196,8 @@ Treat HA as ambient coverage — "I was in this city, this neighbourhood" — no
 - **One track per source per day, not one event per fix.** Fixes append to that day's open track, so a day of tracking is a single event holding a growing line rather than several thousand rows and a map made of dots.
 - **Late and repeated batches are handled.** Points are held in time order and deduplicated on their timestamp, so a phone that spent an hour in a tunnel can deliver what it recorded in any order and still produce one continuous track. Redelivering a batch changes nothing.
 - **Appending rebuilds rather than paints on top.** A day's tiles are rebuilt from the event log each time it grows, so what live tracking produces is byte for byte what a full rebuild produces.
-- **Use a hostname reachable from the tracker**, not `localhost`. If FogMap and HA both run in containers on one host, use the LAN address or a shared Docker network alias.
-- **Token.** Every live endpoint needs the shared token as `X-FogMap-Token`. Overland cannot send arbitrary headers, so it may use its own `Authorization: Bearer <token>` instead — both are accepted on that endpoint.
+- **Use a hostname reachable from the tracker**, not `localhost`. If Irfaran and HA both run in containers on one host, use the LAN address or a shared Docker network alias.
+- **Token.** Every live endpoint needs the shared token as `X-Irfaran-Token`. Overland cannot send arbitrary headers, so it may use its own `Authorization: Bearer <token>` instead — both are accepted on that endpoint.
 
 ## Backups
 
@@ -197,8 +207,8 @@ Almost everything in the data directory is derived and disposable. Back up the s
 
 | | |
 |---|---|
-| `data/fogmap.db` | the event log, places and settings — the only thing that cannot be recreated |
-| your original GPX and TCX files | wherever you keep them; FogMap stores the events it derived, not the files |
+| `data/irfaran.db` | the event log, places and settings — the only thing that cannot be recreated |
+| your original GPX and TCX files | wherever you keep them; Irfaran stores the events it derived, not the files |
 
 **Do not back this up:**
 
@@ -206,20 +216,20 @@ Almost everything in the data directory is derived and disposable. Back up the s
 |---|---|
 | `data/planet.pmtiles` | ~128 GB of public map data, re-downloadable from the setup screen |
 | `data/tiles/` | rendered PNGs, rebuilt by `render` |
-| the `blobs` table inside `fogmap.db` | bitmaps, rebuilt by `rebuild` |
+| the `blobs` table inside `irfaran.db` | bitmaps, rebuilt by `rebuild` |
 
 The blobs live inside the database, so a plain file copy takes them along. That is harmless — it just makes the backup larger than it needs to be. To make it small, vacuum them out of a copy:
 
 ```bash
-sqlite3 data/fogmap.db ".backup /tmp/fogmap-backup.db"
-sqlite3 /tmp/fogmap-backup.db "DELETE FROM blobs; VACUUM;"
+sqlite3 data/irfaran.db ".backup /tmp/irfaran-backup.db"
+sqlite3 /tmp/irfaran-backup.db "DELETE FROM blobs; VACUUM;"
 ```
 
 To restore: put the database back, then rebuild what was thrown away.
 
 ```bash
-docker compose exec api python -m fogmap.cli rebuild
-docker compose exec api python -m fogmap.cli render
+docker compose exec api python -m irfaran.cli rebuild
+docker compose exec api python -m irfaran.cli render
 ```
 
 `rebuild` replays the event log into bitmaps and `render` redraws the tiles. Both are deterministic — the same event log always produces the same bytes — so a restored backup is indistinguishable from the original.

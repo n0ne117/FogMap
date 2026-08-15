@@ -13,8 +13,8 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 
-from fogmap import geo, raster
-from fogmap.ingest import common
+from irfaran import geo, raster
+from irfaran.ingest import common
 
 CATEGORIES = ("home", "school", "family", "holiday", "work", "other")
 SOURCE = "place"
