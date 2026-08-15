@@ -5,7 +5,10 @@
 
 import { layers, namedFlavor } from '@protomaps/basemaps'
 import { Map as MapLibreMap, addProtocol } from 'maplibre-gl'
-import type { MapOptions as MapLibreMapOptions } from 'maplibre-gl'
+import type {
+  DataDrivenPropertyValueSpecification,
+  MapOptions as MapLibreMapOptions,
+} from 'maplibre-gl'
 import { PMTiles, Protocol } from 'pmtiles'
 
 import type { MapTheme } from './theme'
@@ -64,16 +67,30 @@ export function setHeatOpacity(map: MapLibreMap, opacity: number): void {
 }
 
 /**
- * The trail raster keeps its own zoom fade - sharp to z16, a glow above it
- * where the vector lines take over - and this scales the whole curve.
+ * The trail raster's own zoom fade, scaled by the strength setting.
+ *
+ * The factor is folded into the interpolation's output values rather than
+ * multiplied over the whole expression. MapLibre requires `zoom` to be the
+ * input of a *top-level* interpolate: wrapping one in a multiply makes the
+ * style invalid, and an invalid style is rejected whole - basemap, fog and
+ * trails all at once, with nothing on screen to say why.
  */
+function heatFade(): DataDrivenPropertyValueSpecification<number> {
+  const strength = getHeatOpacity()
+  return [
+    'interpolate',
+    ['linear'],
+    ['zoom'],
+    MAX_RENDERED_ZOOM,
+    strength,
+    MAX_RENDERED_ZOOM + 1.5,
+    0.3 * strength,
+  ]
+}
+
 export function applyHeatOpacity(map: MapLibreMap): void {
   if (!map.getLayer(TRAIL_LAYER)) return
-  map.setPaintProperty(TRAIL_LAYER, 'raster-opacity', [
-    '*',
-    getHeatOpacity(),
-    ['interpolate', ['linear'], ['zoom'], MAX_RENDERED_ZOOM, 1, MAX_RENDERED_ZOOM + 1.5, 0.3],
-  ])
+  map.setPaintProperty(TRAIL_LAYER, 'raster-opacity', heatFade())
 }
 
 // Not baked into the tiles. How much of the map shows through the fog is a
@@ -244,21 +261,7 @@ export function buildStyle(setup: MapSetup): StyleSpec {
         // that takes over - but not to nothing, because the raster is the only
         // thing carrying how many times a pixel was crossed, and at low
         // opacity it reads as a glow under the crisp line.
-        paint: {
-          'raster-opacity': [
-            '*',
-            getHeatOpacity(),
-            [
-              'interpolate',
-              ['linear'],
-              ['zoom'],
-              MAX_RENDERED_ZOOM,
-              1,
-              MAX_RENDERED_ZOOM + 1.5,
-              0.3,
-            ],
-          ],
-        },
+        paint: { 'raster-opacity': heatFade() },
       },
       {
         id: FOG_LAYER,

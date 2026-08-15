@@ -11,6 +11,13 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.10.1] - 2026-08-15
+
+### Fixed
+- The map rendered nothing at all — no basemap, no fog, no trails. The trail strength slider added in 0.9.18 multiplied the trail layer's zoom fade by a factor, and MapLibre requires a `zoom` expression to be the input of a *top-level* interpolate. Nesting one inside a multiply makes the style invalid, and an invalid style is rejected whole rather than layer by layer, so one bad paint property took the entire map down. The strength is now folded into the interpolation's output values, which is the same curve expressed legally.
+
+This was introduced in 0.9.18 and survived the rename in 0.10.0 unchanged; the rename had nothing to do with it.
+
 ## [0.10.0] - 2026-08-15
 
 The project is called Irfaran.
