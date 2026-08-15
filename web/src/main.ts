@@ -21,6 +21,8 @@ import {
   buildStyle,
   createMap,
   getFogOpacity,
+  openArchive,
+  pmtilesProtocol,
   setFogOpacity,
   type MapSetup,
 } from './map'
@@ -208,7 +210,7 @@ async function start(): Promise<void> {
     }
   })
 
-  const handle: Record<string, unknown> = { map, options, buildStyle }
+  const handle: Record<string, unknown> = { map, options, buildStyle, openArchive, pmtilesProtocol }
   ;(window as unknown as { fogmap: unknown }).fogmap = handle
 
   // The sheets are mutually exclusive: opening places closes settings.

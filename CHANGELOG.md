@@ -11,6 +11,13 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.9.6] - 2026-08-15
+
+The map appears.
+
+### Fixed
+- The basemap draws. The map was being told where its tiles were but not what was inside them, so every layer referred to data MapLibre could not resolve — the source never finished loading, drew nothing, and reported no error. A blank map that looked healthy in every other respect.
+
 ## [0.9.5] - 2026-08-15
 
 More of the map's own account of itself.

@@ -6,7 +6,7 @@
 import { layers, namedFlavor } from '@protomaps/basemaps'
 import { Map as MapLibreMap, addProtocol } from 'maplibre-gl'
 import type { MapOptions as MapLibreMapOptions } from 'maplibre-gl'
-import { Protocol } from 'pmtiles'
+import { PMTiles, Protocol } from 'pmtiles'
 
 import type { MapTheme } from './theme'
 
@@ -160,6 +160,24 @@ export function buildStyle(setup: MapSetup): StyleSpec {
   } as unknown as StyleSpec
 }
 
+/** Exposed so the archive can be read directly when the map will not draw. */
+export function openArchive(): PMTiles {
+  return new PMTiles(`${window.location.origin}${BASEMAP_URL}`)
+}
+
+/**
+ * The pmtiles protocol, with archive metadata enabled.
+ *
+ * `metadata` defaults to false, and with it off the TileJSON handed to
+ * MapLibre carries tiles, zooms and bounds but no `vector_layers`. MapLibre
+ * needs those to resolve the `source-layer` every basemap layer references,
+ * so without them the source is created, never finishes loading, draws
+ * nothing and reports no error - a blank map that looks in every other way
+ * healthy. Turning it on makes the archive's own nine layer definitions part
+ * of the TileJSON.
+ */
+export const pmtilesProtocol = new Protocol({ metadata: true })
+
 let protocolRegistered = false
 
 export function spriteUrl(theme: MapTheme): string {
@@ -173,7 +191,7 @@ export function glyphsUrl(): string {
 export function createMap(setup: MapSetup): MapLibreMap {
   if (!protocolRegistered) {
     // This is how MapLibre learns to read a pmtiles:// url.
-    addProtocol('pmtiles', new Protocol().tile)
+    addProtocol('pmtiles', pmtilesProtocol.tile)
     protocolRegistered = true
   }
 
