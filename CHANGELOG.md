@@ -11,6 +11,14 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.9.14] - 2026-08-15
+
+The progress bar keeps working after the last file lands.
+
+### Changed
+- The import progress bar restarts from zero when the render begins and tracks that instead. Importing is now the quick half; drawing the map is what there is to wait for, and the bar was sitting full through all of it. The render reports each finished piece of work as it lands, so the bar means something the whole way rather than being a spinner in a bar's clothing.
+- /api/render answers with newline-delimited JSON — a line per finished unit, the last one carrying the summary — instead of one object at the end.
+
 ## [0.9.13] - 2026-08-15
 
 Importing a workout archive stops taking an afternoon.

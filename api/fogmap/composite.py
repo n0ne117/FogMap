@@ -23,8 +23,9 @@ import multiprocessing
 import os
 import shutil
 import sqlite3
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
+from typing import Iterator
 
 import numpy as np
 from PIL import Image, ImageFilter
@@ -851,28 +852,41 @@ def prune_view(
                             path.unlink(missing_ok=True)
 
 
-def render_views(
+def render_views_iter(
     conn: sqlite3.Connection,
     root: Path,
     views: list[str],
     themes: tuple[str, ...] = THEMES,
     scope: dict[int, set[tuple[int, int]]] | None = None,
     workers: int | None = None,
-) -> dict[str, int]:
-    """Render a list of views. Returns tiles written per view.
+    written: dict[str, int] | None = None,
+) -> Iterator[tuple[int, int]]:
+    """Render a list of views, yielding (jobs finished, jobs total) as it goes.
 
     The fan-out is over every (view, native tile) pair at once rather than over
     views, and that distinction is most of the speed. Views are wildly uneven -
     the cumulative view covers every tile in the archive while a year view
     might cover five - so a worker per view spends its time watching one job
     finish. One flat queue keeps every core busy until there is nothing left.
+
+    Progress is yielded rather than returned because the only honest thing to
+    show during a minute of rendering is how much of it is done, and that has
+    to leave this function while it is still working. `written` is filled in
+    with the per-view tile counts, since a generator has nowhere good to put a
+    return value.
     """
+    counts: dict[str, int] = {view: 0 for view in views}
+    if written is not None:
+        written.clear()
+        written.update(counts)
+        counts = written
+
     if not views:
-        return {}
+        yield 0, 0
+        return
 
     workers = render_workers() if workers is None else workers
 
-    written: dict[str, int] = {view: 0 for view in views}
     kept: dict[str, set[Path]] = {view: set() for view in views}
     owners: list[str] = []
     jobs: list[Job] = []
@@ -893,29 +907,59 @@ def render_views(
             owners.append(view)
             jobs.append(("deep", database, root_text, view, themes, scope, parent))
 
+    total = len(jobs)
+    yield 0, total
     if not jobs:
-        return written
+        return
 
-    if workers > 1 and len(jobs) >= PARALLEL_FROM:
+    def absorb(view: str, result: tuple[int, list[str]]) -> None:
+        count, paths = result
+        counts[view] += count
+        kept[view].update(Path(path) for path in paths)
+
+    done = 0
+    if workers > 1 and total >= PARALLEL_FROM:
         # forkserver, not the default fork. The API process runs request
         # handlers in a thread pool, and forking a multi-threaded process can
         # deadlock the child on a lock that was held by a thread that does not
         # exist any more. forkserver forks from a clean single-threaded parent.
         with ProcessPoolExecutor(
-            max_workers=min(workers, len(jobs)),
+            max_workers=min(workers, total),
             mp_context=multiprocessing.get_context("forkserver"),
         ) as pool:
-            results = list(pool.map(_render_job, jobs))
+            futures = {
+                pool.submit(_render_job, job): owner
+                for job, owner in zip(jobs, owners)
+            }
+            # as_completed rather than map, so a finished job is reported the
+            # moment it lands instead of in the order it was queued.
+            for future in as_completed(futures):
+                absorb(futures[future], future.result())
+                done += 1
+                yield done, total
     else:
-        results = [_render_job(job) for job in jobs]
-
-    for view, (count, paths) in zip(owners, results):
-        written[view] += count
-        kept[view].update(Path(path) for path in paths)
+        for job, owner in zip(jobs, owners):
+            absorb(owner, _render_job(job))
+            done += 1
+            yield done, total
 
     for view in views:
         if kept[view]:
             prune_view(root, view, kept[view], themes, scope)
+
+
+def render_views(
+    conn: sqlite3.Connection,
+    root: Path,
+    views: list[str],
+    themes: tuple[str, ...] = THEMES,
+    scope: dict[int, set[tuple[int, int]]] | None = None,
+    workers: int | None = None,
+) -> dict[str, int]:
+    """Render a list of views. Returns tiles written per view."""
+    written: dict[str, int] = {}
+    for _ in render_views_iter(conn, root, views, themes, scope, workers, written):
+        pass
     return written
 
 

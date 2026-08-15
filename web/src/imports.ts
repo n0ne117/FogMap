@@ -8,7 +8,7 @@
 // take longer than an afternoon - the server notes which tiles went stale and
 // settles the whole debt in one pass once the last file is in.
 
-import { ApiError, apiSend, getToken } from './api'
+import { ApiError, getToken } from './api'
 import { element } from './ui'
 
 export interface ImportOutcome {
@@ -115,11 +115,11 @@ export class Imports {
     const imported = `${outcomes.length - failed} of ${outcomes.length} imported` +
       (failed ? `, ${failed} failed` : '')
 
-    // One render for the whole batch. Until this finishes the map still shows
-    // the tiles as they were, so it has to say what it is doing.
-    element('import-progress-text').textContent = `${imported}. Drawing the map…`
+    // One render for the whole batch. It takes long enough on a real archive
+    // that the bar is worth reusing for it - the files are all in by now, and
+    // what is left to wait for is the drawing.
     try {
-      await apiSend('POST', '/api/render')
+      await this.render(imported)
       element('import-progress-text').textContent = `Done. ${imported}`
     } catch (error) {
       element('import-progress-text').textContent =
@@ -129,6 +129,55 @@ export class Imports {
 
     this.running = false
     this.onDone()
+  }
+
+  /**
+   * Run the deferred render, driving the progress bar from its own report.
+   *
+   * The response is newline-delimited JSON, a line per finished unit of work,
+   * so the bar starts again from zero and means something the whole way
+   * rather than sitting full while the server is still busy.
+   */
+  private async render(imported: string): Promise<void> {
+    const bar = element<HTMLProgressElement>('import-progress')
+    const text = element('import-progress-text')
+
+    bar.value = 0
+    bar.max = 1
+    text.textContent = `${imported}. Drawing the map…`
+
+    const response = await fetch('/api/render', {
+      method: 'POST',
+      headers: { 'X-FogMap-Token': getToken() },
+    })
+    if (!response.ok) {
+      throw new ApiError(response.status, `${response.status} ${response.statusText}`)
+    }
+    if (!response.body) return
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    const consume = (line: string) => {
+      if (!line.trim()) return
+      const step = JSON.parse(line) as { done: number; total: number }
+      if (!step.total) return
+      bar.max = step.total
+      bar.value = step.done
+      const percent = Math.round((step.done / step.total) * 100)
+      text.textContent = `${imported}. Drawing the map — ${percent}%`
+    }
+
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      for (const line of lines) consume(line)
+    }
+    consume(buffer)
   }
 
   private report(outcomes: ImportOutcome[], message = ''): void {

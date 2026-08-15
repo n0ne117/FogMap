@@ -591,25 +591,65 @@ def render_status(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, obj
 
 
 @app.post("/api/render")
-def render_pending(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, object]:
-    """Render everything a deferred import left owing.
+def render_pending() -> StreamingResponse:
+    """Render everything a deferred import left owing, reporting as it goes.
 
     This is the other half of ingesting with defer_render: a bulk import
     stamps every file into the blob store and writes down which native tiles
     went stale, and this pays the render once for the lot instead of once per
     file.
+
+    The body is newline-delimited JSON, one object per finished unit of work,
+    because a render of a large archive takes long enough that a spinner is
+    not an honest answer. The last line carries the summary.
     """
-    pending = db.pending_render(conn)
-    if not pending:
-        return {"pending_tiles": 0, "tiles_rendered": {}}
 
-    views = composite.views_touching(conn, pending)
-    _render_views(conn, views, pending)
+    def report() -> Iterator[str]:
+        # Its own connection, deliberately. A dependency's connection is closed
+        # when the handler returns, and a streaming handler returns before it
+        # has done any of the work.
+        conn = db.connect()
+        try:
+            pending = db.pending_render(conn)
+            if not pending:
+                yield json.dumps(
+                    {"done": 0, "total": 0, "pending_tiles": 0, "views": [], "finished": True}
+                ) + "\n"
+                return
 
-    with db.transaction(conn):
-        db.clear_pending_render(conn)
+            views = composite.views_touching(conn, pending)
+            root = tiles_root()
+            root.mkdir(parents=True, exist_ok=True)
+            composite.write_placeholders(root, conn)
 
-    return {"pending_tiles": len(pending), "views": views}
+            written: dict[str, int] = {}
+            finished = jobs = 0
+            for finished, jobs in composite.render_views_iter(
+                conn,
+                root,
+                views,
+                scope=composite.rebuild_scope(pending),
+                written=written,
+            ):
+                yield json.dumps({"done": finished, "total": jobs}) + "\n"
+
+            with db.transaction(conn):
+                db.clear_pending_render(conn)
+
+            yield json.dumps(
+                {
+                    "done": finished,
+                    "total": jobs,
+                    "pending_tiles": len(pending),
+                    "views": views,
+                    "tiles_rendered": sum(written.values()),
+                    "finished": True,
+                }
+            ) + "\n"
+        finally:
+            conn.close()
+
+    return StreamingResponse(report(), media_type="application/x-ndjson")
 
 
 def _views_for_layers(layers: list[str]) -> list[str]:

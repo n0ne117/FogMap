@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import io
+import json
 
 import numpy as np
 import pytest
@@ -399,6 +400,16 @@ class TestDeferredRender:
         assert status["pending_tiles"] > 0
         assert "all" in status["views"]
 
+    def settle(self, client) -> list[dict]:
+        """Run the render and return every progress line it reported."""
+        response = client.post("/api/render", headers=auth())
+        assert response.status_code == 200
+        return [
+            json.loads(line)
+            for line in response.text.splitlines()
+            if line.strip()
+        ]
+
     def test_rendering_settles_the_whole_batch_at_once(self, client):
         for offset in (0.0, 0.05, 0.1):
             assert self.upload(client, offset, defer=True).status_code == 200
@@ -406,18 +417,33 @@ class TestDeferredRender:
         owed = client.get("/api/render").json()["pending_tiles"]
         assert owed >= 1
 
-        response = client.post("/api/render", headers=auth())
-        assert response.status_code == 200
-        assert response.json()["pending_tiles"] == owed
+        steps = self.settle(client)
+        assert steps[-1]["pending_tiles"] == owed
+        assert steps[-1]["finished"] is True
 
         # Paid off, and the tiles are on disk.
         assert client.get("/api/render").json()["pending_tiles"] == 0
         assert list((tiles_root() / "dark" / "all" / "fog").glob("14/*/*.png"))
 
+    def test_progress_is_reported_while_it_works(self, client):
+        for offset in (0.0, 0.05, 0.1):
+            assert self.upload(client, offset, defer=True).status_code == 200
+
+        steps = self.settle(client)
+        assert len(steps) >= 3, "no progress was reported, only a result"
+
+        # Starts at nothing, never goes backwards, ends complete.
+        assert steps[0]["done"] == 0
+        assert steps[0]["total"] > 0
+        assert [step["done"] for step in steps] == sorted(
+            step["done"] for step in steps
+        )
+        assert steps[-1]["done"] == steps[-1]["total"]
+
     def test_rendering_with_nothing_owed_is_a_no_op(self, client):
-        response = client.post("/api/render", headers=auth())
-        assert response.status_code == 200
-        assert response.json()["pending_tiles"] == 0
+        steps = self.settle(client)
+        assert steps[-1]["pending_tiles"] == 0
+        assert steps[-1]["total"] == 0
 
     def test_a_deferred_import_matches_an_immediate_one(self, client, tmp_path):
         """Deferring must change when tiles are written, not what they are."""
@@ -437,7 +463,7 @@ class TestDeferredRender:
         shutil.rmtree(tiles_root(), ignore_errors=True)
 
         assert self.upload(client, 0.0, defer=True).status_code == 200
-        assert client.post("/api/render", headers=auth()).status_code == 200
+        assert self.settle(client)[-1]["finished"] is True
         deferred = sorted(
             (path.relative_to(tiles_root()), path.read_bytes())
             for path in tiles_root().rglob("dark/all/**/*.png")
