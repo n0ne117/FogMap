@@ -11,6 +11,16 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.9.7] - 2026-08-15
+
+The map draws.
+
+### Fixed
+- The basemap draws. Vector map data was never being fetched, so the map showed nothing underneath the fog no matter how thin the fog was made.
+
+### Added
+- The diagnostics panel now reports the running build and how much basemap data the browser has actually fetched.
+
 ## [0.9.6] - 2026-08-15
 
 The map appears.

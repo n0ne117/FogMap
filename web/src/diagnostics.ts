@@ -94,8 +94,46 @@ function line(label: string, value: unknown): string {
   return `${label.padEnd(22)} ${String(value)}`
 }
 
+/**
+ * What the browser actually fetched from the basemap archive.
+ *
+ * The decisive question when a vector source will not load is whether
+ * MapLibre is asking for tiles at all. A handful of requests means it read
+ * the header and stopped; dozens means it is reading and something else is
+ * wrong.
+ */
+function basemapTraffic(): string[] {
+  try {
+    const entries = performance
+      .getEntriesByType('resource')
+      .filter((entry) => entry.name.includes('/api/basemap/'))
+
+    if (!entries.length) return ['  none - MapLibre never asked for the archive']
+
+    const bytes = entries.reduce(
+      (total, entry) => total + ((entry as PerformanceResourceTiming).transferSize || 0),
+      0,
+    )
+    const rows = [
+      `  requests             ${entries.length}`,
+      `  transferred          ${Math.round(bytes / 1024)} kB`,
+    ]
+    for (const entry of entries.slice(-4)) {
+      rows.push(
+        `  last                 ${Math.round(entry.duration)}ms, ` +
+          `${Math.round(((entry as PerformanceResourceTiming).transferSize || 0) / 1024)} kB`,
+      )
+    }
+    return rows
+  } catch (error) {
+    return [`  unavailable: ${error instanceof Error ? error.message : String(error)}`]
+  }
+}
+
 export function report(map: MapLibreMap, hasBasemap: boolean): string {
   const rows: string[] = []
+  rows.push(line('web build', __FOGMAP_VERSION__))
+  rows.push(line('bundle', bundleName()))
 
   type Sketch = { layers?: unknown[]; sources?: Record<string, unknown> }
   let style: Sketch | undefined
@@ -147,6 +185,10 @@ export function report(map: MapLibreMap, hasBasemap: boolean): string {
   rows.push(line('webgl', webgl()))
 
   rows.push('')
+  rows.push('basemap traffic:')
+  rows.push(...basemapTraffic())
+
+  rows.push('')
   rows.push('reachability:')
   for (const [label, result] of Object.entries(probes)) {
     rows.push(`  ${label.padEnd(20)} ${result}`)
@@ -167,6 +209,11 @@ function countBasemapLayers(map: MapLibreMap): string {
   } catch {
     return 'unknown'
   }
+}
+
+function bundleName(): string {
+  const script = document.querySelector('script[src*="assets/"]')
+  return script ? (script.getAttribute('src') ?? '?').split('/').pop() ?? '?' : '?'
 }
 
 function webgl(): string {
