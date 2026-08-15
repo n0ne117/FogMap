@@ -18,7 +18,7 @@ const BASEMAP_URL = `/api/basemap/${BASEMAP_FILE}`
 
 // Protomaps hosts the glyphs and sprites its styles reference. They are the
 // one thing on this page not served by this deployment.
-const ASSETS = 'https://protomaps.github.io/basemaps-assets'
+export const ASSETS = 'https://protomaps.github.io/basemaps-assets'
 
 const FOG_SOURCE = 'fogmap-fog'
 const TRAIL_SOURCE = 'fogmap-trail'
@@ -161,6 +161,14 @@ export function buildStyle(setup: MapSetup): StyleSpec {
 }
 
 let protocolRegistered = false
+
+export function spriteUrl(theme: MapTheme): string {
+  return `${ASSETS}/sprites/v4/${theme}`
+}
+
+export function glyphsUrl(): string {
+  return `${ASSETS}/fonts/{fontstack}/{range}.pbf`
+}
 
 export function createMap(setup: MapSetup): MapLibreMap {
   if (!protocolRegistered) {

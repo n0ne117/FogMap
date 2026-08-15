@@ -4,7 +4,12 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 
 import type { Map as MapLibreMap } from 'maplibre-gl'
 
-import { recordMapError, wireDiagnostics } from './diagnostics'
+import {
+  countFrames,
+  recordMapError,
+  watchLifecycle,
+  wireDiagnostics,
+} from './diagnostics'
 import { Draw, MIN_DRAW_ZOOM, type Mode, type Tool } from './draw'
 import { Imports } from './imports'
 import {
@@ -165,6 +170,7 @@ function wireDrawing(
 }
 
 async function start(): Promise<void> {
+  countFrames()
   showVersion()
   void checkApiVersion()
 
@@ -217,7 +223,8 @@ async function start(): Promise<void> {
 
   wireTabs('tabs')
   wireZoom(map as never)
-  wireDiagnostics(map, hasBasemap)
+  watchLifecycle(map)
+  wireDiagnostics(map, hasBasemap, options.theme)
 
   // Fog thickness is a viewing choice applied on the GPU: it changes as the
   // slider moves, with no re-render and no request to the server.

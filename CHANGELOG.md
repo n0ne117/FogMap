@@ -11,6 +11,13 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.9.5] - 2026-08-15
+
+More of the map's own account of itself.
+
+### Added
+- The diagnostics panel now reports whether the browser is delivering animation frames, which the map cannot start without, along with the reachability of the sprite and font assets the style waits on.
+
 ## [0.9.4] - 2026-08-15
 
 Makes an empty-looking map explain itself.
