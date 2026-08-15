@@ -58,6 +58,20 @@ CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- z14 tiles whose rendered PNGs are out of date.
+--
+-- Not part of section 5's schema, and not truth: it is a work queue over
+-- derived state, and dropping it costs nothing a full rebuild cannot restore.
+-- It exists because rendering after every single import is what makes a bulk
+-- import take hours - the render is proportional to the whole archive, not to
+-- the file just added. Deferring it means something has to remember what is
+-- owed, and remembering it on the client loses the debt when the tab closes.
+CREATE TABLE IF NOT EXISTS pending_render (
+  x INTEGER NOT NULL,
+  y INTEGER NOT NULL,
+  PRIMARY KEY (x, y)
+) WITHOUT ROWID;
 """
 
 DEFAULT_SETTINGS = {
@@ -153,6 +167,42 @@ def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
 def get_settings(conn: sqlite3.Connection) -> dict[str, str]:
     rows = conn.execute("SELECT key, value FROM settings ORDER BY key").fetchall()
     return {row["key"]: row["value"] for row in rows}
+
+
+def path_of(conn: sqlite3.Connection) -> str:
+    """The file a connection is actually open on.
+
+    Render workers are separate processes and cannot be handed a connection,
+    so they are handed a path and open their own. Taking it from the
+    connection rather than from db_path() means a caller working against some
+    other database - a test, a one-off script - gets workers that agree with
+    it, instead of seven processes quietly rendering production.
+    """
+    for _, name, file in conn.execute("PRAGMA database_list"):
+        if name == "main":
+            return str(file)
+    return str(db_path())
+
+
+def defer_render(conn: sqlite3.Connection, tiles: set[tuple[int, int]]) -> None:
+    """Record z14 tiles whose PNGs are now out of date."""
+    if not tiles:
+        return
+    conn.executemany(
+        "INSERT INTO pending_render (x, y) VALUES (?, ?) ON CONFLICT DO NOTHING",
+        sorted(tiles),
+    )
+
+
+def pending_render(conn: sqlite3.Connection) -> set[tuple[int, int]]:
+    return {
+        (int(row["x"]), int(row["y"]))
+        for row in conn.execute("SELECT x, y FROM pending_render")
+    }
+
+
+def clear_pending_render(conn: sqlite3.Connection) -> None:
+    conn.execute("DELETE FROM pending_render")
 
 
 def counts(conn: sqlite3.Connection) -> dict[str, int]:

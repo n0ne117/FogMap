@@ -326,6 +326,83 @@ def _explored_pixels(root, zoom: int, view: str = "all") -> int:
     return total
 
 
+class TestParallelRender:
+    """More cores must only make it faster, never different.
+
+    Rendering fans out over (view, native tile) jobs in separate processes.
+    Every one of them writes PNGs to the same tree, so the thing worth testing
+    is not the speed - it is that the tree is byte for byte what one process
+    would have produced.
+    """
+
+    @pytest.fixture
+    def multi_year(self, conn):
+        from datetime import datetime, timezone
+
+        for index, year in enumerate((2022, 2023, 2024)):
+            points = [
+                (synthetic.BASE_LON + index * 0.06 + step * 0.0002, synthetic.BASE_LAT)
+                for step in range(40)
+            ]
+            document = synthetic.gpx_document(
+                points,
+                name=f"route {year}",
+                start=datetime(year, 5, 1, 8, 0, tzinfo=timezone.utc),
+            )
+            common.ingest_tracks(conn, "workout", gpx.parse(document))
+        return conn
+
+    def test_parallel_and_serial_agree_byte_for_byte(self, multi_year, tmp_path):
+        serial, parallel = tmp_path / "serial", tmp_path / "parallel"
+        composite.render_views(
+            multi_year, serial, composite.available_views(multi_year), workers=1
+        )
+        composite.render_views(
+            multi_year, parallel, composite.available_views(multi_year), workers=4
+        )
+
+        left = sorted(serial.rglob("*.png"))
+        right = sorted(parallel.rglob("*.png"))
+        assert left, "nothing was rendered"
+        assert [p.relative_to(serial) for p in left] == [
+            p.relative_to(parallel) for p in right
+        ]
+        for a, b in zip(left, right):
+            assert a.read_bytes() == b.read_bytes(), a.relative_to(serial)
+
+    def test_the_counts_agree_too(self, multi_year, tmp_path):
+        views = composite.available_views(multi_year)
+        one = composite.render_views(multi_year, tmp_path / "a", views, workers=1)
+        many = composite.render_views(multi_year, tmp_path / "b", views, workers=4)
+        assert one == many
+        assert sum(one.values()) > 0
+
+    def test_a_view_that_lost_its_data_is_still_pruned(self, conn, tmp_path):
+        root = tmp_path / "tiles"
+        document = synthetic.gpx_document(synthetic.square_loop(40))
+        common.ingest_tracks(conn, "workout", gpx.parse(document))
+        composite.render_views(conn, root, ["all"], workers=4)
+        assert list(root.glob("dark/all/fog/14/*/*.png"))
+
+        conn.execute("DELETE FROM blobs")
+        composite.render_views(conn, root, ["all"], workers=4)
+        assert not list(root.glob("dark/all/fog/14/*/*.png"))
+
+    def test_workers_are_configurable_and_sane(self, monkeypatch):
+        monkeypatch.setenv("FOGMAP_RENDER_WORKERS", "3")
+        assert composite.render_workers() == 3
+
+        monkeypatch.setenv("FOGMAP_RENDER_WORKERS", "0")
+        assert composite.render_workers() == 1
+
+        monkeypatch.setenv("FOGMAP_RENDER_WORKERS", "loads")
+        with pytest.raises(ValueError, match="whole number"):
+            composite.render_workers()
+
+        monkeypatch.delenv("FOGMAP_RENDER_WORKERS")
+        assert composite.render_workers() >= 1
+
+
 class TestFogColour:
     """The colour of the unknown is a stored setting, baked into the tiles."""
 

@@ -211,6 +211,57 @@ def stamp_path(
     return tiles
 
 
+def clip_runs(
+    lonlats: Sequence[tuple[float, float]],
+    radius_m: float,
+    zoom: int,
+    window: tuple[int, int, int, int],
+) -> list[list[tuple[float, float]]]:
+    """Split a path into the stretches that could touch a pixel window.
+
+    stamp_path rasterises a whole track wherever it goes. That is right when
+    the result is being stored, and badly wrong when the caller only wants one
+    tile's worth: a morning run crossing ten tiles was being stamped end to end
+    ten times over, and at z16 each pass resamples at four times the density.
+    Clipping first makes the work proportional to what is actually wanted.
+
+    Whole segments are kept, never split, so the stamped line still enters and
+    leaves the window at the right angle. The window is padded by the brush,
+    because a point outside it can still paint into it.
+    """
+    if len(lonlats) < 2:
+        return [list(lonlats)] if lonlats else []
+
+    left, top, right, bottom = window
+    lats = [lat for _, lat in lonlats]
+    pad = geo.radius_px(radius_m, max(abs(min(lats)), abs(max(lats))), zoom) + 2.0
+
+    projected = [geo.lonlat_to_px(lon, lat, zoom) for lon, lat in lonlats]
+
+    runs: list[list[tuple[float, float]]] = []
+    current: list[tuple[float, float]] = []
+
+    for index in range(len(lonlats) - 1):
+        (ax, ay), (bx, by) = projected[index], projected[index + 1]
+        touches = (
+            min(ax, bx) <= right + pad
+            and max(ax, bx) >= left - pad
+            and min(ay, by) <= bottom + pad
+            and max(ay, by) >= top - pad
+        )
+        if touches:
+            if not current:
+                current.append(lonlats[index])
+            current.append(lonlats[index + 1])
+        elif current:
+            runs.append(current)
+            current = []
+
+    if current:
+        runs.append(current)
+    return runs
+
+
 def read_blob(
     conn: sqlite3.Connection, kind: str, source: str, layer: str, x: int, y: int
 ) -> np.ndarray | None:

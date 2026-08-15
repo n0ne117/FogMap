@@ -189,12 +189,21 @@ def meta(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, object]:
 
 
 def _ingest_upload(
-    conn: sqlite3.Connection, parser, upload: UploadFile, source: str
-) -> dict[str, int]:
+    conn: sqlite3.Connection,
+    parser,
+    upload: UploadFile,
+    source: str,
+    defer_render: bool = False,
+) -> dict[str, object]:
     """Shared body of the file ingest endpoints.
 
     Declared sync so FastAPI runs it in a worker thread - rasterising a long
     track is CPU work and would otherwise stall the event loop.
+
+    `defer_render` is for bulk imports. Rendering costs roughly the whole
+    archive rather than the file just added, so paying it once per file turns
+    a few hundred workouts into an afternoon. Deferring records what is owed
+    and leaves the tiles stale until something calls /api/render.
     """
     filename = upload.filename or "upload"
     payload = upload.file.read()
@@ -213,25 +222,35 @@ def _ingest_upload(
         result = common.ingest_tracks(conn, source, tracks)
 
     if result.events_created:
-        # Re-render now rather than at request time, so the tile endpoint
-        # stays a file read. Only the views this import changed are touched.
-        _render_views(conn, result.affected_views(), result.tiles_touched)
+        if defer_render:
+            with db.transaction(conn):
+                db.defer_render(conn, result.tiles_touched)
+        else:
+            # Re-render now rather than at request time, so the tile endpoint
+            # stays a file read. Only the views this import changed are touched.
+            _render_views(conn, result.affected_views(), result.tiles_touched)
 
-    return result.as_dict()
+    out = result.as_dict()
+    out["render_pending"] = bool(defer_render and result.events_created)
+    return out
 
 
 @app.post("/api/ingest/gpx")
 def ingest_gpx(
-    file: UploadFile, conn: sqlite3.Connection = Depends(get_conn)
-) -> dict[str, int]:
-    return _ingest_upload(conn, gpx, file, "workout")
+    file: UploadFile,
+    defer_render: bool = False,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> dict[str, object]:
+    return _ingest_upload(conn, gpx, file, "workout", defer_render)
 
 
 @app.post("/api/ingest/tcx")
 def ingest_tcx(
-    file: UploadFile, conn: sqlite3.Connection = Depends(get_conn)
-) -> dict[str, int]:
-    return _ingest_upload(conn, tcx, file, "workout")
+    file: UploadFile,
+    defer_render: bool = False,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> dict[str, object]:
+    return _ingest_upload(conn, tcx, file, "workout", defer_render)
 
 
 def _live_token_ok(request: Request) -> bool:
@@ -558,8 +577,39 @@ def _render_views(
     root.mkdir(parents=True, exist_ok=True)
     composite.write_placeholders(root, conn)
     scope = None if touched is None else composite.rebuild_scope(touched)
-    for view in views:
-        composite.render_view(conn, root, view, scope=scope)
+    composite.render_views(conn, root, views, scope=scope)
+
+
+@app.get("/api/render")
+def render_status(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, object]:
+    pending = db.pending_render(conn)
+    return {
+        "pending_tiles": len(pending),
+        "views": composite.views_touching(conn, pending) if pending else [],
+        "workers": composite.render_workers(),
+    }
+
+
+@app.post("/api/render")
+def render_pending(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, object]:
+    """Render everything a deferred import left owing.
+
+    This is the other half of ingesting with defer_render: a bulk import
+    stamps every file into the blob store and writes down which native tiles
+    went stale, and this pays the render once for the lot instead of once per
+    file.
+    """
+    pending = db.pending_render(conn)
+    if not pending:
+        return {"pending_tiles": 0, "tiles_rendered": {}}
+
+    views = composite.views_touching(conn, pending)
+    _render_views(conn, views, pending)
+
+    with db.transaction(conn):
+        db.clear_pending_render(conn)
+
+    return {"pending_tiles": len(pending), "views": views}
 
 
 def _views_for_layers(layers: list[str]) -> list[str]:

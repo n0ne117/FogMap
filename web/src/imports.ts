@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Importing workout files. Uploads run one at a time rather than all at once:
-// each file is rasterised and re-rendered on the server, and firing a hundred
-// of those in parallel would only make them all slower and the progress
-// meaningless.
+// Importing workout files. Uploads run one at a time rather than all at once,
+// so progress means something and one bad file is attributable.
+//
+// Rendering is deferred to the end. It costs roughly the whole archive rather
+// than the file just added, so paying it per file made a few hundred workouts
+// take longer than an afternoon - the server notes which tiles went stale and
+// settles the whole debt in one pass once the last file is in.
 
-import { ApiError, getToken } from './api'
+import { ApiError, apiSend, getToken } from './api'
 import { element } from './ui'
 
 export interface ImportOutcome {
@@ -41,9 +44,8 @@ export class Imports {
   }
 
   private async upload(file: File): Promise<ImportOutcome> {
-    const path = file.name.toLowerCase().endsWith('.tcx')
-      ? '/api/ingest/tcx'
-      : '/api/ingest/gpx'
+    const kind = file.name.toLowerCase().endsWith('.tcx') ? 'tcx' : 'gpx'
+    const path = `/api/ingest/${kind}?defer_render=true`
 
     const body = new FormData()
     body.append('file', file)
@@ -110,9 +112,20 @@ export class Imports {
     }
 
     const failed = outcomes.filter((outcome) => !outcome.ok).length
-    element('import-progress-text').textContent =
-      `Done. ${outcomes.length - failed} of ${outcomes.length} imported` +
+    const imported = `${outcomes.length - failed} of ${outcomes.length} imported` +
       (failed ? `, ${failed} failed` : '')
+
+    // One render for the whole batch. Until this finishes the map still shows
+    // the tiles as they were, so it has to say what it is doing.
+    element('import-progress-text').textContent = `${imported}. Drawing the map…`
+    try {
+      await apiSend('POST', '/api/render')
+      element('import-progress-text').textContent = `Done. ${imported}`
+    } catch (error) {
+      element('import-progress-text').textContent =
+        `${imported}, but the map could not be redrawn: ` +
+        (error instanceof ApiError ? error.message : String(error))
+    }
 
     this.running = false
     this.onDone()

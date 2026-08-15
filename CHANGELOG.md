@@ -11,6 +11,18 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.9.13] - 2026-08-15
+
+Importing a workout archive stops taking an afternoon.
+
+### Changed
+- A bulk import renders once at the end instead of once per file. Rendering costs roughly the whole archive rather than the file just added, so a few hundred workouts were paying that price a few hundred times over — the later a file was imported, the more it cost. Files are now stamped into the archive as they arrive, the server writes down which tiles went stale, and one pass at the end settles the lot. The progress line says when it switches from importing to drawing.
+- Rendering uses the cores available to it. Work is queued as one flat list of (view, tile) jobs and handed to a pool of worker processes — not one worker per view, because the cumulative view is a single job that takes longer than every year view put together, so that arrangement leaves most of the machine watching one job finish. A full re-render of a 318-event archive went from 161 s to 57 s on eight cores. Set FOGMAP_RENDER_WORKERS to override; the default leaves one core free.
+- Deep zoom levels only rasterise the part of a track that could reach the tile being built. A morning run crossing ten tiles was being stamped end to end once per tile, and at z16 each pass resamples at four times the density.
+
+### Added
+- GET and POST /api/render, reporting and settling whatever a deferred import left owing. The debt lives in the database, so closing the browser mid-import loses nothing.
+
 ## [0.9.12] - 2026-08-15
 
 Brush strokes that look like brush strokes.

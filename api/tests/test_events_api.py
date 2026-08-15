@@ -27,6 +27,7 @@ def client(monkeypatch):
     conn = db.open_initialised()
     conn.execute("DELETE FROM blobs")
     conn.execute("DELETE FROM events")
+    conn.execute("DELETE FROM pending_render")
     conn.close()
 
     with TestClient(app) as test_client:
@@ -360,3 +361,89 @@ class TestStalePruning:
 
         client.delete(f"/api/events/{created['id']}", headers=auth())
         assert not (tiles_root() / "dark" / "year-1994").exists()
+
+
+class TestDeferredRender:
+    """Bulk import: stamp every file, render the lot once.
+
+    Rendering costs roughly the whole archive rather than the file just added,
+    so paying it per file is what made importing a few hundred workouts take
+    longer than an afternoon. Deferring writes down what is owed, and one call
+    settles it.
+    """
+
+    def document(self, offset: float) -> bytes:
+        from . import synthetic
+
+        points = [
+            (synthetic.BASE_LON + offset + n * 0.0002, synthetic.BASE_LAT)
+            for n in range(30)
+        ]
+        return synthetic.gpx_document(points, name=f"track {offset}")
+
+    def upload(self, client, offset: float, defer: bool):
+        return client.post(
+            f"/api/ingest/gpx?defer_render={'true' if defer else 'false'}",
+            headers=auth(),
+            files={"file": (f"t{offset}.gpx", self.document(offset), "application/gpx+xml")},
+        )
+
+    def test_a_deferred_import_writes_no_tiles_and_records_the_debt(self, client):
+        response = self.upload(client, 0.0, defer=True)
+        assert response.status_code == 200
+        body = response.json()
+        assert body["events_created"] == 1
+        assert body["render_pending"] is True
+
+        status = client.get("/api/render").json()
+        assert status["pending_tiles"] > 0
+        assert "all" in status["views"]
+
+    def test_rendering_settles_the_whole_batch_at_once(self, client):
+        for offset in (0.0, 0.05, 0.1):
+            assert self.upload(client, offset, defer=True).status_code == 200
+
+        owed = client.get("/api/render").json()["pending_tiles"]
+        assert owed >= 1
+
+        response = client.post("/api/render", headers=auth())
+        assert response.status_code == 200
+        assert response.json()["pending_tiles"] == owed
+
+        # Paid off, and the tiles are on disk.
+        assert client.get("/api/render").json()["pending_tiles"] == 0
+        assert list((tiles_root() / "dark" / "all" / "fog").glob("14/*/*.png"))
+
+    def test_rendering_with_nothing_owed_is_a_no_op(self, client):
+        response = client.post("/api/render", headers=auth())
+        assert response.status_code == 200
+        assert response.json()["pending_tiles"] == 0
+
+    def test_a_deferred_import_matches_an_immediate_one(self, client, tmp_path):
+        """Deferring must change when tiles are written, not what they are."""
+        assert self.upload(client, 0.0, defer=False).status_code == 200
+        immediate = sorted(
+            (path.relative_to(tiles_root()), path.read_bytes())
+            for path in tiles_root().rglob("dark/all/**/*.png")
+        )
+
+        conn = db.open_initialised()
+        conn.execute("DELETE FROM blobs")
+        conn.execute("DELETE FROM events")
+        conn.execute("DELETE FROM pending_render")
+        conn.close()
+        import shutil
+
+        shutil.rmtree(tiles_root(), ignore_errors=True)
+
+        assert self.upload(client, 0.0, defer=True).status_code == 200
+        assert client.post("/api/render", headers=auth()).status_code == 200
+        deferred = sorted(
+            (path.relative_to(tiles_root()), path.read_bytes())
+            for path in tiles_root().rglob("dark/all/**/*.png")
+        )
+
+        assert immediate and immediate == deferred
+
+    def test_the_render_endpoint_needs_the_token(self, client):
+        assert client.post("/api/render").status_code == 401

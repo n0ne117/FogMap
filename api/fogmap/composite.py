@@ -19,15 +19,17 @@ from __future__ import annotations
 
 import io
 import math
+import multiprocessing
 import os
 import shutil
 import sqlite3
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageFilter
 
-from fogmap import geo, raster
+from fogmap import db, geo, raster
 
 TILE = geo.TILE_PX
 HALF = TILE // 2
@@ -38,6 +40,10 @@ YEAR_PREFIX = "year:"
 
 THEMES = ("light", "dark")
 KINDS = ("fog", "trail")
+
+# Render jobs below which everything stays in this process. A pool costs a
+# couple of hundred milliseconds to start, which is most of a single stroke.
+PARALLEL_FROM = 4
 
 # How far the fog fades out from explored ground. The build plan calls edge
 # softening the difference between "a map" and Fog of World, and warns that
@@ -295,6 +301,30 @@ def deep_tiles(
     layers = view_layers(view)
     wanted = set(geo.descendants(*parent, zoom))
 
+    # The parent's footprint in this zoom's pixels. Paths are clipped to it
+    # before stamping, so a track that crosses the whole city is not rasterised
+    # end to end once per tile it passes through.
+    across = TILE * 2 ** (zoom - geo.NATIVE_Z)
+    window = (
+        parent[0] * across,
+        parent[1] * across,
+        (parent[0] + 1) * across,
+        (parent[1] + 1) * across,
+    )
+
+    def stamp(points: list[tuple[float, float]], radius_m: float) -> raster.Tiles:
+        out: raster.Tiles = {}
+        for run in raster.clip_runs(points, radius_m, zoom, window):
+            for key, mask in raster.stamp_path(run, radius_m, zoom).items():
+                if key not in wanted:
+                    continue
+                target = out.get(key)
+                if target is None:
+                    out[key] = mask
+                else:
+                    target |= mask
+        return out
+
     fog_add: dict[tuple[int, int], np.ndarray] = {}
     erased: dict[tuple[int, int], np.ndarray] = {}
     trails: dict[tuple[int, int], np.ndarray] = {}
@@ -316,11 +346,7 @@ def deep_tiles(
 
         points = raster.geometry_points(event["geometry"], event_id)
         radius_m = float(event["radius_m"])
-        stamped = {
-            key: mask
-            for key, mask in raster.stamp_path(points, radius_m, zoom).items()
-            if key in wanted
-        }
+        stamped = stamp(points, radius_m)
         if not stamped:
             continue
 
@@ -340,15 +366,7 @@ def deep_tiles(
 
         trail_radius_m = min(radius_m, raster.trail_max_radius_m())
         trail_stamped = (
-            stamped
-            if trail_radius_m >= radius_m
-            else {
-                key: mask
-                for key, mask in raster.stamp_path(
-                    points, trail_radius_m, zoom
-                ).items()
-                if key in wanted
-            }
+            stamped if trail_radius_m >= radius_m else stamp(points, trail_radius_m)
         )
         # One pass per event per layer, saturating - the same counting rule as
         # merge_trail, so the colour ramp means the same thing at every zoom.
@@ -643,17 +661,99 @@ def prune_stale(root: Path, view: str, keep: set[Path]) -> int:
     return removed
 
 
-def render_view(
+def render_deep(
     conn: sqlite3.Connection,
     root: Path,
     view: str,
-    themes: tuple[str, ...] = THEMES,
-    scope: dict[int, set[tuple[int, int]]] | None = None,
-) -> int:
-    """Render one view's PNG pyramid, both themes. Returns tiles written.
+    parent: tuple[int, int],
+    themes: tuple[str, ...],
+    scope: dict[int, set[tuple[int, int]]] | None,
+    colours: dict[str, tuple[int, int, int]],
+) -> tuple[int, set[Path]]:
+    """Stamp the deep levels under one native tile, straight from geometry.
 
-    Walks depth first from z0, so at most four tiles per zoom are held at once
-    and memory stays flat however large the archive grows.
+    Only the deepest level is stamped. The levels between it and z14 are folded
+    up from it the same way z13 is folded up from z14, which is both consistent
+    with the rest of the pyramid and cheaper than replaying the event log once
+    per level.
+
+    Returns (tiles written, every path that legitimately holds data), the
+    second so the pruning pass afterwards knows what not to delete.
+    """
+    written = 0
+    kept: set[Path] = set()
+
+    composed = deep_tiles(conn, view, parent, geo.MAX_Z)
+    for zoom in range(geo.MAX_Z, geo.NATIVE_Z, -1):
+        if zoom < geo.MAX_Z:
+            composed = fold_up(composed)
+
+        for (x, y), (fog, trail) in composed.items():
+            wanted = scope is None or (x, y) in scope.get(zoom, frozenset())
+            for theme in themes:
+                for kind in KINDS:
+                    destination = tile_path(root, theme, view, kind, zoom, x, y)
+                    kept.add(destination)
+                    if not wanted:
+                        continue
+                    rgba = (
+                        render_fog(fog, theme, colour=colours[theme])
+                        if kind == "fog"
+                        else render_trail(trail, theme)
+                    )
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    destination.write_bytes(encode_png(rgba))
+                    written += 1
+
+    return written, kept
+
+
+Job = tuple[
+    str,  # "shallow" or "deep"
+    str,  # database path
+    str,  # tiles root
+    str,  # view
+    tuple[str, ...],  # themes
+    "dict[int, set[tuple[int, int]]] | None",  # scope
+    "tuple[int, int] | None",  # native tile, for deep jobs
+]
+
+
+def _render_job(job: Job) -> tuple[int, list[str]]:
+    """One unit of rendering, in a worker process.
+
+    Module level and taking a single tuple, because that is what a process
+    pool can pickle. A connection cannot cross a process boundary, so each
+    worker opens its own; they only read.
+    """
+    kind, db_path, root, view, themes, scope, parent = job
+    conn = db.connect(db_path)
+    try:
+        if kind == "shallow":
+            written, kept, _ = render_shallow(conn, Path(root), view, themes, scope)
+        else:
+            colours = {theme: fog_colour(theme, conn) for theme in themes}
+            written, kept = render_deep(
+                conn, Path(root), view, parent, themes, scope, colours
+            )
+        return written, [str(path) for path in kept]
+    finally:
+        conn.close()
+
+
+def render_shallow(
+    conn: sqlite3.Connection,
+    root: Path,
+    view: str,
+    themes: tuple[str, ...],
+    scope: dict[int, set[tuple[int, int]]] | None,
+) -> tuple[int, set[Path], list[tuple[int, int]]]:
+    """z0 to z14 for one view, folded up from the blob store.
+
+    Returns (tiles written, paths that hold data, native tiles whose deep
+    levels still need stamping). Cheap next to the deep levels - a hundred
+    native tiles compose in well under a second - so this stays in-process and
+    the fan-out happens afterwards.
 
     `scope` limits which tiles are encoded and written, and is what section 6's
     rebuild scope buys: one edit touches one z14 tile and its fourteen
@@ -668,7 +768,7 @@ def render_view(
     if not native:
         # Everything in this view is gone. Its tiles have to go with it.
         prune_stale(root, view, set())
-        return 0
+        return 0, set(), []
 
     levels = pyramid_levels(native)
     written = 0
@@ -720,45 +820,22 @@ def render_view(
 
         return fog, trail
 
-    def build_deep(parent: tuple[int, int]) -> None:
-        """Stamp the deep levels under one native tile, straight from geometry.
-
-        Only the deepest is stamped. The levels between it and z14 are folded
-        up from it the same way z13 is folded up from z14, which is both
-        consistent with the rest of the pyramid and a good deal cheaper than
-        replaying the event log once per level.
-        """
-        nonlocal written
-
-        composed = deep_tiles(conn, view, parent, geo.MAX_Z)
-        for zoom in range(geo.MAX_Z, geo.NATIVE_Z, -1):
-            if zoom < geo.MAX_Z:
-                composed = fold_up(composed)
-
-            for (x, y), (fog, trail) in composed.items():
-                if not in_scope(zoom, x, y):
-                    for theme in themes:
-                        for kind in KINDS:
-                            kept.add(tile_path(root, theme, view, kind, zoom, x, y))
-                    continue
-
-                for theme in themes:
-                    for kind, rgba in (
-                        ("fog", render_fog(fog, theme, colour=colours[theme])),
-                        ("trail", render_trail(trail, theme)),
-                    ):
-                        destination = tile_path(root, theme, view, kind, zoom, x, y)
-                        destination.parent.mkdir(parents=True, exist_ok=True)
-                        destination.write_bytes(encode_png(rgba))
-                        kept.add(destination)
-                        written += 1
-
     build(0, 0, 0)
 
-    deep_parents = native if scope is None else native & scope.get(geo.NATIVE_Z, set())
-    for parent in sorted(deep_parents):
-        build_deep(parent)
+    deep_parents = sorted(
+        native if scope is None else native & scope.get(geo.NATIVE_Z, set())
+    )
+    return written, kept, deep_parents
 
+
+def prune_view(
+    root: Path,
+    view: str,
+    kept: set[Path],
+    themes: tuple[str, ...],
+    scope: dict[int, set[tuple[int, int]]] | None,
+) -> None:
+    """Delete rendered tiles this render did not account for."""
     if scope is None:
         prune_stale(root, view, kept)
     else:
@@ -773,7 +850,103 @@ def render_view(
                         if path not in kept:
                             path.unlink(missing_ok=True)
 
+
+def render_views(
+    conn: sqlite3.Connection,
+    root: Path,
+    views: list[str],
+    themes: tuple[str, ...] = THEMES,
+    scope: dict[int, set[tuple[int, int]]] | None = None,
+    workers: int | None = None,
+) -> dict[str, int]:
+    """Render a list of views. Returns tiles written per view.
+
+    The fan-out is over every (view, native tile) pair at once rather than over
+    views, and that distinction is most of the speed. Views are wildly uneven -
+    the cumulative view covers every tile in the archive while a year view
+    might cover five - so a worker per view spends its time watching one job
+    finish. One flat queue keeps every core busy until there is nothing left.
+    """
+    if not views:
+        return {}
+
+    workers = render_workers() if workers is None else workers
+
+    written: dict[str, int] = {view: 0 for view in views}
+    kept: dict[str, set[Path]] = {view: set() for view in views}
+    owners: list[str] = []
+    jobs: list[Job] = []
+
+    database, root_text = db.path_of(conn), str(root)
+    for view in views:
+        native = tiles_with_data(conn, view_layers(view))
+        if not native:
+            # Everything in this view is gone. Its tiles have to go with it.
+            prune_stale(root, view, set())
+            continue
+
+        owners.append(view)
+        jobs.append(("shallow", database, root_text, view, themes, scope, None))
+
+        parents = native if scope is None else native & scope.get(geo.NATIVE_Z, set())
+        for parent in sorted(parents):
+            owners.append(view)
+            jobs.append(("deep", database, root_text, view, themes, scope, parent))
+
+    if not jobs:
+        return written
+
+    if workers > 1 and len(jobs) >= PARALLEL_FROM:
+        # forkserver, not the default fork. The API process runs request
+        # handlers in a thread pool, and forking a multi-threaded process can
+        # deadlock the child on a lock that was held by a thread that does not
+        # exist any more. forkserver forks from a clean single-threaded parent.
+        with ProcessPoolExecutor(
+            max_workers=min(workers, len(jobs)),
+            mp_context=multiprocessing.get_context("forkserver"),
+        ) as pool:
+            results = list(pool.map(_render_job, jobs))
+    else:
+        results = [_render_job(job) for job in jobs]
+
+    for view, (count, paths) in zip(owners, results):
+        written[view] += count
+        kept[view].update(Path(path) for path in paths)
+
+    for view in views:
+        if kept[view]:
+            prune_view(root, view, kept[view], themes, scope)
     return written
+
+
+def render_view(
+    conn: sqlite3.Connection,
+    root: Path,
+    view: str,
+    themes: tuple[str, ...] = THEMES,
+    scope: dict[int, set[tuple[int, int]]] | None = None,
+    workers: int = 1,
+) -> int:
+    """Render one view's PNG pyramid, both themes. Returns tiles written."""
+    return render_views(conn, root, [view], themes, scope, workers)[view]
+
+
+def render_workers() -> int:
+    """How many views to render at once.
+
+    Defaults to leaving a core free, so a bulk import does not make the rest
+    of the machine unusable while it runs.
+    """
+    raw = os.environ.get("FOGMAP_RENDER_WORKERS", "").strip()
+    if raw:
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            raise ValueError(
+                f"FOGMAP_RENDER_WORKERS must be a whole number, got {raw!r}. "
+                "Unset it to use one less than the number of cores."
+            ) from None
+    return max(1, (os.cpu_count() or 2) - 1)
 
 
 def render_all(
@@ -787,7 +960,7 @@ def render_all(
     write_placeholders(root, conn)
 
     views = available_views(conn)
-    rendered = {view: render_view(conn, root, view, themes, scope) for view in views}
+    rendered = render_views(conn, root, views, themes, scope)
 
     # A view can disappear entirely - delete the last event of a year and that
     # year is no longer a view at all. Its directory has to go too.
