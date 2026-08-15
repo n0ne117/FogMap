@@ -11,6 +11,24 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.9.11] - 2026-08-15
+
+Drawing you can see, borders you can see, and fog in a colour you chose.
+
+### Added
+- Country borders, with a toggle in settings. The basemap has always drawn them underneath the fog, which at any usable fog thickness means not at all; these are drawn on top, so the shape of a country is readable across ground nobody has visited.
+- A fog colour picker in settings — colour wheel and hex, set per map theme. Unlike thickness, the colour is baked into the tiles, so applying it re-renders them; that takes a few seconds and the button says so while it works.
+- Plus and minus buttons either side of the brush slider, for the last metre or two that a slider makes fiddly.
+- A Zoom to 14 button appears on the drawing toolbar whenever the map is too far out to draw.
+
+### Changed
+- The Off tool is now Pan, with a hand and a grab cursor. Panning was always what it did; calling it "Off" made it look like the absence of a tool rather than one of them.
+- Tracks are easier to see when zoomed in. The white line now has a dark casing under it, so it reads over cleared ground as well as over fog, and the trail bitmap fades to a low glow rather than to nothing — it is the only thing carrying how many times a pixel was crossed.
+
+### Fixed
+- The stroke preview added in 0.9.10 never appeared. Attaching the trail layer immediately before it flipped MapLibre's isStyleLoaded() to false — that reports whether every source has finished loading, not whether the style is usable — and the preview's own guard on that flag then skipped it entirely, silently, every time.
+- The zoom lock no longer says "Zoom to 14 or closer to draw. Currently 14.0." The reading was rounded, so being a fraction of a level short displayed as being exactly there. It is floored now, and there is a button to close the gap.
+
 ## [0.9.10] - 2026-08-15
 
 You can see what you are about to draw, and what you just drew.

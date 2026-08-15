@@ -65,6 +65,59 @@ FOG_COLOUR = {
 DEFAULT_FOG_ALPHA = 255
 
 
+SETTING_FOG_COLOUR = "fog_colour_{theme}"
+
+
+def parse_colour(raw: str, where: str) -> tuple[int, int, int]:
+    """Read #rrggbb, or #rgb, into a tuple. Loud about anything else."""
+    text = raw.strip().lstrip("#")
+    if len(text) == 3:
+        text = "".join(character * 2 for character in text)
+    if len(text) != 6:
+        raise ValueError(
+            f"{where} must be a hex colour like #1c1e23, got {raw!r}."
+        )
+    try:
+        return (int(text[0:2], 16), int(text[2:4], 16), int(text[4:6], 16))
+    except ValueError:
+        raise ValueError(
+            f"{where} must be a hex colour like #1c1e23, got {raw!r}."
+        ) from None
+
+
+def to_hex(colour: tuple[int, int, int]) -> str:
+    return "#%02x%02x%02x" % colour
+
+
+def fog_colour(theme: str, conn: sqlite3.Connection | None = None) -> tuple[int, int, int]:
+    """The colour of the unknown, for a theme.
+
+    Order is environment, then the stored setting, then the built-in. Unlike
+    fog opacity - which is a viewing choice the browser makes for free - the
+    colour is baked into the tiles, so changing it means a re-render. That is
+    the price of the tile endpoint being a file read and nothing else.
+    """
+    if theme not in FOG_COLOUR:
+        raise ValueError(
+            f"Unknown theme {theme!r}. FogMap renders {' and '.join(THEMES)}."
+        )
+
+    name = f"FOGMAP_FOG_COLOUR_{theme.upper()}"
+    from_env = os.environ.get(name, "").strip()
+    if from_env:
+        return parse_colour(from_env, name)
+
+    if conn is not None:
+        key = SETTING_FOG_COLOUR.format(theme=theme)
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key = ?", (key,)
+        ).fetchone()
+        if row and str(row["value"]).strip():
+            return parse_colour(str(row["value"]), f"Setting {key}")
+
+    return FOG_COLOUR[theme]
+
+
 def fog_alpha() -> int:
     raw = os.environ.get("FOGMAP_FOG_ALPHA", "").strip()
     if not raw:
@@ -342,14 +395,15 @@ def render_fog(
     theme: str,
     edge_px: float | None = None,
     alpha: int | None = None,
+    colour: tuple[int, int, int] | None = None,
 ) -> np.ndarray:
     """Paint the unexplored ground, leaving explored ground transparent."""
-    try:
-        colour = FOG_COLOUR[theme]
-    except KeyError:
+    if theme not in FOG_COLOUR:
         raise ValueError(
             f"Unknown theme {theme!r}. FogMap renders {' and '.join(THEMES)}."
-        ) from None
+        )
+    if colour is None:
+        colour = FOG_COLOUR[theme]
 
     radius = fog_edge_px() if edge_px is None else edge_px
     solid = fog_alpha() if alpha is None else alpha
@@ -385,7 +439,9 @@ def tile_path(
     return root / theme / view.replace(":", "-") / kind / str(zoom) / str(x) / f"{y}.png"
 
 
-def placeholder_tile(theme: str, kind: str) -> bytes:
+def placeholder_tile(
+    theme: str, kind: str, conn: sqlite3.Connection | None = None
+) -> bytes:
     """The tile served where nothing has been rendered.
 
     Fog covers the whole world, so a tile with no data is not missing - it is
@@ -394,17 +450,25 @@ def placeholder_tile(theme: str, kind: str) -> bytes:
     never been, which is most of it.
     """
     if kind == "fog":
-        return encode_png(render_fog(np.zeros((TILE, TILE), dtype=bool), theme))
+        return encode_png(
+            render_fog(
+                np.zeros((TILE, TILE), dtype=bool),
+                theme,
+                colour=fog_colour(theme, conn),
+            )
+        )
     return encode_png(render_trail(np.zeros((TILE, TILE), dtype=np.uint8), theme))
 
 
-def write_placeholders(root: Path) -> list[Path]:
+def write_placeholders(
+    root: Path, conn: sqlite3.Connection | None = None
+) -> list[Path]:
     written = []
     for theme in THEMES:
         for kind in KINDS:
             destination = root / theme / f"empty-{kind}.png"
             destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_bytes(placeholder_tile(theme, kind))
+            destination.write_bytes(placeholder_tile(theme, kind, conn))
             written.append(destination)
     return written
 
@@ -490,6 +554,7 @@ def render_view(
     levels = pyramid_levels(native)
     written = 0
     kept: set[Path] = set()
+    colours = {theme: fog_colour(theme, conn) for theme in themes}
 
     def in_scope(zoom: int, x: int, y: int) -> bool:
         return scope is None or (x, y) in scope.get(zoom, frozenset())
@@ -525,7 +590,11 @@ def render_view(
                 kept.add(destination)
                 if not wanted:
                     continue
-                rgba = render_fog(fog, theme) if kind == "fog" else render_trail(trail, theme)
+                rgba = (
+                    render_fog(fog, theme, colour=colours[theme])
+                    if kind == "fog"
+                    else render_trail(trail, theme)
+                )
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(encode_png(rgba))
                 written += 1
@@ -559,7 +628,7 @@ def render_all(
 ) -> dict[str, int]:
     """Render every canonical view. Returns tiles written per view."""
     root.mkdir(parents=True, exist_ok=True)
-    write_placeholders(root)
+    write_placeholders(root, conn)
 
     views = available_views(conn)
     rendered = {view: render_view(conn, root, view, themes, scope) for view in views}

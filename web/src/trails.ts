@@ -13,6 +13,7 @@ import { apiGet } from './api'
 export const MIN_TRAIL_ZOOM = 14
 
 const SOURCE = 'fogmap-trail-vector'
+const CASING_LAYER = 'fogmap-trail-casing'
 const LAYER = 'fogmap-trail-lines'
 const HIT_LAYER = 'fogmap-trail-hit'
 
@@ -90,12 +91,30 @@ export class Trails {
    * Only ever valid once the style has loaded: a map is not ready the instant
    * its constructor returns, and adding a source before then throws "Style is
    * not done loading" - which, called from start(), took everything wired
-   * after it down with it.
+   * after it down with it. The caller attaches on style.load; isStyleLoaded()
+   * is not that condition, it also waits on every source, so using it here
+   * would make each attached source block whatever attaches next.
    */
   attach(): void {
-    if (!this.map.isStyleLoaded() || this.map.getSource(SOURCE)) return
+    if (this.map.getSource(SOURCE)) return
 
     this.map.addSource(SOURCE, { type: 'geojson', data: EMPTY as never })
+
+    // A dark casing under the line. White-on-white was legible over fog and
+    // almost invisible the moment it crossed cleared ground, which is exactly
+    // where a track is worth seeing.
+    this.map.addLayer({
+      id: CASING_LAYER,
+      type: 'line',
+      source: SOURCE,
+      minzoom: MIN_TRAIL_ZOOM,
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: {
+        'line-color': 'rgba(0, 0, 0, 0.55)',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 14, 3, 18, 5, 22, 7],
+        'line-opacity': ['interpolate', ['linear'], ['zoom'], 14, 0, 15.5, 1],
+      },
+    })
     this.map.addLayer({
       id: LAYER,
       type: 'line',
@@ -106,13 +125,12 @@ export class Trails {
       layout: { 'line-join': 'round', 'line-cap': 'round' },
       paint: {
         'line-color': '#ffffff',
-        // Deliberately hairline. A track is a record of where someone went,
-        // not a road, and at z18 a two-pixel line still covers eight metres
-        // of ground.
-        'line-width': ['interpolate', ['linear'], ['zoom'], 14, 1, 18, 2, 22, 3],
-        // Fades in as the raster underneath fades out, so the handover is a
-        // cross-fade rather than both being drawn at once.
-        'line-opacity': ['interpolate', ['linear'], ['zoom'], 14, 0, 15.5, 0.7],
+        // Thin, but not so thin it has to be hunted for. At z18 this is under
+        // two metres of ground.
+        'line-width': ['interpolate', ['linear'], ['zoom'], 14, 1, 18, 2.2, 22, 3],
+        // Fades in as the raster underneath fades down, so the handover is a
+        // cross-fade rather than both being drawn at full strength.
+        'line-opacity': ['interpolate', ['linear'], ['zoom'], 14, 0, 15.5, 1],
       },
     })
     // A wider invisible line, so clicking near a track counts as clicking it.

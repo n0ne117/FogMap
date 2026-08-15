@@ -456,6 +456,23 @@ class TestSettings:
         response = client.patch("/api/settings", headers=auth(), json={})
         assert response.status_code == 400
 
+    def test_a_fog_colour_is_stored_and_reported_back(self, client):
+        response = client.patch(
+            "/api/settings", headers=auth(), json={"fog_colour_dark": "#402030"}
+        )
+        assert response.status_code == 200
+        assert response.json()["settings"]["fog_colour_dark"] == "#402030"
+
+    def test_a_bad_fog_colour_is_refused_before_it_is_stored(self, client):
+        response = client.patch(
+            "/api/settings", headers=auth(), json={"fog_colour_dark": "tangerine"}
+        )
+        assert response.status_code == 400
+        assert "hex colour" in response.json()["detail"]
+
+        settings = client.get("/api/settings").json()["settings"]
+        assert settings.get("fog_colour_dark") != "tangerine"
+
 
 class TestRebuildStaysCanonical:
     def test_a_live_track_rebuilds_to_the_same_bytes(self, client):

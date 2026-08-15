@@ -199,6 +199,80 @@ class TestPyramid:
         for path in written:
             assert path.is_file()
 
+class TestFogColour:
+    """The colour of the unknown is a stored setting, baked into the tiles."""
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("#1c1e23", (28, 30, 35)),
+            ("1c1e23", (28, 30, 35)),
+            ("  #FFF  ", (255, 255, 255)),
+            ("#0a0b0c", (10, 11, 12)),
+        ],
+    )
+    def test_hex_reads_back_as_a_colour(self, raw, expected):
+        assert composite.parse_colour(raw, "test") == expected
+
+    @pytest.mark.parametrize("bad", ["", "#12345", "orange", "#gg0011", "#12345678"])
+    def test_anything_else_is_refused_by_name(self, bad):
+        with pytest.raises(ValueError, match="hex colour"):
+            composite.parse_colour(bad, "FOGMAP_FOG_COLOUR_DARK")
+
+    def test_the_built_in_is_used_when_nothing_is_set(self, conn):
+        assert composite.fog_colour("dark", conn) == composite.FOG_COLOUR["dark"]
+
+    def test_a_stored_setting_wins_over_the_built_in(self, conn):
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('fog_colour_dark', '#402030') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+        assert composite.fog_colour("dark", conn) == (64, 32, 48)
+        assert composite.fog_colour("light", conn) == composite.FOG_COLOUR["light"]
+
+    def test_the_environment_wins_over_the_setting(self, conn, monkeypatch):
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('fog_colour_dark', '#402030') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+        monkeypatch.setenv("FOGMAP_FOG_COLOUR_DARK", "#010203")
+        assert composite.fog_colour("dark", conn) == (1, 2, 3)
+
+    def test_an_unknown_theme_is_refused_by_name(self, conn):
+        with pytest.raises(ValueError, match="Unknown theme 'sepia'"):
+            composite.fog_colour("sepia", conn)
+
+    def test_the_setting_reaches_the_rendered_tiles(self, seeded, tmp_path):
+        root = tmp_path / "tiles"
+        composite.render_view(seeded, root, "all", themes=("dark",))
+        before = _fog_rgb(root)
+
+        seeded.execute(
+            "INSERT INTO settings (key, value) VALUES ('fog_colour_dark', '#402030') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+        composite.render_view(seeded, root, "all", themes=("dark",))
+
+        assert before != (64, 32, 48)
+        assert _fog_rgb(root) == (64, 32, 48)
+
+    def test_the_placeholder_follows_the_setting(self, conn):
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('fog_colour_dark', '#402030') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+        # Most of the world is a tile with no data, so the placeholder has to
+        # be recoloured too or the map goes two-tone.
+        empty = composite.placeholder_tile("dark", "fog", conn)
+        pixels = np.array(Image.open(io.BytesIO(empty)))
+        assert tuple(pixels[0, 0, :3]) == (64, 32, 48)
+
+
+def _fog_rgb(root) -> tuple[int, int, int]:
+    tile = root / "dark" / "all" / "fog" / "0" / "0" / "0.png"
+    return tuple(int(v) for v in np.array(Image.open(tile))[0, 0, :3])
+
+
 class TestScopedRender:
     """Section 6: an edit rebuilds its tiles and their ancestors, not a view.
 

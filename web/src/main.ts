@@ -10,10 +10,12 @@ import {
   watchLifecycle,
   wireDiagnostics,
 } from './diagnostics'
+import { ApiError, apiGet, apiSend } from './api'
 import { Brush } from './brush'
 import { Draw, MIN_DRAW_ZOOM, type Tool } from './draw'
 import { Imports } from './imports'
 import {
+  applyBorders,
   applyFogOpacity,
   applyMapTheme,
   applyView,
@@ -21,9 +23,11 @@ import {
   bustTileCache,
   buildStyle,
   createMap,
+  getBordersVisible,
   getFogOpacity,
   openArchive,
   pmtilesProtocol,
+  setBordersVisible,
   setFogOpacity,
   type MapSetup,
 } from './map'
@@ -81,6 +85,77 @@ async function checkApiVersion(): Promise<void> {
   }
 }
 
+/** Built-in fog colours, matching composite.FOG_COLOUR on the server. */
+const FOG_COLOUR_DEFAULTS: Record<MapTheme, string> = {
+  dark: '#1c1e23',
+  light: '#e8e8e4',
+}
+
+/**
+ * The fog colour picker.
+ *
+ * Fog colour is baked into the tiles, so unlike thickness it costs a render
+ * and cannot be previewed as the wheel moves. It is per theme, because a
+ * colour that reads as haze over a dark basemap is a fog bank over a light
+ * one - so the control follows whichever map theme is selected.
+ */
+function wireFogColour(map: MapLibreMap, options: MapSetup): { load: () => Promise<void> } {
+  const wheel = element<HTMLInputElement>('fog-colour')
+  const hex = element<HTMLInputElement>('fog-colour-hex')
+  const apply = element<HTMLButtonElement>('fog-colour-apply')
+  const themeLabel = element('fog-colour-theme')
+  const status = element('fog-colour-status')
+
+  const key = () => `fog_colour_${options.theme}`
+
+  const show = (value: string) => {
+    wheel.value = value
+    hex.value = value
+  }
+
+  const load = async () => {
+    themeLabel.textContent = options.theme
+    show(FOG_COLOUR_DEFAULTS[options.theme])
+    try {
+      const body = await apiGet<{ settings: Record<string, string> }>('/api/settings')
+      const stored = body.settings?.[key()]
+      if (stored) show(stored)
+    } catch {
+      /* the built-in is a fine thing to show when settings will not load */
+    }
+  }
+
+  wheel.addEventListener('input', () => (hex.value = wheel.value))
+  hex.addEventListener('change', () => {
+    if (/^#?[0-9a-fA-F]{6}$/.test(hex.value.trim())) {
+      wheel.value = hex.value.trim().startsWith('#') ? hex.value.trim() : `#${hex.value.trim()}`
+    }
+  })
+
+  apply.addEventListener('click', () => {
+    const value = hex.value.trim() || wheel.value
+    apply.disabled = true
+    status.hidden = false
+    status.dataset.state = ''
+    status.textContent = 'Re-rendering every tile in the new colour.'
+
+    void apiSend('PATCH', '/api/settings', { [key()]: value })
+      .then(() => {
+        status.textContent = 'Fog recoloured.'
+        bustTileCache()
+        applyView(map, options)
+      })
+      .catch((error: unknown) => {
+        status.dataset.state = 'bad'
+        status.textContent = error instanceof ApiError ? error.message : String(error)
+      })
+      .finally(() => (apply.disabled = false))
+  })
+
+  void load()
+  return { load }
+}
+
 function wireDrawing(
   map: MapLibreMap,
   options: MapSetup,
@@ -124,6 +199,11 @@ function wireDrawing(
     undoButton.textContent = draw.busy ? 'Undoing…' : 'Undo'
   }
 
+  // Being a fraction of a level short of z14 is not worth making anyone solve
+  // with a scroll wheel.
+  const zoomToDraw = element<HTMLButtonElement>('draw-zoom-in')
+  zoomToDraw.addEventListener('click', () => map.easeTo({ zoom: MIN_DRAW_ZOOM }))
+
   let paintTool: (value: Tool) => void = () => {}
 
   /** Drawing below z14 produces meaningless geometry, so it is locked out. */
@@ -142,8 +222,15 @@ function wireDrawing(
           ? 'Drag on the map to reveal.'
           : draw.activeTool === 'eraser'
             ? 'Drag on the map to rub fog back in.'
-            : 'Pick a tool to start drawing.'
-      : `Zoom to ${MIN_DRAW_ZOOM} or closer to draw. Currently ${zoom.toFixed(1)}.`
+            : 'Drag to pan. Pick a tool to start drawing.'
+      : // Floored, not rounded. At 13.96 a rounded reading says "Currently
+        // 14.0" next to a message demanding zoom 14, which reads as a broken
+        // lock rather than as being a fraction of a level short.
+        `Zoom to ${MIN_DRAW_ZOOM} or closer to draw. Currently ${
+          Math.floor(zoom * 10) / 10
+        }.`
+
+    zoomToDraw.hidden = allowed
 
     if (!allowed && draw.activeTool !== 'off') {
       draw.setTool('off')
@@ -182,6 +269,16 @@ function wireDrawing(
   radiusSlider.addEventListener('input', (event) =>
     applyRadius(Number((event.target as HTMLInputElement).value)),
   )
+
+  // Steppers, for the last metre or two the slider makes fiddly.
+  const step = (by: number) => {
+    const low = Number(radiusSlider.min)
+    const high = Number(radiusSlider.max)
+    applyRadius(Math.min(high, Math.max(low, draw.radiusM + by)))
+  }
+  element('draw-size-down').addEventListener('click', () => step(-1))
+  element('draw-size-up').addEventListener('click', () => step(1))
+
   applyRadius(Number(radiusField.value) || draw.radiusM)
   undoButton.addEventListener('click', () => {
     void draw.undo()
@@ -283,11 +380,18 @@ async function start(): Promise<void> {
     setFogOpacity(map, percent / 100)
   })
 
+  const borders = element<HTMLInputElement>('show-borders')
+  borders.checked = getBordersVisible()
+  borders.addEventListener('change', () => setBordersVisible(map, borders.checked))
+
+  const fogColour = wireFogColour(map, options)
+
   radioGroup<UiTheme>('ui-theme', getUiTheme(), (value) => setUiTheme(value))
   radioGroup<MapTheme>('map-theme', getMapTheme(), (value) => {
     setMapTheme(value)
     options.theme = value
     applyMapTheme(map, options)
+    void fogColour.load()
   })
 
   const trails = new Trails(map, (message) => {
@@ -299,6 +403,7 @@ async function start(): Promise<void> {
   const attachTrails = () => {
     try {
       applyFogOpacity(map)
+      applyBorders(map)
       trails.attach()
       void trails.refresh()
     } catch (error) {

@@ -24,7 +24,9 @@ const FOG_SOURCE = 'fogmap-fog'
 const TRAIL_SOURCE = 'fogmap-trail'
 const BASEMAP_SOURCE = 'protomaps'
 const FOG_LAYER = 'fogmap-fog'
+const BORDERS_LAYER = 'fogmap-borders'
 const FOG_OPACITY_KEY = 'fogmap.fog.opacity'
+const BORDERS_KEY = 'fogmap.borders'
 
 // Not baked into the tiles. How much of the map shows through the fog is a
 // viewing preference, and MapLibre scales a raster layer on the GPU - instant,
@@ -44,6 +46,40 @@ export function getFogOpacity(): number {
     /* fall through to the default */
   }
   return DEFAULT_FOG_OPACITY
+}
+
+/**
+ * Country borders, drawn above the fog.
+ *
+ * The basemap already draws them, underneath - which at any usable fog
+ * thickness means not at all. Repeating the layer on top is what makes the
+ * shape of a country readable across ground nobody has visited, which is most
+ * of the map and the whole point of looking at it zoomed out.
+ */
+export function getBordersVisible(): boolean {
+  try {
+    return window.localStorage.getItem(BORDERS_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+export function setBordersVisible(map: MapLibreMap, visible: boolean): void {
+  try {
+    window.localStorage.setItem(BORDERS_KEY, String(visible))
+  } catch {
+    /* a preference that cannot be stored is still worth applying now */
+  }
+  applyBorders(map)
+}
+
+export function applyBorders(map: MapLibreMap): void {
+  if (!map.getLayer(BORDERS_LAYER)) return
+  map.setLayoutProperty(
+    BORDERS_LAYER,
+    'visibility',
+    getBordersVisible() ? 'visible' : 'none',
+  )
 }
 
 export function setFogOpacity(map: MapLibreMap, opacity: number): void {
@@ -156,8 +192,10 @@ export function buildStyle(setup: MapSetup): StyleSpec {
         // The trail raster stops at z14, so above that it is magnified: a
         // one-pixel track becomes a sixteen-pixel blurred stripe with visibly
         // stepped edges. The vector trail layer draws the same tracks from
-        // their real geometry from z14 up, so the raster is faded out as it
-        // arrives rather than left underneath it looking thick and jagged.
+        // their real geometry from z14 up, so the raster is faded down as it
+        // arrives. Not all the way to nothing: the raster is the only thing
+        // carrying how many times a pixel was crossed, and at low opacity it
+        // reads as a glow under the crisp line rather than as a blurred one.
         paint: {
           'raster-opacity': [
             'interpolate',
@@ -166,7 +204,7 @@ export function buildStyle(setup: MapSetup): StyleSpec {
             14,
             1,
             15.5,
-            0,
+            0.3,
           ],
         },
       },
@@ -176,6 +214,30 @@ export function buildStyle(setup: MapSetup): StyleSpec {
         source: FOG_SOURCE,
         paint: { 'raster-opacity': getFogOpacity() },
       },
+      ...(setup.hasBasemap
+        ? [
+            {
+              id: BORDERS_LAYER,
+              type: 'line',
+              source: BASEMAP_SOURCE,
+              'source-layer': 'boundaries',
+              // kind_detail 2 and below is the country line. Anything above
+              // is a state or a county, which is not what was asked for and
+              // turns a world view into a net.
+              filter: ['<=', 'kind_detail', 2],
+              layout: {
+                'line-join': 'round',
+                visibility: getBordersVisible() ? 'visible' : 'none',
+              },
+              paint: {
+                'line-color': '#d8a13a',
+                'line-width': ['interpolate', ['linear'], ['zoom'], 2, 0.8, 8, 1.6],
+                'line-opacity': 0.85,
+                'line-dasharray': [3, 2],
+              },
+            },
+          ]
+        : []),
     ],
   } as unknown as StyleSpec
 }

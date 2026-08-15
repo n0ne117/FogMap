@@ -197,8 +197,9 @@ export class Draw {
     this.points = []
     this.drawing = false
     this.onPreview([])
+    // 'off' is the hand tool: the map pans and nothing is painted.
     this.map.getCanvas().style.cursor =
-      tool === 'off' ? '' : tool === 'eraser' ? 'cell' : 'crosshair'
+      tool === 'off' ? 'grab' : tool === 'eraser' ? 'cell' : 'crosshair'
     if (tool === 'off') {
       this.map.dragPan.enable()
     }

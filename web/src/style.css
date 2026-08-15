@@ -612,6 +612,39 @@ button:disabled {
   gap: 0.6rem;
 }
 
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.check input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.colour-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.colour-field input[type='color'] {
+  width: 2.75rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.3rem;
+  background: transparent;
+  cursor: pointer;
+}
+
+.colour-field input[type='text'] {
+  width: 7rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 .source-row {
   display: flex;
   align-items: flex-start;

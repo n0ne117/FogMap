@@ -60,9 +60,15 @@ export class Brush {
   /**
    * Add the preview source and layers. Safe to call more than once, and has
    * to be called again after a style change, which drops both.
+   *
+   * Deliberately not guarded on isStyleLoaded(). That reports whether every
+   * source has finished loading, not whether the style is usable - so the
+   * trail layer attaching immediately before this one flipped it to false and
+   * the preview was never added at all. The caller attaches on style.load,
+   * which is the condition that actually matters.
    */
   attach(): void {
-    if (!this.map.isStyleLoaded() || this.map.getSource(SOURCE)) return
+    if (this.map.getSource(SOURCE)) return
 
     this.map.addSource(SOURCE, { type: 'geojson', data: EMPTY as never })
 

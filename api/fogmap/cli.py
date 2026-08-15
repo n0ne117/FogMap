@@ -221,7 +221,7 @@ def render(args: argparse.Namespace) -> int:
             [args.view] if args.view else composite.available_views(conn)
         )
         root.mkdir(parents=True, exist_ok=True)
-        composite.write_placeholders(root)
+        composite.write_placeholders(root, conn)
 
         out(f"rendering {len(views)} views into {root}\n")
         total = 0

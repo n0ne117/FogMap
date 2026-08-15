@@ -23,14 +23,20 @@
     <div class="map-tools">
       <div id="draw-bar" class="draw-bar" hidden>
         <div id="draw-tool" class="segmented" role="group" aria-label="Drawing tool">
-          <button type="button" data-value="off" aria-pressed="true">Off</button>
+          <button type="button" data-value="off" aria-pressed="true" title="Pan the map">
+            &#9995; Pan
+          </button>
           <button type="button" data-value="freehand" aria-pressed="false">Brush</button>
           <button type="button" data-value="line" aria-pressed="false">Line</button>
           <button type="button" data-value="eraser" aria-pressed="false">Eraser</button>
         </div>
+        <button id="draw-zoom-in" type="button" class="bar-button" hidden>
+          Zoom to 14
+        </button>
         <!-- Brush width, where the drawing happens. Settings keeps the same
              control for anyone who wants to type an exact number. -->
-        <label class="bar-size" title="Brush radius on the ground">
+        <div class="bar-size" title="Brush radius on the ground">
+          <button id="draw-size-down" type="button" aria-label="Smaller brush">&minus;</button>
           <input
             id="draw-size"
             type="range"
@@ -40,8 +46,9 @@
             value="15"
             aria-label="Brush radius in metres"
           />
+          <button id="draw-size-up" type="button" aria-label="Bigger brush">+</button>
           <output id="draw-size-label" for="draw-size">15 m</output>
-        </label>
+        </div>
         <button id="draw-undo" type="button" class="bar-button" disabled>Undo</button>
         <span id="draw-hint" class="bar-hint"></span>
       </div>
@@ -210,6 +217,41 @@
               How much of the map shows through ground you have not visited.
               At 100% the world behind is completely hidden. Applied in the
               browser, so it changes as you drag and nothing is re-rendered.
+            </p>
+
+            <label class="field">
+              <span>Colour of the unknown</span>
+              <span class="colour-field">
+                <input id="fog-colour" type="color" value="#1c1e23" />
+                <input
+                  id="fog-colour-hex"
+                  type="text"
+                  spellcheck="false"
+                  maxlength="7"
+                  placeholder="#1c1e23"
+                  aria-label="Fog colour as hex"
+                />
+                <button id="fog-colour-apply" type="button">Apply</button>
+              </span>
+            </label>
+            <p class="hint">
+              Set per map theme — this is the <output id="fog-colour-theme">dark</output>
+              one. Unlike thickness, the colour is baked into the tiles, so
+              applying it re-renders them. That takes a few seconds.
+            </p>
+            <p id="fog-colour-status" class="notice" hidden></p>
+          </section>
+
+          <section>
+            <h2>Borders</h2>
+            <label class="check">
+              <input id="show-borders" type="checkbox" />
+              <span>Show country borders</span>
+            </label>
+            <p class="hint">
+              Drawn above the fog, so they stay readable over ground you have
+              never been. The basemap has its own borders underneath, which the
+              fog hides.
             </p>
           </section>
         </div>

@@ -52,24 +52,29 @@ SELF_GUARDED_PATHS = frozenset(
 TRUSTED_BASEMAP_HOSTS = frozenset({"build.protomaps.com"})
 
 
+def load_placeholders(app: FastAPI, conn: sqlite3.Connection) -> None:
+    """Cache the empty tiles in memory.
+
+    Held in memory so a tile miss is answered without rendering anything in
+    the request path. Invariant 3 allows a file read and nothing else. Rebuilt
+    whenever the fog colour changes, or most of the world would stay the old
+    colour - a tile with no data is the common case, not the exception.
+    """
+    app.state.placeholders = {
+        (theme, kind): composite.placeholder_tile(theme, kind, conn)
+        for theme in composite.THEMES
+        for kind in composite.KINDS
+    }
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # One connection at startup purely to create the schema. Requests open
     # their own, because handlers that do real work run in a worker thread and
     # a SQLite connection belongs to the thread that made it.
     conn = db.open_initialised()
-    conn.close()
-
-    # Held in memory so a tile miss is answered without rendering anything in
-    # the request path. Invariant 3 allows a file read and nothing else.
-    app.state.placeholders = {
-        (theme, kind): composite.placeholder_tile(theme, kind)
-        for theme in composite.THEMES
-        for kind in composite.KINDS
-    }
-
-    conn = db.open_initialised()
     try:
+        load_placeholders(app, conn)
         app.state.token, app.state.token_source = tokens.resolve(conn)
     finally:
         conn.close()
@@ -357,14 +362,28 @@ def get_settings(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, obje
     }
 
 
+FOG_COLOUR_KEYS = frozenset(
+    composite.SETTING_FOG_COLOUR.format(theme=theme) for theme in composite.THEMES
+)
+
+
 @app.patch("/api/settings")
 def patch_settings(
-    payload: dict, conn: sqlite3.Connection = Depends(get_conn)
+    request: Request, payload: dict, conn: sqlite3.Connection = Depends(get_conn)
 ) -> dict[str, object]:
     if not isinstance(payload, dict) or not payload:
         raise HTTPException(
             status_code=400, detail="Send an object of settings to change."
         )
+
+    # Reject a bad colour before it is stored, not when the render trips over
+    # it and leaves the pyramid half written.
+    recolour = FOG_COLOUR_KEYS & {str(key) for key in payload}
+    for key in recolour:
+        try:
+            composite.parse_colour(str(payload[key]), f"Setting {key}")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     with db.transaction(conn):
         for key, value in payload.items():
@@ -373,6 +392,14 @@ def patch_settings(
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (str(key), str(value)),
             )
+
+    # Fog colour is baked into the tiles, so it is the one setting that costs
+    # a render. Everything already on disk is the old colour.
+    if recolour:
+        root = tiles_root()
+        root.mkdir(parents=True, exist_ok=True)
+        composite.render_all(conn, root)
+        load_placeholders(request.app, conn)
 
     return get_settings(conn)
 
@@ -529,7 +556,7 @@ def _render_views(
     """
     root = tiles_root()
     root.mkdir(parents=True, exist_ok=True)
-    composite.write_placeholders(root)
+    composite.write_placeholders(root, conn)
     scope = None if touched is None else composite.rebuild_scope(touched)
     for view in views:
         composite.render_view(conn, root, view, scope=scope)
@@ -1019,7 +1046,7 @@ def admin_rebuild(
 
     root = tiles_root()
     root.mkdir(parents=True, exist_ok=True)
-    composite.write_placeholders(root)
+    composite.write_placeholders(root, conn)
     rendered = {view: composite.render_view(conn, root, view) for view in views}
 
     return {
