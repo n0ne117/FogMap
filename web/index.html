@@ -119,71 +119,51 @@
       The map could not start. Check the browser console.
     </p>
 
-    <!-- Places, its own page. -->
-    <aside id="places-page" class="sheet" hidden>
-      <header class="sheet-head">
+    <!-- Places, a sidebar rather than a sheet: it stays open while you work
+         on the map, which a sheet covering the middle of it cannot do. -->
+    <aside id="places-page" class="sidebar" hidden>
+      <header class="sidebar-head">
         <h1>Places</h1>
         <button id="places-close" type="button" class="icon-button" aria-label="Close places">
           &times;
         </button>
       </header>
 
-      <div class="sheet-body narrow">
-        <section>
-          <h2>Saved places</h2>
-          <div id="place-filter-row" class="field" hidden>
-            <span>Filter by person</span>
-            <select id="place-person"></select>
-          </div>
-
-          <div id="place-list" class="place-list"></div>
-          <p id="place-empty" class="hint">No places yet.</p>
-
-          <button id="place-add" type="button" class="wide primary">Add a place</button>
-        </section>
-
-        <section id="place-form" hidden>
-          <h2>New place</h2>
-          <label class="field">
-            <span>Name</span>
-            <input id="place-name" type="text" placeholder="Grandparents' flat" />
-          </label>
-          <label class="field">
-            <span>Category</span>
-            <select id="place-category"></select>
-          </label>
-          <label class="field">
-            <span>Who was there</span>
-            <input id="place-people" type="text" placeholder="comma separated" />
-          </label>
-          <div class="field-pair">
-            <label class="field">
-              <span>From</span>
-              <input id="place-from" type="text" placeholder="1994" />
-            </label>
-            <label class="field">
-              <span>To</span>
-              <input id="place-to" type="text" placeholder="1997" />
-            </label>
-          </div>
-          <div class="field-pair">
-            <label class="field">
-              <span>Latitude</span>
-              <input id="place-lat" type="text" />
-            </label>
-            <label class="field">
-              <span>Longitude</span>
-              <input id="place-lon" type="text" />
-            </label>
-          </div>
-          <p class="hint">Close this page and click the map to move the pin.</p>
-          <p id="place-message" class="status-line" hidden></p>
-          <div class="button-row">
-            <button id="place-save" type="button" class="primary">Save</button>
-            <button id="place-cancel" type="button">Cancel</button>
-          </div>
-        </section>
+      <div class="sidebar-actions">
+        <button id="place-drop" type="button" class="primary wide">Drop a pin</button>
+        <button id="folder-add" type="button" class="wide">New folder</button>
       </div>
+
+      <p id="place-message" class="status-line" hidden></p>
+
+      <!-- The form the dropped pin asks for. Hidden until there is a pin. -->
+      <section id="place-form" class="sidebar-form" hidden>
+        <h2 id="place-form-title">New pin</h2>
+        <label class="field">
+          <span>Title</span>
+          <input id="place-name" type="text" placeholder="Grandparents' flat" />
+        </label>
+        <label class="field">
+          <span>Label</span>
+          <select id="place-label"></select>
+        </label>
+        <label class="field">
+          <span>Tags</span>
+          <input id="place-tags" type="text" placeholder="childhood, summer" />
+        </label>
+        <label class="field">
+          <span>Folder</span>
+          <select id="place-folder" size="6" class="folder-picker"></select>
+        </label>
+        <p id="place-coords" class="hint"></p>
+        <div class="button-row">
+          <button id="place-save" type="button" class="primary">Save</button>
+          <button id="place-cancel" type="button">Cancel</button>
+        </div>
+      </section>
+
+      <div id="place-tree" class="place-tree"></div>
+      <p id="place-empty" class="hint">No pins yet. Drop one on the map.</p>
     </aside>
 
     <!-- Settings, tabbed. -->
@@ -198,6 +178,7 @@
       <nav id="tabs" class="tabs" role="tablist">
         <button type="button" role="tab" data-tab="appearance" aria-selected="true">Appearance</button>
         <button type="button" role="tab" data-tab="draw" aria-selected="false">Draw</button>
+        <button type="button" role="tab" data-tab="labels" aria-selected="false">Labels</button>
         <button type="button" role="tab" data-tab="import" aria-selected="false">Import</button>
         <button type="button" role="tab" data-tab="sources" aria-selected="false">Data sources</button>
         <button type="button" role="tab" data-tab="basemap" aria-selected="false">Basemap</button>
@@ -311,6 +292,36 @@
               pixel is wider than the brush, so the geometry would be
               meaningless.
             </p>
+          </section>
+        </div>
+
+        <div class="tab-panel" data-tab="labels" hidden>
+          <section>
+            <h2>Labels</h2>
+            <p class="hint">
+              What a pin looks like on the map. A pin with no label is drawn in
+              the default colour; deleting a label leaves its pins in place and
+              only takes the colour away.
+            </p>
+
+            <div id="label-list" class="label-list"></div>
+            <p id="label-empty" class="hint">No labels yet.</p>
+
+            <h3>Add a label</h3>
+            <div class="label-new">
+              <input id="label-name" type="text" placeholder="Home" aria-label="Label name" />
+              <input id="label-colour" type="color" value="#4d8fd6" aria-label="Label colour" />
+              <input
+                id="label-colour-hex"
+                type="text"
+                spellcheck="false"
+                maxlength="7"
+                placeholder="#4d8fd6"
+                aria-label="Label colour as hex"
+              />
+              <button id="label-add" type="button" class="primary">Add</button>
+            </div>
+            <p id="label-message" class="status-line" hidden></p>
           </section>
         </div>
 

@@ -400,6 +400,255 @@ a {
   background: color-mix(in srgb, var(--bad) 12%, transparent);
 }
 
+/* ------------------------------------------------------------------ sidebar */
+
+/* Places is a sidebar, not a sheet. A sheet covers the middle of the map,
+   which is exactly where you are trying to drop a pin. */
+.sidebar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  width: min(22rem, 92vw);
+  flex-direction: column;
+  border-left: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  backdrop-filter: blur(12px);
+  box-shadow: -8px 0 30px #00000044;
+}
+
+.sidebar-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.9rem 1rem 0.6rem;
+}
+
+.sidebar-head h1 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.sidebar-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.4rem;
+  padding: 0 1rem 0.75rem;
+}
+
+.sidebar-form {
+  flex: 0 0 auto;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.sidebar-form h2 {
+  margin: 0 0 0.6rem;
+  font-size: 0.95rem;
+}
+
+/* The one scrolling region: the tree grows, the controls above it do not. */
+.place-tree {
+  flex: 1 1 auto;
+  padding: 0.25rem 0.6rem 1rem;
+  overflow-y: auto;
+}
+
+.folder-picker {
+  overflow-y: auto;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.22rem 0.3rem;
+  border-radius: 0.3rem;
+  font-size: 0.82rem;
+}
+
+.tree-row:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.tree-row[data-depth='1'] {
+  padding-left: 1.1rem;
+}
+
+.tree-row[data-depth='2'] {
+  padding-left: 2rem;
+}
+
+.tree-row button {
+  padding: 0 0.25rem;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.tree-row button:hover {
+  color: var(--fg);
+}
+
+.tree-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tree-row[data-hidden='true'] .tree-name {
+  opacity: 0.45;
+}
+
+.tree-folder .tree-name {
+  font-weight: 600;
+}
+
+.tree-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  flex: 0 0 auto;
+  border: 1px solid #0006;
+  border-radius: 50%;
+}
+
+.tree-count {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------------- labels */
+
+.label-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.75rem;
+}
+
+.label-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.35rem;
+}
+
+.label-row input[type='text'] {
+  flex: 1 1 auto;
+}
+
+.label-row input[type='color'] {
+  width: 2.2rem;
+  height: 1.8rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  background: transparent;
+  cursor: pointer;
+}
+
+.label-new {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.label-new input[type='text']:first-child {
+  flex: 1 1 auto;
+}
+
+.label-new input#label-colour-hex {
+  width: 6rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.label-new input[type='color'] {
+  width: 2.4rem;
+  height: 1.9rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* ----------------------------------------------------------- dropping a pin */
+
+/* The map says what clicking it will do. A teardrop, hotspot at the point,
+   because that is the pixel the pin will land on. */
+.map[data-dropping='true'],
+#map[data-dropping='true'] .maplibregl-canvas {
+  cursor:
+    url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='40' viewBox='0 0 24 30'%3E%3Cpath d='M12 29C12 29 2 16.5 2 10a10 10 0 1 1 20 0c0 6.5-10 19-10 19Z' fill='%23e0645c' stroke='%23fff' stroke-width='1.6'/%3E%3Ccircle cx='12' cy='10' r='3.6' fill='%23fff'/%3E%3C/svg%3E")
+      12 30,
+    crosshair;
+}
+
+.place-pin {
+  cursor: pointer;
+}
+
+.place-popup h3 {
+  margin: 0 0 0.2rem;
+  font-size: 0.95rem;
+}
+
+.place-popup .coords {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+}
+
+.place-popup .tags {
+  margin-top: 0.35rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.place-popup .tags span {
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  font-size: 0.68rem;
+}
+
+.place-popup .popup-actions {
+  margin-top: 0.5rem;
+  display: flex;
+  gap: 0.4rem;
+}
+
+.place-popup .popup-actions button {
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.place-popup .popup-actions .bad {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
 /* ----------------------------------------------------------------- controls */
 
 .segmented {

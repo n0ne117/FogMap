@@ -31,6 +31,7 @@ import {
   setFogOpacity,
   type MapSetup,
 } from './map'
+import { Labels } from './labels'
 import { Places } from './places'
 import { Setup } from './setup'
 import { Sources } from './sources'
@@ -444,6 +445,12 @@ async function start(): Promise<void> {
   places.wire()
   void places.load()
 
+  // Labels are a setting, but the pins wear them, so changing one has to
+  // reach the map.
+  const labels = new Labels(() => void places.load())
+  labels.wire()
+  void labels.load()
+
   const sources = new Sources()
   void sources.load()
 
@@ -475,6 +482,7 @@ async function start(): Promise<void> {
     imports,
     draw,
     brush,
+    labels,
     setup,
   })
 }

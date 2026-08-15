@@ -42,16 +42,42 @@ CREATE TABLE IF NOT EXISTS blobs (
   PRIMARY KEY (kind, source, layer, x, y)
 ) WITHOUT ROWID;
 
+-- A pin. name is its title; label, folder and tags are what the sidebar
+-- organises it by. The older category/people/date columns are still here
+-- because dropping a column means rebuilding the table, and they cost nothing
+-- sitting empty.
 CREATE TABLE IF NOT EXISTS places (
   id        INTEGER PRIMARY KEY,
   name      TEXT NOT NULL,
-  category  TEXT,              -- home | school | family | holiday | work | other
-  people    TEXT,              -- JSON array of names
+  category  TEXT,
+  people    TEXT,
   date_from TEXT,
   date_to   TEXT,
   lat       REAL NOT NULL,
   lon       REAL NOT NULL,
-  event_id  INTEGER REFERENCES events(id) ON DELETE SET NULL
+  event_id  INTEGER REFERENCES events(id) ON DELETE SET NULL,
+  label_id  INTEGER REFERENCES labels(id) ON DELETE SET NULL,
+  folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL,
+  tags      TEXT               -- JSON array
+);
+
+-- What a pin is, visually. Name and colour, defined once in settings and
+-- pointed at by however many places share it.
+CREATE TABLE IF NOT EXISTS labels (
+  id     INTEGER PRIMARY KEY,
+  name   TEXT NOT NULL,
+  colour TEXT NOT NULL         -- #rrggbb
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_labels_name ON labels(name);
+
+-- Somewhere to put pins. parent_id nests them; visible hides a whole branch
+-- from the map without deleting anything.
+CREATE TABLE IF NOT EXISTS folders (
+  id        INTEGER PRIMARY KEY,
+  name      TEXT NOT NULL,
+  parent_id INTEGER REFERENCES folders(id) ON DELETE CASCADE,
+  visible   INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -126,6 +152,19 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     return conn
 
 
+# Columns added to tables that already existed before they were.
+#
+# CREATE TABLE IF NOT EXISTS does nothing to a table that is already there, so
+# a column added later has to be added by hand. Kept as data rather than as a
+# migration framework: FogMap has one database, on one machine, and a list of
+# (table, column, definition) is easier to read than anything that manages it.
+MIGRATIONS = (
+    ("places", "label_id", "INTEGER REFERENCES labels(id) ON DELETE SET NULL"),
+    ("places", "folder_id", "INTEGER REFERENCES folders(id) ON DELETE SET NULL"),
+    ("places", "tags", "TEXT"),
+)
+
+
 def init(conn: sqlite3.Connection) -> None:
     """Create the schema and seed defaults. Safe to run on every startup.
 
@@ -134,6 +173,12 @@ def init(conn: sqlite3.Connection) -> None:
     changed is never reset.
     """
     conn.executescript(SCHEMA)
+
+    for table, column, definition in MIGRATIONS:
+        present = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in present:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
     conn.executemany(
         "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
         sorted(DEFAULT_SETTINGS.items()),

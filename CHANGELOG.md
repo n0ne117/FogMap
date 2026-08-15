@@ -11,6 +11,22 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.9.16] - 2026-08-15
+
+Places, properly.
+
+### Added
+- Places is a sidebar rather than a sheet. A sheet covers the middle of the map, which is exactly where you are trying to drop a pin.
+- **Drop a pin** turns the cursor into a map pin and puts one wherever you click. It is draggable until you save it, because nobody lands on the right pixel first time, and Escape gets you out without saving anything.
+- A pin has a title, a label, tags and a folder. Dropping one clears 30 m of fog around it — as a reveal, so it clears the ground without drawing a route through it.
+- **Labels** are defined in Settings, Labels: a name and a colour, with the same wheel-and-hex picker as the fog. A pin wears its label's colour on the map. Deleting a label leaves its pins exactly where they are and only takes the colour away.
+- **Folders**, nesting two deep, each with an eye that hides everything filed under it — including through a subfolder. Deleting a folder is a filing decision: its subfolders go, its pins come back out as unfiled, and nothing on the map is removed.
+- Clicking a pin shows its title, label, folder, tags and coordinates, with Edit and Delete.
+
+### Fixed
+- Creating, moving and deleting a place used to re-render every tile of every affected view. On an archive of any size that was minutes; a pin now takes about five seconds, scoped to the ground it covers.
+- Moving a place from one year to another no longer leaves the year it came from showing fog that is not there any more. Both the old and new years are re-rendered, and a year emptied entirely retires along with its tiles.
+
 ## [0.9.15] - 2026-08-15
 
 Two tools for ground you were around rather than ground you walked along.

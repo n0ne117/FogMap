@@ -19,6 +19,11 @@ from fogmap.ingest import common
 CATEGORIES = ("home", "school", "family", "holiday", "work", "other")
 SOURCE = "place"
 
+# Dropping a pin clears the fog around it, and clears it without drawing a
+# route: somebody was here, which is not the same claim as somebody walked
+# along here. That is exactly what the reveal op is for.
+OP = "reveal"
+
 
 class PlaceError(ValueError):
     """Bad input, phrased for whoever typed it."""
@@ -110,15 +115,16 @@ def _stamp(
     date_from: str | None,
     date_to: str | None,
     radius_m: float,
-) -> int:
+) -> tuple[int, set[tuple[int, int]]]:
     """Create and rasterise the event that clears fog around a place."""
     layers = layers_for(date_from, date_to)
     cursor = conn.execute(
         "INSERT INTO events "
         "(source, op, geometry, radius_m, layers, external_id, created_at, meta) "
-        "VALUES (?, 'add', ?, ?, ?, ?, ?, ?)",
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (
             SOURCE,
+            OP,
             json.dumps({"type": "Point", "coordinates": [lon, lat]}),
             radius_m,
             json.dumps(layers),
@@ -129,8 +135,7 @@ def _stamp(
     )
     event_id = int(cursor.lastrowid)
     row = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
-    raster.stamp_event(conn, row)
-    return event_id
+    return event_id, raster.stamp_event(conn, row)
 
 
 def _drop_event(conn: sqlite3.Connection, event_id: int | None) -> set[tuple[int, int]]:
@@ -147,10 +152,51 @@ def _drop_event(conn: sqlite3.Connection, event_id: int | None) -> set[tuple[int
     return tiles
 
 
+def _reference(
+    conn: sqlite3.Connection, table: str, value: object, noun: str
+) -> int | None:
+    """Check a foreign key before storing it, and say so when it is wrong.
+
+    SQLite would take an id pointing at nothing and only complain later, if at
+    all. A pin filed under a folder that does not exist is a pin nobody will
+    find again.
+    """
+    if value in (None, "", "none"):
+        return None
+    try:
+        wanted = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        raise PlaceError(f"{noun}_id must be a number, got {value!r}.") from None
+
+    row = conn.execute(f"SELECT id FROM {table} WHERE id = ?", (wanted,)).fetchone()
+    if row is None:
+        raise PlaceError(f"There is no {noun} with id {wanted}.")
+    return wanted
+
+
+def _tags(raw: object) -> list[str]:
+    """Tags from either a comma separated string or a list."""
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        parts = [part.strip() for part in raw.split(",")]
+    elif isinstance(raw, (list, tuple)):
+        parts = [str(part).strip() for part in raw]
+    else:
+        raise PlaceError(
+            f"tags must be a list or a comma separated string, got {raw!r}."
+        )
+    return sorted(dict.fromkeys(part for part in parts if part))
+
+
 def as_dict(row: sqlite3.Row) -> dict[str, object]:
+    keys = row.keys()
     return {
         "id": row["id"],
         "name": row["name"],
+        "label_id": row["label_id"] if "label_id" in keys else None,
+        "folder_id": row["folder_id"] if "folder_id" in keys else None,
+        "tags": json.loads(row["tags"]) if "tags" in keys and row["tags"] else [],
         "category": row["category"],
         "people": json.loads(row["people"]) if row["people"] else [],
         "date_from": row["date_from"],
@@ -161,31 +207,58 @@ def as_dict(row: sqlite3.Row) -> dict[str, object]:
     }
 
 
-def create(conn: sqlite3.Connection, payload: dict) -> tuple[dict[str, object], list[str]]:
-    """Add a place and clear the fog around it. Returns the row and its layers."""
+def create(
+    conn: sqlite3.Connection, payload: dict
+) -> tuple[dict[str, object], list[str], set[tuple[int, int]]]:
+    """Add a place and clear the fog around it.
+
+    Returns the row, its layers, and the z14 tiles the fog-clearing touched -
+    the last so the caller can render that ground rather than the whole world.
+    """
     name, category, people, lat, lon = _validate(payload)
     date_from = payload.get("date_from")
     date_to = payload.get("date_to")
     radius_m = float(payload.get("radius_m") or common.RADIUS_DEFAULTS_M[SOURCE])
 
     cursor = conn.execute(
-        "INSERT INTO places (name, category, people, date_from, date_to, lat, lon) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (name, category, json.dumps(people), date_from, date_to, lat, lon),
+        "INSERT INTO places "
+        "(name, category, people, date_from, date_to, lat, lon, "
+        " label_id, folder_id, tags) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            name,
+            category,
+            json.dumps(people),
+            date_from,
+            date_to,
+            lat,
+            lon,
+            _reference(conn, "labels", payload.get("label_id"), "label"),
+            _reference(conn, "folders", payload.get("folder_id"), "folder"),
+            json.dumps(_tags(payload.get("tags"))),
+        ),
     )
     place_id = int(cursor.lastrowid)
 
-    event_id = _stamp(conn, place_id, name, lat, lon, date_from, date_to, radius_m)
+    event_id, tiles = _stamp(
+        conn, place_id, name, lat, lon, date_from, date_to, radius_m
+    )
     conn.execute("UPDATE places SET event_id = ? WHERE id = ?", (event_id, place_id))
 
     row = conn.execute("SELECT * FROM places WHERE id = ?", (place_id,)).fetchone()
-    return as_dict(row), layers_for(date_from, date_to)
+    return as_dict(row), layers_for(date_from, date_to), tiles
 
 
 def update(
     conn: sqlite3.Connection, place_id: int, payload: dict
-) -> tuple[dict[str, object], list[str], set[tuple[int, int]]]:
-    """Change a place, re-stamping only if what it stamps actually changed."""
+) -> tuple[dict[str, object], list[str], list[str], set[tuple[int, int]]]:
+    """Change a place, re-stamping only if what it stamps actually changed.
+
+    Returns the row, the layers it belongs to now, the layers it belonged to
+    before, and the tiles that need rebuilding. The previous layers matter:
+    moving a place from 1995 to 2010 leaves 1995 holding fog that is no longer
+    there, and nothing else would ever go back and look.
+    """
     existing = conn.execute(
         "SELECT * FROM places WHERE id = ?", (place_id,)
     ).fetchone()
@@ -200,7 +273,8 @@ def update(
 
     conn.execute(
         "UPDATE places SET name = ?, category = ?, people = ?, date_from = ?, "
-        "date_to = ?, lat = ?, lon = ? WHERE id = ?",
+        "date_to = ?, lat = ?, lon = ?, label_id = ?, folder_id = ?, tags = ? "
+        "WHERE id = ?",
         (
             name,
             category,
@@ -209,6 +283,9 @@ def update(
             date_to,
             lat,
             lon,
+            _reference(conn, "labels", merged.get("label_id"), "label"),
+            _reference(conn, "folders", merged.get("folder_id"), "folder"),
+            json.dumps(_tags(merged.get("tags"))),
             place_id,
         ),
     )
@@ -221,16 +298,22 @@ def update(
     dirty: set[tuple[int, int]] = set()
     if moved or relayered or existing["event_id"] is None:
         dirty = _drop_event(conn, existing["event_id"])
-        event_id = _stamp(
+        event_id, stamped = _stamp(
             conn, place_id, name, lat, lon, date_from, date_to, radius_m
         )
+        dirty |= stamped
         conn.execute(
             "UPDATE places SET event_id = ? WHERE id = ?", (event_id, place_id)
         )
         dirty |= {geo.lonlat_to_tile(lon, lat)}
 
     row = conn.execute("SELECT * FROM places WHERE id = ?", (place_id,)).fetchone()
-    return as_dict(row), layers_for(date_from, date_to), dirty
+    return (
+        as_dict(row),
+        layers_for(date_from, date_to),
+        layers_for(existing["date_from"], existing["date_to"]),
+        dirty,
+    )
 
 
 def delete(

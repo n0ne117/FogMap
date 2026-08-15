@@ -94,7 +94,8 @@ class TestCreating:
         events = client.get("/api/events?source=place").json()
         assert events["total"] == 1
         assert events["events"][0]["radius_m"] == 30.0
-        assert events["events"][0]["op"] == "add"
+        # A pin clears fog without claiming a route, which is what reveal is.
+        assert events["events"][0]["op"] == "reveal"
 
     def test_creating_needs_the_token(self, client):
         assert client.post("/api/places", json=a_place()).status_code == 401

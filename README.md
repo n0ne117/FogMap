@@ -33,7 +33,7 @@ Delete both caches, run a rebuild, get byte-identical output. That means the who
 - Per-year subdivision maps plus a cumulative all-time view
 - Manual tools: draw a route, clear fog without claiming one, enclose an area and clear all of it, or erase fog wrongly cleared by GPS drift
 - Freehand and point-to-point route drawing for pre-digital history
-- Labelled places with categories and who was there
+- Pins with titles, colour-coded labels, tags and nested folders, each clearing the fog around it
 - Independent light/dark themes for the interface and the map
 
 ## Quick start

@@ -19,7 +19,16 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFi
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from fogmap import __version__, basemap, composite, db, places, raster, tokens
+from fogmap import (
+    __version__,
+    basemap,
+    composite,
+    db,
+    organise,
+    places,
+    raster,
+    tokens,
+)
 from fogmap.ingest import common, gpx, live, tcx
 
 MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -982,11 +991,115 @@ def trails(
 def get_places(
     person: str | None = None, conn: sqlite3.Connection = Depends(get_conn)
 ) -> dict[str, object]:
+    """Every pin, plus the labels and folders needed to make sense of them.
+
+    One request rather than three, because the sidebar cannot draw anything
+    until it has all of it and three round trips is three chances to render
+    half a tree.
+    """
     return {
         "places": places.listing(conn, person),
+        "labels": organise.labels(conn),
+        "folders": organise.folders(conn),
         "people": places.people(conn),
         "categories": list(places.CATEGORIES),
     }
+
+
+# ------------------------------------------------------------ labels, folders
+
+
+def _organise_error(exc: organise.OrganiseError) -> HTTPException:
+    return HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/labels")
+def get_labels(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, object]:
+    return {"labels": organise.labels(conn)}
+
+
+@app.post("/api/labels", status_code=201)
+def post_label(
+    payload: dict, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    try:
+        with db.transaction(conn):
+            return organise.create_label(conn, payload)
+    except organise.OrganiseError as exc:
+        raise _organise_error(exc) from exc
+
+
+@app.patch("/api/labels/{label_id}")
+def patch_label(
+    label_id: int, payload: dict, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    try:
+        with db.transaction(conn):
+            return organise.update_label(conn, label_id, payload)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404, detail=f"No label with id {label_id}."
+        ) from exc
+    except organise.OrganiseError as exc:
+        raise _organise_error(exc) from exc
+
+
+@app.delete("/api/labels/{label_id}")
+def remove_label(
+    label_id: int, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    try:
+        with db.transaction(conn):
+            return organise.delete_label(conn, label_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404, detail=f"No label with id {label_id}."
+        ) from exc
+
+
+@app.get("/api/folders")
+def get_folders(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, object]:
+    return {"folders": organise.folders(conn)}
+
+
+@app.post("/api/folders", status_code=201)
+def post_folder(
+    payload: dict, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    try:
+        with db.transaction(conn):
+            return organise.create_folder(conn, payload)
+    except organise.OrganiseError as exc:
+        raise _organise_error(exc) from exc
+
+
+@app.patch("/api/folders/{folder_id}")
+def patch_folder(
+    folder_id: int, payload: dict, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    try:
+        with db.transaction(conn):
+            return organise.update_folder(conn, folder_id, payload)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404, detail=f"No folder with id {folder_id}."
+        ) from exc
+    except organise.OrganiseError as exc:
+        raise _organise_error(exc) from exc
+
+
+@app.delete("/api/folders/{folder_id}")
+def remove_folder(
+    folder_id: int, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    """Delete a folder and its subfolders. The pins inside become unfiled."""
+    try:
+        with db.transaction(conn):
+            return organise.delete_folder(conn, folder_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404, detail=f"No folder with id {folder_id}."
+        ) from exc
 
 
 @app.post("/api/places", status_code=201)
@@ -996,11 +1109,11 @@ def post_place(
     """Add a place. Creating one clears the fog around it."""
     try:
         with db.transaction(conn):
-            place, layers = places.create(conn, payload)
+            place, layers, touched = places.create(conn, payload)
     except places.PlaceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    _render_views(conn, _views_for_layers(layers))
+    _render_views(conn, _views_for_layers(layers), touched)
     return place
 
 
@@ -1008,9 +1121,10 @@ def post_place(
 def patch_place(
     place_id: int, payload: dict, conn: sqlite3.Connection = Depends(get_conn)
 ) -> dict[str, object]:
+    before = set(composite.available_views(conn))
     try:
         with db.transaction(conn):
-            place, layers, dirty = places.update(conn, place_id, payload)
+            place, layers, was, dirty = places.update(conn, place_id, payload)
             if dirty:
                 raster.rebuild_tiles(conn, dirty)
     except KeyError as exc:
@@ -1020,12 +1134,16 @@ def patch_place(
     except places.PlaceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # Moving a place or changing its dates can empty the tiles it used to
-    # cover, so render everything and let the pruning sort it out.
-    if dirty:
-        composite.render_all(conn, tiles_root())
-    else:
-        _render_views(conn, _views_for_layers(layers))
+    # Both ends, in two senses. The tiles it left and the tiles it arrived at
+    # are both in the scope, and the years it left and the years it arrived in
+    # are both re-rendered - otherwise the year it moved out of keeps showing
+    # fog that is no longer there.
+    _render_views(
+        conn,
+        sorted(set(_views_for_layers(layers)) | set(_views_for_layers(was))),
+        dirty or None,
+    )
+    _retire_views(before - set(composite.available_views(conn)))
     return place
 
 
@@ -1042,7 +1160,11 @@ def remove_place(
             status_code=404, detail=f"No place with id {place_id}."
         ) from exc
 
-    composite.render_all(conn, tiles_root())
+    # Deleting can empty a view entirely, so this goes through render_all for
+    # the pruning - scoped to the ground the pin actually covered.
+    root = tiles_root()
+    root.mkdir(parents=True, exist_ok=True)
+    composite.render_all(conn, root, scope=composite.rebuild_scope(tiles))
     return {"deleted": place["id"], "name": place["name"]}
 
 
