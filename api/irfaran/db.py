@@ -16,6 +16,15 @@ from typing import Iterator
 from irfaran import settings_env
 
 DEFAULT_DATA_DIR = Path("/data")
+
+# How long a write waits for another one to finish before giving up.
+#
+# SQLite allows one writer at a time. Python's default is five seconds, which
+# is fine until a tracker delivers a few hundred buffered fixes at once - that
+# is a single transaction rasterising every one of them, and anything arriving
+# behind it loses. Thirty seconds is longer than any write here takes and
+# still short enough that a genuine deadlock surfaces rather than hanging.
+DEFAULT_BUSY_TIMEOUT_S = 30.0
 DB_FILENAME = "irfaran.db"
 
 # What the database was called before the project was renamed.
@@ -125,6 +134,19 @@ def data_dir() -> Path:
     return Path(configured) if configured else DEFAULT_DATA_DIR
 
 
+def busy_timeout_s() -> float:
+    raw = settings_env.get("BUSY_TIMEOUT_S")
+    if not raw:
+        return DEFAULT_BUSY_TIMEOUT_S
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        raise ValueError(
+            f"IRFARAN_BUSY_TIMEOUT_S must be a number of seconds, got {raw!r}. "
+            f"Unset it to use the default of {DEFAULT_BUSY_TIMEOUT_S}."
+        ) from None
+
+
 def basemap_dir() -> Path:
     """Where the PMTiles basemap lives.
 
@@ -171,7 +193,12 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
         # check is guarding against something that cannot happen here - while
         # its absence made every endpoint fail under concurrent load, which a
         # page load produces every time.
-        conn = sqlite3.connect(target, isolation_level=None, check_same_thread=False)
+        conn = sqlite3.connect(
+            target,
+            isolation_level=None,
+            check_same_thread=False,
+            timeout=busy_timeout_s(),
+        )
     except sqlite3.Error as exc:
         raise RuntimeError(
             f"Cannot open the Irfaran database at {target} ({exc})."

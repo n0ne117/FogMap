@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from irfaran import __version__
+from irfaran import __version__, db
 from irfaran.main import app
 
 TOKEN = "synthetic-test-token"
@@ -459,3 +459,58 @@ class TestExportImport:
         )
         assert response.status_code == 400
         assert "manifest.json" in response.json()["detail"]
+
+
+class TestContendedWrites:
+    """One writer at a time is SQLite's rule; a loser is not a broken request.
+
+    A tracker delivering hundreds of buffered fixes holds the writer for a
+    while. Whatever arrives behind it used to get a 500, which tells a tracker
+    its payload is bad - and a tracker that believes that may drop points
+    nobody can get back.
+    """
+
+    def test_a_locked_database_is_a_503_not_a_500(self, monkeypatch, tmp_path):
+        import sqlite3
+        import threading
+        import time
+
+        monkeypatch.setenv("IRFARAN_TOKEN", "busy-token")
+        monkeypatch.setenv("IRFARAN_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("IRFARAN_BUSY_TIMEOUT_S", "0.2")
+
+        with TestClient(app) as client:
+            holder = db.connect()
+            holder.execute("BEGIN IMMEDIATE")
+            holder.execute(
+                "INSERT INTO settings (key, value) VALUES ('probe', '1') "
+                "ON CONFLICT(key) DO UPDATE SET value = '1'"
+            )
+            try:
+                response = client.patch(
+                    "/api/settings",
+                    headers={"X-Irfaran-Token": "busy-token"},
+                    json={"ui_theme": "dark"},
+                )
+            finally:
+                holder.execute("ROLLBACK")
+                holder.close()
+
+            assert response.status_code == 503
+            assert response.headers.get("Retry-After")
+            assert "Nothing was changed" in response.json()["detail"]
+
+            # And it works again the moment the lock is gone.
+            assert client.patch(
+                "/api/settings",
+                headers={"X-Irfaran-Token": "busy-token"},
+                json={"ui_theme": "dark"},
+            ).status_code == 200
+
+    def test_the_timeout_is_generous_by_default(self):
+        assert db.busy_timeout_s() >= 30
+
+    def test_a_nonsense_timeout_is_refused_by_name(self, monkeypatch):
+        monkeypatch.setenv("IRFARAN_BUSY_TIMEOUT_S", "ages")
+        with pytest.raises(ValueError, match="number of seconds"):
+            db.busy_timeout_s()

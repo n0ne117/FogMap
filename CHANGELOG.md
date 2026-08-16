@@ -11,6 +11,14 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.11.2] - 2026-08-16
+
+### Fixed
+- A tracker delivering a large buffered batch could make the next write fail with a 500. SQLite allows one writer at a time, and rasterising a few hundred fixes holds it for longer than the five seconds Python waits by default — so anything arriving behind it lost. Writes now wait thirty seconds, which is longer than any write here takes.
+- A write that loses anyway answers **503 with a `Retry-After`** instead of 500. The distinction matters for trackers: 500 says the payload is bad, and a tracker that believes that may drop points nobody can recover. 503 says the request was fine and the server was busy, which is the truth.
+
+Set `IRFARAN_BUSY_TIMEOUT_S` to change the wait. Nothing is ever half-written either way — a contended write rolls back whole, which is what made this a nuisance rather than a data loss.
+
 ## [0.11.1] - 2026-08-16
 
 ### Added

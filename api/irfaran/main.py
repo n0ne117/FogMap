@@ -167,6 +167,32 @@ def token_error(request: Request) -> tuple[int, str] | None:
     return None
 
 
+@app.exception_handler(sqlite3.OperationalError)
+async def busy_database(request: Request, exc: sqlite3.OperationalError):
+    """A contended write is a "come back", not a "something broke".
+
+    SQLite allows one writer at a time, and a tracker delivering hundreds of
+    buffered fixes holds that writer for a while. Anything arriving behind it
+    used to get a 500 - which tells a tracker its payload is bad, and a
+    tracker that believes that may drop points nobody can recover. 503 with a
+    Retry-After is the truth: the request was fine, the server was busy.
+    """
+    if "locked" not in str(exc) and "busy" not in str(exc):
+        raise exc
+
+    return JSONResponse(
+        status_code=503,
+        headers={"Retry-After": "10"},
+        content={
+            "detail": (
+                "The database was busy with another write and this one timed "
+                f"out after {db.busy_timeout_s():.0f}s. Nothing was changed. "
+                "Send it again."
+            )
+        },
+    )
+
+
 @app.middleware("http")
 async def require_token_on_mutations(request: Request, call_next):
     """Shared-token gate on every mutating route.
