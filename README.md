@@ -75,6 +75,8 @@ docker compose exec api python -m irfaran.cli selfcheck
 
 On Fedora or any SELinux-enforcing host, bind mounts need a `:z` label. The bundled compose files already have it.
 
+On unraid, use [`docker-compose.unraid.yml`](docker-compose.unraid.yml) with the Docker Compose Manager plugin. It has no `${VARIABLE}` in it at all: the plugin's stack editor gives you the compose file and, depending on the plugin version, nowhere to put a `.env`, so everything is written out in full with four marked lines to change.
+
 ### Basemap
 
 The map needs a [Protomaps](https://protomaps.com) PMTiles basemap. It is far too large to ship in a container, so Irfaran fetches it on first run: open the web interface and a setup screen offers the recent Protomaps daily planet builds, or takes a URL of your own if you'd rather use a regional extract.

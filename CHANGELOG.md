@@ -11,6 +11,14 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.11.1] - 2026-08-16
+
+### Added
+- `docker-compose.unraid.yml`, with no `${VARIABLE}` in it anywhere. The unraid guide told people to edit a `.env`, and the Docker Compose Manager plugin's stack editor may not give you one — which makes every path, port and version in the normal Compose file unreachable. Everything is written out in full instead, with four marked lines to change, so the file works with nothing beside it.
+
+### Changed
+- The unraid guide creates the shares before starting rather than after, since the basemap share needs *Use cache* set to No before 137 GB starts arriving on the cache pool.
+
 ## [0.11.0] - 2026-08-16
 
 Take your archive somewhere else.

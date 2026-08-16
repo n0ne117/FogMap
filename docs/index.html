@@ -405,43 +405,42 @@ IRFARAN_BASEMAP_HOST=/mnt/user/maps/irfaran</code></pre>
       <h2 id="unraid">Unraid</h2>
       <p>
         There is no Community Applications template. Use the
-        <strong>Docker Compose Manager</strong> plugin, which runs the same Compose file as
-        everywhere else.
+        <strong>Docker Compose Manager</strong> plugin, and the compose file written
+        for it:
+        <a href="https://github.com/n0ne117/Irfaran/blob/main/docker-compose.unraid.yml"><code>docker-compose.unraid.yml</code></a>.
       </p>
-
-      <ol>
-        <li>Install <em>Docker Compose Manager</em> from Community Applications.</li>
-        <li><strong>Docker</strong> → <strong>Compose</strong> → <strong>Add New Stack</strong>,
-          name it <code>irfaran</code>.</li>
-        <li>Click the cog on the stack and choose <strong>Edit Stack</strong> →
-          <strong>Compose File</strong>. Paste the contents of
-          <code>docker-compose.prod.yml</code> from the repository.</li>
-        <li>Choose <strong>Edit Stack</strong> → <strong>Edit .env</strong> and set your
-          paths:</li>
-      </ol>
-
-      <pre><code>IRFARAN_IMAGE_TAG=0.11.0
-IRFARAN_TOKEN=
-IRFARAN_DATA_HOST=/mnt/user/appdata/irfaran
-IRFARAN_BASEMAP_HOST=/mnt/user/maps/irfaran
-IRFARAN_WEB_PORT=8080</code></pre>
-
-      <ol start="5">
-        <li>Create both share paths first — <code>appdata/irfaran</code> on your cache pool,
-          and a share on the array for the basemap. Unraid will create them on start
-          otherwise, but on whichever disk the share settings pick.</li>
-        <li><strong>Compose Up</strong>. Then open
-          <code>http://your-server:8080</code>.</li>
-      </ol>
 
       <div class="note">
         <p>
-          <strong>Put the basemap share on the array, not the cache.</strong> A 137 GB
-          download onto a cache pool will either fill it or spend the night being moved by
-          the mover. Set that share's <em>Use cache</em> to <em>No</em> before you start the
-          download.
+          <strong>Why a separate file.</strong> The normal Compose files read their
+          paths, ports and version from a <code>.env</code> beside them. The plugin's
+          stack editor gives you the compose file and, depending on which version of the
+          plugin you have, nowhere to put a <code>.env</code> — so the unraid file has no
+          variables in it at all. Everything is written out in full and four marked lines
+          are yours to change.
         </p>
       </div>
+
+      <ol>
+        <li>Install <em>Docker Compose Manager</em> from Community Applications.</li>
+        <li>Create both share paths first: <code>appdata/irfaran</code> on your cache
+          pool, and a share on the array for the basemap. Set the basemap share's
+          <strong>Use cache</strong> to <strong>No</strong> — a 137 GB download onto a
+          cache pool either fills it or spends the night being moved by the mover.</li>
+        <li><strong>Docker</strong> → <strong>Compose</strong> →
+          <strong>Add New Stack</strong>, name it <code>irfaran</code>.</li>
+        <li>Cog → <strong>Edit Stack</strong> → <strong>Compose File</strong>. Paste
+          <code>docker-compose.unraid.yml</code> and change the four
+          <code>CHANGE ME</code> lines: the two image versions, the two paths, and the
+          port if 8080 is taken.</li>
+        <li><strong>Compose Up</strong>, then open <code>http://your-server:8080</code>.</li>
+      </ol>
+
+      <p>
+        No token is set in that file on purpose — Irfaran generates one on first start and
+        shows it on the setup screen. To read it back later:
+      </p>
+      <pre><code>docker exec irfaran-api python -m irfaran.cli token</code></pre>
 
       <h3>Running from published images</h3>
       <p>
