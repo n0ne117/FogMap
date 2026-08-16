@@ -18,7 +18,11 @@ services:
   api:
     image: ghcr.io/n0ne117/irfaran-api:${IRFARAN_IMAGE_TAG:-${FOGMAP_IMAGE_TAG:?set IRFARAN_IMAGE_TAG to an explicit version, for example 0.2.0}}
     environment:
-      IRFARAN_TOKEN: ${IRFARAN_TOKEN:-${FOGMAP_TOKEN:?set IRFARAN_TOKEN in .env}}
+      # Blank is allowed and is the recommended first run: Irfaran generates a
+      # token on first start and shows it on the setup screen. Requiring one
+      # here predates that, and made the documented quickstart fail with an
+      # error naming a variable the user had never heard of.
+      IRFARAN_TOKEN: ${IRFARAN_TOKEN:-${FOGMAP_TOKEN:-}}
       IRFARAN_DATA_DIR: /data
       # Set IRFARAN_BASEMAP_HOST to keep the 137 GB basemap off the disk the
       # rest of the data is on. Defaults to living inside it.

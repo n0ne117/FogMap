@@ -11,6 +11,13 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.10.4] - 2026-08-16
+
+### Fixed
+- Installing from the published images failed on the documented first run. `docker-compose.prod.yml` still required `IRFARAN_TOKEN` to be set, from before Irfaran generated one for you — so leaving it blank, which the guide says is the recommended way to start, aborted with an error naming `FOGMAP_TOKEN`, a variable the reader has never heard of. Blank is now allowed and the app generates a token as documented.
+
+Found by following the install guide from a clean directory with nothing but the Compose file and a `.env`, which is the only way that class of mistake shows up.
+
 ## [0.10.3] - 2026-08-16
 
 A website, and somewhere else to put the basemap.
