@@ -551,8 +551,8 @@
           </p>
         </div>
 
-        <!-- Always shown: the token this browser needs to make changes. -->
-        <section class="token-card">
+        <!-- First run only: the token, shown once and never served again. -->
+        <section id="setup-token-card" class="token-card" hidden>
           <h3>Your API token</h3>
           <p class="hint">
             Keep this somewhere safe. Every browser you want to edit from needs
@@ -564,6 +564,35 @@
             <button id="setup-token-copy" type="button" class="bar-button">Copy</button>
           </div>
           <p id="setup-token-source" class="hint"></p>
+          <p class="hint">
+            <strong>This is the only time it is shown.</strong> Once you continue,
+            the server stops handing it out — otherwise anyone who can reach this
+            page could read it. Lost it later?
+            <code>docker compose exec api python -m irfaran.cli token</code>
+          </p>
+        </section>
+
+        <!-- Every browser after the first. No token is offered here. -->
+        <section id="setup-known" class="token-card" hidden>
+          <h3>This server is already set up</h3>
+          <p class="hint">
+            Reading the map needs nothing at all. To make changes from this
+            browser — drawing, places, imports — paste the server's API token.
+            Ask whoever runs it, or read it on the server with
+            <code>docker compose exec api python -m irfaran.cli token</code>
+          </p>
+          <label class="field">
+            <span>API token</span>
+            <input id="setup-known-token" type="password" autocomplete="off"
+                   placeholder="paste to enable editing" />
+          </label>
+          <p id="setup-known-message" class="status-line" hidden></p>
+          <div class="button-row">
+            <button id="setup-known-save" type="button" class="primary">
+              Enable editing
+            </button>
+            <button id="setup-known-skip" type="button">Just look at the map</button>
+          </div>
         </section>
 
         <button id="setup-skip" type="button" class="linky">

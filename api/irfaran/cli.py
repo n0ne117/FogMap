@@ -325,6 +325,32 @@ def import_file(args: argparse.Namespace) -> int:
     return 0
 
 
+def show_token() -> int:
+    """Print the token this server is using.
+
+    The way back in. Once setup is finished the token is never served over
+    HTTP again, so the console is the only place left to read it - and the
+    console is the one place where being able to read it means you own the
+    machine anyway.
+    """
+    from irfaran import tokens
+
+    out = sys.stdout.write
+    conn = db.open_initialised()
+    try:
+        value, source = tokens.resolve(conn)
+    finally:
+        conn.close()
+
+    out(f"{value}\n")
+    out(
+        f"from the environment ({tokens.ENV_NAME})\n"
+        if source == "environment"
+        else "generated on first start and stored in the database\n"
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m irfaran.cli",
@@ -334,6 +360,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("selfcheck", help="report version, geo fixtures and data inventory")
+    sub.add_parser("token", help="print the API token this server is using")
     sub.add_parser("rebuild", help="wipe every blob and replay the event log")
 
     draw = sub.add_parser("render", help="render the PNG tile pyramid")
@@ -358,6 +385,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "selfcheck":
         return selfcheck()
+    if args.command == "token":
+        return show_token()
     if args.command == "rebuild":
         return rebuild()
     if args.command == "render":

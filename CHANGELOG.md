@@ -11,6 +11,17 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.10.5] - 2026-08-16
+
+### Fixed
+- **The API token was readable by anyone who could reach the app.** `/api/setup` is documented as readable without a token, and it included the token itself — so on an instance anyone could open, anyone could read the write key and then draw, delete or wipe. Reads being open is a deliberate choice; handing out the key to change things was not. The token is now served only during genuine first-run setup, and only when Irfaran generated it: a token set through `IRFARAN_TOKEN` was chosen by the operator, who already has it, so printing it back leaks it for nothing.
+
+### Added
+- Setup has two screens instead of one. The first run shows the token once and says so. Every browser after that is told the server is already set up and asked to paste the token to enable editing, or to carry on reading the map, which never needed one. A pasted token is checked against the server before it is believed, rather than being stored and failing silently at the first edit.
+- `python -m irfaran.cli token` prints the token from the console. Once setup is finished that is the only way to read it back — and the console is the one place where being able to read it already means you own the machine.
+
+Finishing setup is itself an authenticated call, which is the right proof: to say you have the token, present it. If it fails, setup stays open for someone who can.
+
 ## [0.10.4] - 2026-08-16
 
 ### Fixed

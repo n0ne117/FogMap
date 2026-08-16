@@ -240,3 +240,59 @@ class TestTokenResolution:
         body = client.get("/api/setup").json()
         assert body["token"]["value"]
         assert body["token"]["source"] in ("environment", "generated")
+
+
+class TestSetupRevealsTheTokenOnce:
+    """Reads are open, so an endpoint that keeps serving the write token is
+    not a doorstop - it is a lock with the key taped to it."""
+
+    @pytest.fixture
+    def fresh(self, monkeypatch, tmp_path):
+        monkeypatch.delenv("IRFARAN_TOKEN", raising=False)
+        monkeypatch.delenv("FOGMAP_TOKEN", raising=False)
+        monkeypatch.setenv("IRFARAN_DATA_DIR", str(tmp_path))
+        with TestClient(app) as client:
+            yield client
+
+    def test_a_generated_token_is_shown_during_first_run(self, fresh):
+        body = fresh.get("/api/setup").json()
+        assert body["completed"] is False
+        assert body["token"]["source"] == "generated"
+        assert len(body["token"]["value"]) > 20
+
+    def test_finishing_setup_stops_it_being_served(self, fresh):
+        token = fresh.get("/api/setup").json()["token"]["value"]
+
+        done = fresh.post("/api/setup/complete", headers={"X-Irfaran-Token": token})
+        assert done.status_code == 200
+
+        body = fresh.get("/api/setup").json()
+        assert body["completed"] is True
+        assert "value" not in body["token"], "the token must never be served again"
+        assert body["token"]["source"] == "generated"
+
+    def test_finishing_setup_needs_the_token(self, fresh):
+        assert fresh.post("/api/setup/complete").status_code == 401
+        assert fresh.get("/api/setup").json()["completed"] is False
+
+    def test_the_token_still_works_after_setup_is_finished(self, fresh):
+        token = fresh.get("/api/setup").json()["token"]["value"]
+        fresh.post("/api/setup/complete", headers={"X-Irfaran-Token": token})
+
+        response = fresh.patch(
+            "/api/settings",
+            headers={"X-Irfaran-Token": token},
+            json={"ui_theme": "dark"},
+        )
+        assert response.status_code == 200
+
+    def test_an_operator_chosen_token_is_never_shown_at_all(
+        self, monkeypatch, tmp_path
+    ):
+        """They picked it, so they have it. Printing it back only leaks it."""
+        monkeypatch.setenv("IRFARAN_TOKEN", "chosen-by-the-operator")
+        monkeypatch.setenv("IRFARAN_DATA_DIR", str(tmp_path))
+        with TestClient(app) as client:
+            body = client.get("/api/setup").json()
+            assert body["token"]["source"] == "environment"
+            assert "value" not in body["token"]

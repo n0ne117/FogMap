@@ -327,9 +327,13 @@ cp .env.example .env</code></pre>
 docker compose up -d</code></pre>
       <p>
         Open <code>http://localhost:8080</code>. A setup screen appears with your generated
-        API token. <strong>Copy it somewhere safe</strong> — every browser you want to edit
-        from needs it, and the setup screen is the only place it is offered.
+        API token. <strong>Copy it somewhere safe</strong> — it is shown once and then never
+        again, because reads are open and a page that keeps handing out the write token is a
+        lock with the key taped to it. Later browsers are told the server is already set up
+        and asked to paste it, or to carry on read-only.
       </p>
+      <p>Lost it? Read it back on the server:</p>
+      <pre><code>docker compose exec api python -m irfaran.cli token</code></pre>
 
       <div class="note">
         <p>

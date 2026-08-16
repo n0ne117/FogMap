@@ -15,6 +15,15 @@ import {
 } from './api'
 import { element } from './ui'
 
+/** Whatever the interface theme is set to, so the check writes back a no-op. */
+function getUiThemeSetting(): string {
+  try {
+    return window.localStorage.getItem('irfaran.ui.theme') ?? 'system'
+  } catch {
+    return 'system'
+  }
+}
+
 const DISMISSED_KEY = 'irfaran.setup.dismissed'
 
 export interface DownloadStatus {
@@ -33,7 +42,9 @@ export interface SetupStatus {
   version: string
   data_dir: string
   suggested_urls: string[]
-  token: { value: string; source: 'environment' | 'generated' }
+  completed: boolean
+  /** `value` is present only during genuine first-run setup. */
+  token: { value?: string; source: 'environment' | 'generated' }
   basemap: {
     filename: string
     present: boolean
@@ -64,6 +75,8 @@ export class Setup {
   private timer: number | undefined
   private onBasemapReady: () => void
 
+  private completed = false
+
   constructor(onBasemapReady: () => void) {
     this.onBasemapReady = onBasemapReady
   }
@@ -77,10 +90,12 @@ export class Setup {
       return
     }
 
+    this.completed = status.completed
     this.fillSources(status)
 
     // Adopt the server's token automatically. Nobody should have to copy a
     // secret from one part of the interface into another on the same machine.
+    // The server only offers it during first-run setup.
     if (status.token?.value && status.token.value !== getToken()) {
       setToken(status.token.value)
     }
@@ -92,10 +107,14 @@ export class Setup {
     // panel stays live.
     if (busy) this.poll()
 
-    // Having a basemap already changes what this screen says, not whether it
-    // appears: it is also where the API token is handed over, and that has to
-    // be seen at least once. Dismissing it is what stops it coming back.
+    // Two different screens, and two different reasons to show them.
+    //
+    // Before setup is finished this is where the token is handed over, and
+    // that has to be seen once. After it, a browser that already has a working
+    // token has no business being interrupted - but one that does not is about
+    // to find every edit refused, so it gets told why.
     if (dismissed()) return
+    if (status.completed && getToken()) return
 
     this.open()
     if (!busy) this.poll()
@@ -103,6 +122,29 @@ export class Setup {
 
   open(): void {
     element('setup').hidden = false
+  }
+
+  /**
+   * Done with setup: stop showing it here, and tell the server.
+   *
+   * Telling the server is what stops the token being served to whoever asks,
+   * so it has to happen the moment somebody has been given it - not on some
+   * later action they might never take. Best effort: without a token the call
+   * is refused, which is correct, and setup simply stays open to be finished
+   * by someone who has one.
+   */
+  private async finish(): Promise<void> {
+    dismiss()
+    this.close()
+    if (!this.completed && getToken()) {
+      try {
+        await apiSend('POST', '/api/setup/complete')
+        this.completed = true
+      } catch {
+        /* the next visitor will be offered it again, which is the safe way
+           for this to fail */
+      }
+    }
   }
 
   close(): void {
@@ -116,8 +158,7 @@ export class Setup {
     // container, so closing this screen - or the browser - does not stop it.
     element('setup-background').addEventListener('click', () => {
       void this.start().then(() => {
-        dismiss()
-        this.close()
+        void this.finish()
       })
     })
 
@@ -130,8 +171,7 @@ export class Setup {
     element('basemap-cancel').addEventListener('click', () => void this.confirmCancel())
 
     element('setup-skip').addEventListener('click', () => {
-      dismiss()
-      this.close()
+      void this.finish()
     })
     element('setup-open').addEventListener('click', () => {
       this.open()
@@ -141,8 +181,7 @@ export class Setup {
     element('basemap-update').addEventListener('click', () => void this.update())
 
     element('setup-continue').addEventListener('click', () => {
-      dismiss()
-      this.close()
+      void this.finish()
     })
 
     // Someone with an archive already can still choose to fetch another.
@@ -160,6 +199,66 @@ export class Setup {
           window.setTimeout(() => (button.textContent = 'Copy'), 2000)
         })
     })
+
+    // The already-set-up screen: this browser has to be given the token,
+    // because the server will not hand it out any more.
+    element('setup-known-save').addEventListener('click', () => void this.adopt())
+    element<HTMLInputElement>('setup-known-token').addEventListener(
+      'keydown',
+      (event) => {
+        if (event.key === 'Enter') void this.adopt()
+      },
+    )
+    element('setup-known-skip').addEventListener('click', () => {
+      void this.finish()
+    })
+  }
+
+  /**
+   * Take a pasted token, and prove it works before believing it.
+   *
+   * Storing whatever was typed and finding out at the first edit is how you
+   * end up with somebody certain they entered it correctly and an app that
+   * disagrees silently.
+   */
+  private async adopt(): Promise<void> {
+    const field = element<HTMLInputElement>('setup-known-token')
+    const message = element('setup-known-message')
+    const value = field.value.trim()
+
+    const say = (text: string, bad = false) => {
+      message.textContent = text
+      message.hidden = !text
+      message.dataset.state = bad ? 'bad' : ''
+    }
+
+    if (!value) {
+      say('Paste the token first.', true)
+      return
+    }
+
+    const previous = getToken()
+    setToken(value)
+    say('Checking.')
+    try {
+      // Harmless either way: it writes back the theme it already has.
+      await apiSend('PATCH', '/api/settings', { ui_theme: getUiThemeSetting() })
+    } catch (error) {
+      setToken(previous)
+      say(
+        error instanceof ApiError && error.status === 401
+          ? 'That token is not the one this server is using.'
+          : error instanceof ApiError
+            ? error.message
+            : String(error),
+        true,
+      )
+      return
+    }
+
+    say('')
+    field.value = ''
+    void this.finish()
   }
 
   /**
@@ -334,12 +433,22 @@ export class Setup {
     const download = basemap.download
     const running = download.state === 'running'
 
-    if (status.token?.value) {
-      element('setup-token-value').textContent = status.token.value
+    // One card or the other, never both. The token card only ever appears
+    // while the server is still willing to say what the token is.
+    const offered = Boolean(status.token?.value)
+    element('setup-token-card').hidden = !offered
+    element('setup-known').hidden = offered || !status.completed
+
+    if (offered) {
+      element('setup-token-value').textContent = status.token.value ?? ''
       element('setup-token-source').textContent =
         status.token.source === 'environment'
           ? 'Set by IRFARAN_TOKEN in the server environment.'
           : 'Generated by this server on first start and stored with your data.'
+    } else if (!status.completed) {
+      // Setup is unfinished but there is nothing to reveal, which means the
+      // operator chose the token themselves and already knows it.
+      element('setup-known').hidden = false
     }
 
     // An archive already on disk means there is nothing to do here but leave.

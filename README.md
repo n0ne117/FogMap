@@ -85,7 +85,15 @@ The full planet is around 128 GB, which is hours of downloading. It resumes if i
 
 Reading the map needs nothing. Changing anything — drawing, places, imports, the data source switches — needs a shared token.
 
-Irfaran generates one on first start and shows it on the setup screen. Keep it somewhere safe: every browser you want to edit from needs it, and the setup screen is the only place it is offered. Set `IRFARAN_TOKEN` in the environment to choose your own instead, in which case that value is used and the generated one is ignored.
+Irfaran generates one on first start and shows it on the setup screen **once**. Keep it somewhere safe: every browser you want to edit from needs it. Once you finish setup the server stops serving it, because reads are open and an endpoint that keeps handing out the write token is a lock with the key taped to it. A browser arriving later is told the server is already set up and asked to paste the token, or to carry on read-only.
+
+Lost it? Read it back on the server:
+
+```bash
+docker compose exec api python -m irfaran.cli token
+```
+
+Set `IRFARAN_TOKEN` in the environment to choose your own instead, in which case that value is used, the generated one is ignored, and it is never displayed at all — you picked it, so you already have it.
 
 It is a doorstop, not a security model: it stops a misbehaving tracker or a stray `curl` from altering history. It does not protect reads, which are open to anyone who can reach the app — so run it somewhere only you can.
 

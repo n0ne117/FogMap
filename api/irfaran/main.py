@@ -1236,19 +1236,50 @@ def remove_place(
 
 
 @app.get("/api/setup")
-def setup_status(request: Request) -> dict[str, object]:
-    """What first-run setup still needs. Readable without a token."""
+def setup_status(
+    request: Request, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    """What first-run setup still needs. Readable without a token.
+
+    The token itself is not, except during genuine first-run setup. Reads are
+    open by design, so serving the write token here to anyone who asks handed
+    every visitor the ability to change everything - which is not a doorstop,
+    it is a lock with the key taped to it.
+    """
     from datetime import date
+
+    token, source = effective_token(request)
+    completed = tokens.setup_completed(conn)
+    reveal = tokens.revealable(conn, source)
 
     return {
         "version": __version__,
-        "token": dict(zip(("value", "source"), effective_token(request))),
+        "completed": completed,
+        "token": {
+            "source": source,
+            # Present only while it is safe to show. Absent is the normal case.
+            **({"value": token} if reveal else {}),
+        },
         "basemap": basemap.basemap_status(),
         "suggested_urls": basemap.suggested_planet_urls(
             date.today().strftime("%Y%m%d")
         ),
         "data_dir": str(db.data_dir()),
     }
+
+
+@app.post("/api/setup/complete")
+def finish_setup(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, object]:
+    """Mark setup done, which stops the token being served.
+
+    Guarded like every other write, which is exactly the proof required: to
+    say you have the token you have to present it. A browser that just read it
+    off the setup screen can; a passer-by cannot.
+    """
+    when = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with db.transaction(conn):
+        tokens.complete_setup(conn, when)
+    return {"completed": True, "at": when}
 
 
 def is_trusted_basemap(url: str) -> bool:
