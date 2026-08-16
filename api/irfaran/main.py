@@ -378,8 +378,21 @@ def _live_layers(conn: sqlite3.Connection, event_id: int | None) -> list[str]:
 async def ingest_overland(
     request: Request, conn: sqlite3.Connection = Depends(get_conn)
 ) -> dict[str, object]:
+    """Overland's receiver endpoint.
+
+    Overland decides whether a batch was received by looking for
+    {"result": "ok"} in the body - not by the status code. Answering 200 with
+    anything else means it keeps the batch queued and sends it again, forever:
+    the points arrive and show up on the map, while the phone reports that the
+    server never acknowledged them and quietly retries the same payload for
+    the rest of the day. Extra keys are ignored, so the usual summary rides
+    along beside it.
+    """
     payload = await _json_body(request)
-    return await run_in_threadpool(_ingest_live, request, conn, "overland", payload)
+    result = await run_in_threadpool(
+        _ingest_live, request, conn, "overland", payload
+    )
+    return {"result": "ok", **result}
 
 
 @app.post("/api/ingest/owntracks")

@@ -196,6 +196,9 @@ class TestOverland:
 
         again = client.post("/api/ingest/overland", headers=auth(), json=batch)
         assert again.json() == {
+            # Overland reads this to decide the batch was received. A replay
+            # is still a successful delivery - it just had nothing new in it.
+            "result": "ok",
             "accepted": 0,
             "duplicates": 10,
             "dropped": 0,
@@ -507,3 +510,50 @@ class TestRebuildStaysCanonical:
             conn.close()
 
         assert before == after
+
+
+class TestOverlandAcknowledgement:
+    """Overland reads the body, not the status code.
+
+    Without {"result": "ok"} it treats a perfectly good 200 as unacknowledged,
+    keeps the batch queued and sends it again - so the points arrive, the map
+    fills in, and the phone insists nothing was received while retrying the
+    same payload all day.
+    """
+
+    def test_the_body_says_result_ok(self, client):
+        enable(client, "overland")
+        response = client.post(
+            "/api/ingest/overland",
+            headers=auth(),
+            json={"locations": [feature(1)]},
+        )
+        assert response.status_code == 200
+        assert response.json()["result"] == "ok"
+
+    def test_an_empty_batch_is_still_acknowledged(self, client):
+        """Overland sends empty batches to test the endpoint from its settings."""
+        enable(client, "overland")
+        response = client.post(
+            "/api/ingest/overland", headers=auth(), json={"locations": []}
+        )
+        assert response.status_code == 200
+        assert response.json()["result"] == "ok"
+
+    def test_the_usual_summary_rides_along(self, client):
+        enable(client, "overland")
+        body = client.post(
+            "/api/ingest/overland",
+            headers=auth(),
+            json={"locations": [feature(1), feature(2)]},
+        ).json()
+        assert body["result"] == "ok"
+        assert "accepted" in body and "dropped" in body
+
+    def test_a_refused_batch_does_not_claim_to_be_ok(self, client):
+        """A disabled source must not look like a successful delivery."""
+        response = client.post(
+            "/api/ingest/overland", headers=auth(), json={"locations": []}
+        )
+        assert response.status_code == 503
+        assert response.json().get("result") != "ok"

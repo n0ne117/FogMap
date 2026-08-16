@@ -11,6 +11,13 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.11.3] - 2026-08-16
+
+### Fixed
+- Overland reported "server did not acknowledge the data was received" on batches that had in fact been received perfectly. It decides that from the response *body*, not the status code: without `{"result": "ok"}` in it, a 200 means nothing. So the points arrived, the track drew on the map, and the phone kept the batch queued and sent it again — indefinitely, on battery, over mobile data. The body now says so, with the usual summary alongside it.
+
+Nothing was duplicated by all that retrying: live points are deduplicated on their timestamp, so a replayed batch is counted and discarded. A batch refused for any real reason still does not claim to be ok.
+
 ## [0.11.2] - 2026-08-16
 
 ### Fixed
