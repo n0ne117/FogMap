@@ -125,6 +125,22 @@ def data_dir() -> Path:
     return Path(configured) if configured else DEFAULT_DATA_DIR
 
 
+def basemap_dir() -> Path:
+    """Where the PMTiles basemap lives.
+
+    Its own setting because it is the one thing here that is enormous and
+    entirely replaceable. A planet archive is around 137 GB of public map data
+    that can be re-downloaded any time, while everything else in the data
+    directory is irreplaceable and measured in megabytes - so on a machine
+    with a fast pool and a slow array, they want to be on different disks.
+    Unraid is the obvious case: appdata belongs on the cache, 137 GB does not.
+
+    Defaults to the data directory, which is right for a single-disk install.
+    """
+    configured = settings_env.get("BASEMAP_DIR")
+    return Path(configured) if configured else data_dir()
+
+
 def db_path() -> Path:
     directory = data_dir()
     current = directory / DB_FILENAME

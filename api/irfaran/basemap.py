@@ -78,10 +78,10 @@ class Downloader:
     # -- paths ---------------------------------------------------------------
 
     def target(self, filename: str) -> Path:
-        return db.data_dir() / filename
+        return db.basemap_dir() / filename
 
     def partial(self, filename: str) -> Path:
-        return db.data_dir() / f"{filename}.part"
+        return db.basemap_dir() / f"{filename}.part"
 
     def _state_path(self) -> Path:
         return db.data_dir() / STATE_FILE
@@ -206,6 +206,17 @@ class Downloader:
         target = self.target(filename)
 
         try:
+            # The basemap can live on a different disk from everything else,
+            # and that mount may be empty on first run.
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                raise RuntimeError(
+                    f"Cannot write the basemap to {target.parent}. Check that "
+                    "the directory exists and is writable - on Docker, that "
+                    "the volume is mounted there."
+                ) from exc
+
             already = partial.stat().st_size if partial.exists() else 0
             total = self._remote_size(url)
 
@@ -342,8 +353,8 @@ downloader = Downloader()
 
 def basemap_status(filename: str = "planet.pmtiles") -> dict[str, object]:
     """What the setup screen needs to know about the basemap."""
-    target = db.data_dir() / filename
-    partial = db.data_dir() / f"{filename}.part"
+    target = db.basemap_dir() / filename
+    partial = db.basemap_dir() / f"{filename}.part"
 
     present = target.is_file()
     return {

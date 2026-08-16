@@ -1032,6 +1032,13 @@ def render_views_iter(
     to leave this function while it is still working. `written` is filled in
     with the per-view tile counts, since a generator has nowhere good to put a
     return value.
+
+    One caveat for callers writing a script: with more than one worker this
+    starts processes through forkserver, which re-imports the caller's main
+    module. A script that does its work at import time will do it again in
+    every worker. Put it behind `if __name__ == "__main__":`, or pass
+    workers=1. The server and the CLI are both already safe - uvicorn owns the
+    main module in one, and the other guards it.
     """
     counts: dict[str, int] = {view: 0 for view in views}
     if written is not None:

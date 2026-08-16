@@ -1,0 +1,523 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Irfaran — a self-hosted fog-of-war map of everywhere you've been</title>
+    <meta
+      name="description"
+      content="Feed it GPS tracks and it renders a map where the places you have been are revealed and everywhere else stays under fog. Self-hosted, on your own hardware, with your data staying on it."
+    />
+    <style>
+      :root {
+        --bg: #14161a;
+        --panel: #1b1e24;
+        --line: #2c313a;
+        --fg: #e6e8ec;
+        --muted: #9aa2af;
+        --accent: #d8a13a;
+        --accent-soft: #4d8fd6;
+        --code: #0f1115;
+        color-scheme: dark;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Helvetica, Arial, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      main { max-width: 46rem; margin: 0 auto; padding: 0 1.25rem 6rem; }
+
+      /* ------------------------------------------------------------ header */
+
+      header {
+        max-width: 46rem;
+        margin: 0 auto;
+        padding: 4.5rem 1.25rem 2rem;
+      }
+
+      h1 {
+        margin: 0 0 0.35rem;
+        font-size: clamp(2.6rem, 8vw, 4rem);
+        font-weight: 700;
+        letter-spacing: -0.03em;
+      }
+
+      .tagline {
+        margin: 0 0 1.25rem;
+        color: var(--muted);
+        font-size: clamp(1.05rem, 3vw, 1.25rem);
+      }
+
+      .badges { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 2rem; }
+
+      .badge {
+        padding: 0.15rem 0.6rem;
+        border: 1px solid var(--line);
+        border-radius: 1rem;
+        color: var(--muted);
+        font-size: 0.78rem;
+      }
+
+      figure { margin: 0 0 0.75rem; }
+
+      figure img {
+        display: block;
+        width: 100%;
+        height: auto;
+        border: 1px solid var(--line);
+        border-radius: 0.5rem;
+      }
+
+      figcaption {
+        margin-top: 0.5rem;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+
+      /* ----------------------------------------------------------- content */
+
+      h2 {
+        margin: 3.5rem 0 0.75rem;
+        font-size: 1.5rem;
+        letter-spacing: -0.015em;
+      }
+
+      h3 { margin: 2rem 0 0.5rem; font-size: 1.08rem; }
+
+      p, li { color: #d2d6dd; }
+
+      a { color: var(--accent-soft); }
+
+      code {
+        padding: 0.1rem 0.3rem;
+        border-radius: 0.25rem;
+        background: var(--code);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.86em;
+      }
+
+      pre {
+        margin: 0.85rem 0;
+        padding: 0.9rem 1rem;
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        border-radius: 0.45rem;
+        background: var(--code);
+      }
+
+      pre code { padding: 0; background: none; font-size: 0.82rem; line-height: 1.55; }
+
+      .note {
+        margin: 1.25rem 0;
+        padding: 0.85rem 1rem;
+        border-left: 3px solid var(--accent);
+        border-radius: 0 0.35rem 0.35rem 0;
+        background: var(--panel);
+      }
+
+      .note strong { color: var(--accent); }
+
+      .note p:first-child { margin-top: 0; }
+      .note p:last-child { margin-bottom: 0; }
+
+      table { width: 100%; margin: 1rem 0; border-collapse: collapse; font-size: 0.9rem; }
+
+      th, td {
+        padding: 0.5rem 0.6rem;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th { color: var(--muted); font-weight: 600; }
+
+      ul { padding-left: 1.15rem; }
+
+      li { margin: 0.3rem 0; }
+
+      footer {
+        max-width: 46rem;
+        margin: 0 auto;
+        padding: 2rem 1.25rem 4rem;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+
+      @media (prefers-reduced-motion: no-preference) {
+        html { scroll-behavior: smooth; }
+      }
+    </style>
+  </head>
+
+  <body>
+    <header>
+      <h1>Irfaran</h1>
+      <p class="tagline">A self-hosted fog-of-war map of everywhere you've been.</p>
+      <div class="badges">
+        <span class="badge">Self-hosted</span>
+        <span class="badge">Your data stays on your hardware</span>
+        <span class="badge">AGPL-3.0</span>
+        <span class="badge">Docker Compose</span>
+      </div>
+
+      <figure>
+        <img
+          src="img/hero.jpg"
+          width="1040"
+          height="520"
+          alt="A dark map mostly hidden under fog. A grid of streets in one corner has been
+               cleared and is traced with orange lines of varying brightness, and a single
+               fainter line runs off towards the top right."
+        />
+        <figcaption>
+          Everywhere you have been is revealed; everywhere else stays under fog. The
+          brighter a line, the more often you went that way.
+          <strong>Every image on this page is rendered from invented data</strong> — see
+          <a href="#images">below</a>.
+        </figcaption>
+      </figure>
+    </header>
+
+    <main>
+      <p>
+        Feed it GPS tracks — live from Overland, OwnTracks or Home Assistant, imported
+        from workout files, or drawn by hand for the years before GPS existed — and it
+        renders a persistent map where the places you've visited are revealed and
+        everywhere else stays under fog. Inspired by
+        <a href="https://fogofworld.app/">Fog of World</a>, but self-hosted, on your own
+        hardware, with your data staying on it.
+      </p>
+
+      <h2>The name</h2>
+      <p>
+        <em>Irfaran</em> is Old High German: <strong>to travel through a thing, and so to
+        come to know it.</strong>
+      </p>
+      <p>
+        It is <em>ir-</em> (through, to completion) on <em>faran</em>, to go — the same
+        root that gives modern German <em>fahren</em> and English <em>fare</em>,
+        <em>ferry</em> and <em>wayfarer</em>. What it became is <em>erfahren</em>, to
+        experience, and <em>Erfahrung</em>, experience itself: in German, what you know is
+        quite literally what you have travelled through.
+      </p>
+      <p>
+        Which is the whole idea. A map that stays under fog until you have been there does
+        not record where you went — it records what you have come to know by going.
+      </p>
+
+      <h2>How it works</h2>
+      <p>
+        The design goal is that the map stays fast no matter how much history accumulates.
+        Everything follows from that.
+      </p>
+      <p>
+        Every track is rasterised once, at import, onto a web-Mercator z14 grid — 256×256
+        pixel tiles, about 9.5 m per pixel at the equator. Serving a tile is a file read.
+        Nothing is rendered when you ask for it.
+      </p>
+      <p>
+        The consequence is that <strong>display cost is independent of dataset size</strong>.
+        A tile takes the same time to serve whether it was built from fifty points or fifty
+        million.
+      </p>
+
+      <table>
+        <tr>
+          <th>An append-only event log</th>
+          <td>The only source of truth. Every import and every brush stroke is an event
+            with its own geometry, radius and time layer.</td>
+        </tr>
+        <tr>
+          <th>Bitmap blobs</th>
+          <td>Derived, disposable.</td>
+        </tr>
+        <tr>
+          <th>A rendered PNG pyramid</th>
+          <td>Derived, disposable. Folded up from the blobs to z0, and stamped from the
+            geometry again below z14 so a hand-drawn stroke is not a smear at street
+            level.</td>
+        </tr>
+      </table>
+
+      <p>
+        Delete both caches, run a rebuild, get byte-identical output. The whole archive can
+        be reprocessed with different brush radii whenever you change your mind — which
+        matters when you are reconstructing places from forty years ago and your relatives
+        keep correcting each other.
+      </p>
+
+      <figure>
+        <img
+          src="img/detail.jpg"
+          width="1280"
+          height="720"
+          alt="A closer view of the same invented streets, showing individual track lines
+               with softer glow where several passes overlap."
+        />
+        <figcaption>Closer in, where the individual tracks separate out.</figcaption>
+      </figure>
+
+      <h2>What it does</h2>
+      <ul>
+        <li>Raster fog-of-war rendering that stays fast at every zoom level</li>
+        <li>A trail layer coloured by how often you went, so regular routes stand out</li>
+        <li>Live tracking via Overland, OwnTracks or Home Assistant — all optional, all off
+          by default</li>
+        <li>GPX and TCX import</li>
+        <li>A map per year, plus a cumulative all-time view</li>
+        <li>Manual tools: draw a route, clear fog without claiming one, enclose an area, or
+          erase fog wrongly cleared by GPS drift</li>
+        <li>Pins with titles, colour-coded labels, tags and nested folders</li>
+        <li>Independent light and dark themes for the interface and the map</li>
+      </ul>
+
+      <figure>
+        <img
+          src="img/year.jpg"
+          width="1040"
+          height="520"
+          alt="The same invented streets showing only one year's tracks: far fewer lines,
+               and much of the grid still under fog."
+        />
+        <figcaption>
+          The same place filtered to a single year. Every year gets its own map, alongside
+          the cumulative one.
+        </figcaption>
+      </figure>
+
+      <h2 id="install">Getting it running</h2>
+      <p>
+        You need Docker and Docker Compose. Everything runs in two containers: an API and a
+        web server. Both were developed against amd64.
+      </p>
+
+      <h3>1. Get the code and configure it</h3>
+      <pre><code>git clone https://github.com/n0ne117/Irfaran.git
+cd Irfaran
+cp .env.example .env</code></pre>
+      <p>
+        Open <code>.env</code>. You can leave every value as it is for a first run —
+        Irfaran generates its own API token on first start and shows it to you. The
+        settings worth knowing about:
+      </p>
+
+      <table>
+        <tr><th><code>IRFARAN_TOKEN</code></th>
+          <td>Shared secret for every change. Leave blank to have one generated.</td></tr>
+        <tr><th><code>IRFARAN_DATA_HOST</code></th>
+          <td>Where the database, tiles and blobs live. Defaults to <code>./data</code>.</td></tr>
+        <tr><th><code>IRFARAN_BASEMAP_HOST</code></th>
+          <td>Where the basemap archive lives. Defaults to the data directory —
+            <a href="#basemap">see below</a> for why you might separate it.</td></tr>
+        <tr><th><code>IRFARAN_WEB_PORT</code></th>
+          <td>Port for the interface. Defaults to 8080.</td></tr>
+      </table>
+
+      <h3>2. Build and start</h3>
+      <pre><code>docker compose build
+docker compose up -d</code></pre>
+      <p>
+        Open <code>http://localhost:8080</code>. A setup screen appears with your generated
+        API token. <strong>Copy it somewhere safe</strong> — every browser you want to edit
+        from needs it, and the setup screen is the only place it is offered.
+      </p>
+
+      <div class="note">
+        <p>
+          <strong>On SELinux hosts</strong> — Fedora, RHEL, CentOS — every bind mount needs
+          a <code>:z</code> label or the container is denied access to its own data
+          directory. The bundled Compose files already set it, so there is nothing to do.
+          It is harmless everywhere else.
+        </p>
+      </div>
+
+      <div class="note">
+        <p>
+          <strong>Running a second copy?</strong> Compose names a stack after the folder it
+          is in, so two checkouts in folders both called <code>Irfaran</code> are the same
+          stack as far as it is concerned — starting one replaces the other's containers.
+          Set <code>COMPOSE_PROJECT_NAME</code> in the second one's <code>.env</code>. Your
+          data is untouched either way; it is the containers that get swapped.
+        </p>
+      </div>
+
+      <h3>3. Check it came up</h3>
+      <pre><code>curl http://localhost:8080/healthz
+docker compose exec api python -m irfaran.cli selfcheck</code></pre>
+
+      <h2 id="basemap">The basemap</h2>
+      <p>
+        Irfaran draws your tracks; the map underneath them is
+        <a href="https://protomaps.com">Protomaps</a> PMTiles built from
+        <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>. It is far too
+        large to ship in a container, so Irfaran fetches it on first run: the setup screen
+        offers recent Protomaps daily planet builds, or takes a URL of your own if you would
+        rather use a regional extract.
+      </p>
+      <p>
+        The full planet is around <strong>137 GB</strong>, which is hours of downloading. It
+        resumes if interrupted, and the rest of Irfaran works throughout — only the map
+        underneath your trails is missing until it finishes. The archive is verified before
+        it is installed, so a URL that returns an error page is rejected rather than left
+        sitting there looking like a basemap.
+      </p>
+
+      <div class="note">
+        <p>
+          <strong>Putting it on a different disk.</strong> By default the basemap lives in
+          the data directory. That is right for a single-disk machine and wrong for most
+          NAS boxes: 137 GB does not belong on the fast pool your appdata sits on. Set
+          <code>IRFARAN_BASEMAP_HOST</code> to a path on your bulk storage and Compose
+          mounts it separately.
+        </p>
+        <p>
+          Everything else in the data directory is irreplaceable and measured in megabytes.
+          The basemap is public map data you can always fetch again — so it is the one part
+          worth putting somewhere cheap and slow, and the one part you do not need to back
+          up.
+        </p>
+      </div>
+
+      <pre><code># .env
+IRFARAN_DATA_HOST=/mnt/user/appdata/irfaran
+IRFARAN_BASEMAP_HOST=/mnt/user/maps/irfaran</code></pre>
+
+      <p>
+        Already downloaded a <code>.pmtiles</code> archive elsewhere? Drop it into that
+        directory as <code>planet.pmtiles</code> and Irfaran will find it on start —
+        the setup screen recognises a basemap that is already installed and simply offers
+        to continue.
+      </p>
+
+      <h2 id="unraid">Unraid</h2>
+      <p>
+        There is no Community Applications template. Use the
+        <strong>Docker Compose Manager</strong> plugin, which runs the same Compose file as
+        everywhere else.
+      </p>
+
+      <ol>
+        <li>Install <em>Docker Compose Manager</em> from Community Applications.</li>
+        <li><strong>Docker</strong> → <strong>Compose</strong> → <strong>Add New Stack</strong>,
+          name it <code>irfaran</code>.</li>
+        <li>Click the cog on the stack and choose <strong>Edit Stack</strong> →
+          <strong>Compose File</strong>. Paste the contents of
+          <code>docker-compose.prod.yml</code> from the repository.</li>
+        <li>Choose <strong>Edit Stack</strong> → <strong>Edit .env</strong> and set your
+          paths:</li>
+      </ol>
+
+      <pre><code>IRFARAN_IMAGE_TAG=0.10.2
+IRFARAN_TOKEN=
+IRFARAN_DATA_HOST=/mnt/user/appdata/irfaran
+IRFARAN_BASEMAP_HOST=/mnt/user/maps/irfaran
+IRFARAN_WEB_PORT=8080</code></pre>
+
+      <ol start="5">
+        <li>Create both share paths first — <code>appdata/irfaran</code> on your cache pool,
+          and a share on the array for the basemap. Unraid will create them on start
+          otherwise, but on whichever disk the share settings pick.</li>
+        <li><strong>Compose Up</strong>. Then open
+          <code>http://your-server:8080</code>.</li>
+      </ol>
+
+      <div class="note">
+        <p>
+          <strong>Put the basemap share on the array, not the cache.</strong> A 137 GB
+          download onto a cache pool will either fill it or spend the night being moved by
+          the mover. Set that share's <em>Use cache</em> to <em>No</em> before you start the
+          download.
+        </p>
+      </div>
+
+      <h3>Running from published images</h3>
+      <p>
+        <code>docker-compose.prod.yml</code> pulls from GitHub Container Registry rather
+        than building:
+      </p>
+      <pre><code>docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d</code></pre>
+      <p>
+        Always pin <code>IRFARAN_IMAGE_TAG</code> to an explicit version. A host that
+        silently changes version when it pulls is a host nobody can debug.
+      </p>
+
+      <h2>The API token</h2>
+      <p>
+        Reading the map needs nothing. Changing anything — drawing, pins, imports, the data
+        source switches — needs a shared token.
+      </p>
+      <p>
+        It is a doorstop, not a security model: it stops a misbehaving tracker or a stray
+        <code>curl</code> from altering your history. <strong>It does not protect
+        reads</strong>, which are open to anyone who can reach the app — so run it somewhere
+        only you can, behind a VPN or a reverse proxy with authentication.
+      </p>
+
+      <h2>Live tracking</h2>
+      <p>
+        All optional, all off by default, all toggled independently. There is no app to
+        install and no plugin — each source is a small HTTP endpoint that an existing
+        tracker posts to.
+      </p>
+
+      <table>
+        <tr><th>Source</th><th>Density</th><th>Offline buffering</th></tr>
+        <tr><td><a href="https://overland.p3k.app/">Overland</a></td>
+          <td>Configurable, up to continuous</td><td>Yes — recommended</td></tr>
+        <tr><td><a href="https://owntracks.org/">OwnTracks</a></td>
+          <td>100 m / 300 s in Move mode</td><td>No</td></tr>
+        <tr><td>Home Assistant</td><td>Coarse, event-driven</td><td>No</td></tr>
+      </table>
+
+      <p>Full setup for each is in the <a
+        href="https://github.com/n0ne117/Irfaran#live-tracking-optional">README</a>.</p>
+
+      <h2>Status</h2>
+      <p>
+        Early development, and honest about it. The architecture is settled and tested —
+        several hundred tests cover the coordinate maths, the composite semantics and the
+        rebuild guarantees — but the interface is still moving, and version numbers below
+        1.0 mean what they usually mean. <code>1.0.0</code> is reserved for when it has been
+        running on real data for a while without surprises.
+      </p>
+      <p>
+        See the <a href="https://github.com/n0ne117/Irfaran/blob/main/CHANGELOG.md">changelog</a>
+        for what works right now.
+      </p>
+
+      <h2 id="images">About the images on this page</h2>
+      <p>
+        A fog-of-war map of somebody's life is a map of where they live, work and run. None
+        of the images here show anyone's real movements.
+      </p>
+      <p>
+        They are genuine output of Irfaran's renderer over invented data: a seeded random
+        walk on a street grid placed in the middle of the Atlantic, generated by
+        <a href="img/synthetic-data.py">synthetic-data.py</a> and composed by
+        <a href="img/synthetic-images.py">synthetic-images.py</a>, both in this directory.
+        The faint streets showing through the cleared fog are drawn by that second script as
+        a stand-in — the real basemap is third-party map data, and not ours to put in a
+        screenshot either.
+      </p>
+    </main>
+
+    <footer>
+      <p>
+        <a href="https://github.com/n0ne117/Irfaran">Source on GitHub</a> ·
+        AGPL-3.0-or-later ·
+        Map data <a href="https://www.openstreetmap.org/copyright">© OpenStreetMap</a>
+        contributors, tiles by <a href="https://protomaps.com">Protomaps</a>
+      </p>
+    </footer>
+  </body>
+</html>

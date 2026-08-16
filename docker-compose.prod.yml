@@ -20,8 +20,12 @@ services:
     environment:
       IRFARAN_TOKEN: ${IRFARAN_TOKEN:-${FOGMAP_TOKEN:?set IRFARAN_TOKEN in .env}}
       IRFARAN_DATA_DIR: /data
+      # Set IRFARAN_BASEMAP_HOST to keep the 137 GB basemap off the disk the
+      # rest of the data is on. Defaults to living inside it.
+      IRFARAN_BASEMAP_DIR: ${IRFARAN_BASEMAP_HOST:+/basemap}
     volumes:
       - ${IRFARAN_DATA_HOST:-${FOGMAP_DATA_HOST:-./data}}:/data:z
+      - ${IRFARAN_BASEMAP_HOST:-${IRFARAN_DATA_HOST:-${FOGMAP_DATA_HOST:-./data}}}:/basemap:z
     ports:
       - "${IRFARAN_API_PORT:-${FOGMAP_API_PORT:-8000}}:8000"
     healthcheck:

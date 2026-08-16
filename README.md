@@ -248,6 +248,16 @@ I'm saying this plainly because it's true and because it's relevant if you're re
 
 Bugs are still mine.
 
+## The website
+
+A one-page site lives in [`docs/`](docs/), ready for GitHub Pages — enable it under
+**Settings → Pages** with the source set to the `main` branch and the `/docs` folder.
+
+Every image on it is rendered from invented data by the two scripts in
+[`docs/img/`](docs/img/): a seeded random walk on a street grid in the middle of the
+Atlantic. Nothing there shows anyone's real movements, and nothing should ever be
+replaced with a picture that does.
+
 ## Credits
 
 - [Fog of World](https://fogofworld.app/) — the original, and the source of the z14 grid design

@@ -11,6 +11,17 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.10.3] - 2026-08-16
+
+A website, and somewhere else to put the basemap.
+
+### Added
+- A one-page site in `docs/`, ready for GitHub Pages, with install guides for Docker Compose and for unraid's Docker Compose Manager. Every image on it is rendered from invented data — a seeded random walk on a street grid in the middle of the Atlantic — by two scripts kept beside them, because a fog-of-war map of somebody's life is a map of where they live, work and run.
+- `IRFARAN_BASEMAP_HOST` puts the basemap somewhere other than the data directory. The planet archive is around 137 GB of public map data that can always be fetched again; everything else in there is irreplaceable and measured in megabytes. On a NAS they belong on different disks, and until now they could not be.
+
+### Changed
+- `.env.example` documents `COMPOSE_PROJECT_NAME`. Compose names a stack after the folder it sits in, so two checkouts in folders both called Irfaran are one stack as far as it is concerned, and starting either replaces the other's containers. Found by walking through the new install guide on a clean clone, which promptly swapped out the running instance.
+
 ## [0.10.2] - 2026-08-15
 
 ### Fixed

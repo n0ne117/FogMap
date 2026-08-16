@@ -515,7 +515,7 @@ def serve_basemap(request: Request, name: str) -> Response:
             detail=f"{name!r} is not a PMTiles archive name.",
         )
 
-    path = db.data_dir() / name
+    path = db.basemap_dir() / name
     if not path.is_file():
         raise HTTPException(
             status_code=404,
