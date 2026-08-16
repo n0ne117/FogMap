@@ -13,6 +13,7 @@ import {
 import { ApiError, apiGet, apiSend } from './api'
 import { Brush } from './brush'
 import { Draw, MIN_DRAW_ZOOM, type Tool } from './draw'
+import { Backup } from './backup'
 import { Imports } from './imports'
 import { carryOldSettings } from './legacy'
 import {
@@ -547,6 +548,29 @@ async function start(): Promise<void> {
   })
   imports.wire()
 
+  const backup = new Backup(() => {
+    bustTileCache()
+    applyView(map, options)
+    void timeline.load()
+    void trails.refresh()
+    void places.load()
+    void labels.load()
+  })
+  backup.wire()
+
+  // A brand new instance is exactly where a backup is most useful, so the
+  // setup screen offers it rather than making somebody find the tab first.
+  void Backup.isEmpty().then((empty) => {
+    element('setup-restore-row').hidden = !empty
+  })
+  element('setup-restore').addEventListener('click', () => {
+    setup.close()
+    sheets.open('panel')
+    document
+      .querySelector<HTMLButtonElement>('#tabs [data-tab="backup"]')
+      ?.click()
+  })
+
   const setup = new Setup(() => {
     if (options.hasBasemap) return
     options.hasBasemap = true
@@ -566,6 +590,7 @@ async function start(): Promise<void> {
     draw,
     brush,
     labels,
+    backup,
     setup,
   })
 }

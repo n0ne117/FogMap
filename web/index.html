@@ -179,6 +179,7 @@
         <button type="button" role="tab" data-tab="appearance" aria-selected="true">Appearance</button>
         <button type="button" role="tab" data-tab="draw" aria-selected="false">Draw</button>
         <button type="button" role="tab" data-tab="labels" aria-selected="false">Labels</button>
+        <button type="button" role="tab" data-tab="backup" aria-selected="false">Backup</button>
         <button type="button" role="tab" data-tab="import" aria-selected="false">Import</button>
         <button type="button" role="tab" data-tab="sources" aria-selected="false">Data sources</button>
         <button type="button" role="tab" data-tab="basemap" aria-selected="false">Basemap</button>
@@ -381,6 +382,42 @@
               <button id="label-add" type="button" class="primary">Add</button>
             </div>
             <p id="label-message" class="status-line" hidden></p>
+          </section>
+        </div>
+
+        <div class="tab-panel" data-tab="backup" hidden>
+          <section>
+            <h2>Export</h2>
+            <p class="hint">
+              Everything worth keeping, as one file: the event log, your pins,
+              labels and folders, and how the map is set to look. Not the tiles
+              or the blobs — those are rebuilt from the events, byte for byte —
+              and not the basemap, which the other instance can fetch itself.
+              Your API token stays behind too; it belongs to this server.
+            </p>
+            <p id="export-message" class="status-line" hidden></p>
+            <button id="export-start" type="button" class="wide primary">
+              Download a backup
+            </button>
+          </section>
+
+          <section>
+            <h2>Import</h2>
+            <p class="hint">
+              Merges a backup into this instance. Nothing is deleted and nothing
+              is overwritten — importing the same file twice changes nothing the
+              second time. Afterwards the map is redrawn, which on a large
+              archive takes a few minutes.
+            </p>
+            <input id="backup-file" type="file" accept=".irfaran,.zip" hidden />
+            <p id="backup-import-message" class="status-line" hidden></p>
+            <div class="progress-row" id="backup-progress-row" hidden>
+              <progress id="backup-progress" max="100" value="0"></progress>
+              <p id="backup-progress-text" class="progress-text"></p>
+            </div>
+            <button id="backup-import-start" type="button" class="wide">
+              Choose a backup file
+            </button>
           </section>
         </div>
 
@@ -594,6 +631,13 @@
             <button id="setup-known-skip" type="button">Just look at the map</button>
           </div>
         </section>
+
+        <p id="setup-restore-row" class="hint" hidden>
+          Moving from another instance?
+          <button id="setup-restore" type="button" class="linky">
+            Restore from a backup
+          </button>
+        </p>
 
         <button id="setup-skip" type="button" class="linky">
           Continue without a basemap

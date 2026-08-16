@@ -241,9 +241,24 @@ def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
     conn.execute("COMMIT")
 
 
+# Settings that are never handed out.
+#
+# The settings table is the obvious place to keep the API token, and
+# /api/settings and /api/meta are both readable without one - so anything
+# secret in here walks straight out of an endpoint that has no reason to
+# refuse anybody. Filtered at the source rather than at each caller, because
+# the next caller will not remember. tokens.py reads the row directly, which
+# is the one place that should.
+SECRET_SETTINGS = frozenset({"api_token"})
+
+
 def get_settings(conn: sqlite3.Connection) -> dict[str, str]:
     rows = conn.execute("SELECT key, value FROM settings ORDER BY key").fetchall()
-    return {row["key"]: row["value"] for row in rows}
+    return {
+        row["key"]: row["value"]
+        for row in rows
+        if row["key"] not in SECRET_SETTINGS
+    }
 
 
 def path_of(conn: sqlite3.Connection) -> str:

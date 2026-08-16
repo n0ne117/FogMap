@@ -11,6 +11,20 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.11.0] - 2026-08-16
+
+Take your archive somewhere else.
+
+### Added
+- **Export and import**, under Settings → Backup, and offered on the setup screen of an instance that has nothing in it yet.
+- An export is one file holding only what cannot be derived: the event log, pins, labels, folders, and how the map is set to look. No blobs, no tiles — those are rebuilt from the events on arrival, byte for byte, which is what invariant 1 has always promised. No basemap either: it is 137 GB of public map data the other instance can fetch for itself. A 1,244-event archive came to 5 MB.
+- Import merges rather than replaces. Nothing is deleted, nothing is overwritten, and importing the same file twice changes nothing the second time — tracks already carrying a dedup key keep it, and hand-drawn events get one derived from the export they arrived in. Afterwards the map redraws with a progress readout, the same as a bulk import.
+
+### Fixed
+- **`/api/settings` and `/api/meta` were also serving the API token.** 0.10.5 stopped `/api/setup` handing it out; the token lives in the settings table, and both of those endpoints return the settings table without asking for anything. It is now filtered at the source, so the next endpoint to read settings cannot leak it by forgetting. `tokens.py` reads the row directly, which is the one place that should.
+
+Three things deliberately stay behind in an export: the API token, which belongs to the server rather than the archive; setup state, because the new instance has its own first run; and pending render work, which is about tiles that are not travelling.
+
 ## [0.10.5] - 2026-08-16
 
 ### Fixed

@@ -455,6 +455,20 @@ docker compose -f docker-compose.prod.yml up -d</code></pre>
         silently changes version when it pulls is a host nobody can debug.
       </p>
 
+      <h2>Moving to another machine</h2>
+      <p>
+        Settings → Backup exports one file with everything that cannot be derived: the
+        event log, pins, labels, folders, and how the map is set to look. Not the tiles or
+        the blobs — those are rebuilt from the events, byte for byte — and not the basemap,
+        which the new instance can fetch itself. A 1,244-event archive is about 5 MB.
+      </p>
+      <p>
+        Import merges rather than replaces: nothing is deleted, nothing is overwritten, and
+        importing the same file twice changes nothing the second time. A fresh instance
+        offers it on the setup screen. Your API token stays behind — it belongs to the
+        server, not to the archive.
+      </p>
+
       <h2>The API token</h2>
       <p>
         Reading the map needs nothing. Changing anything — drawing, pins, imports, the data

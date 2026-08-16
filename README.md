@@ -207,6 +207,19 @@ Treat HA as ambient coverage — "I was in this city, this neighbourhood" — no
 - **Use a hostname reachable from the tracker**, not `localhost`. If Irfaran and HA both run in containers on one host, use the LAN address or a shared Docker network alias.
 - **Token.** Every live endpoint needs the shared token as `X-Irfaran-Token`. Overland cannot send arbitrary headers, so it may use its own `Authorization: Bearer <token>` instead — both are accepted on that endpoint.
 
+## Moving to another machine
+
+Settings → Backup exports one file holding everything that cannot be derived: the event
+log, pins, labels, folders, and how the map is set to look. Not the blobs or tiles —
+those are rebuilt from the events, byte for byte — and not the basemap, which is public
+map data the new instance can fetch itself. A 1,244-event archive is about 5 MB.
+
+Import merges rather than replaces: nothing is deleted, nothing is overwritten, and
+importing the same file twice changes nothing the second time. A fresh instance offers
+it right on the setup screen.
+
+Your API token does not travel. It belongs to the server, not to the archive.
+
 ## Backups
 
 Almost everything in the data directory is derived and disposable. Back up the small part and let the rest rebuild.

@@ -29,6 +29,7 @@ from irfaran import (  # noqa: I001
     raster,
     settings_env,
     tokens,
+    transfer,
 )
 from irfaran.ingest import common, gpx, live, tcx
 
@@ -612,6 +613,82 @@ def _render_views(
     composite.write_placeholders(root, conn)
     scope = None if touched is None else composite.rebuild_scope(touched)
     composite.render_views(conn, root, views, scope=scope)
+
+
+@app.get("/api/export")
+def export_archive(
+    request: Request, conn: sqlite3.Connection = Depends(get_conn)
+) -> Response:
+    """Everything worth keeping, as one file.
+
+    Token-guarded by hand. The middleware only gates writes, and this is a GET
+    - but it hands over the entire history of where somebody has been, which
+    is the most sensitive thing here by a distance.
+    """
+    failure = token_error(request)
+    if failure is not None:
+        raise HTTPException(status_code=failure[0], detail=failure[1])
+
+    name = transfer.export_name()
+    return Response(
+        content=transfer.export_bytes(conn),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
+@app.post("/api/import")
+async def import_archive(
+    file: UploadFile, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    """Merge an export into this instance.
+
+    Additive: nothing is deleted, nothing is overwritten, and importing the
+    same file twice changes nothing the second time. The tiles it affects are
+    marked as owing a render rather than rendered here, because on a real
+    archive that is minutes of work and no HTTP request should be held open
+    for it.
+    """
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{file.filename or 'That file'} is empty. Nothing was imported.",
+        )
+
+    return await run_in_threadpool(_import_now, conn, payload)
+
+
+def _import_now(conn: sqlite3.Connection, payload: bytes) -> dict[str, object]:
+    """The import itself, off the event loop - it rasterises as it goes."""
+    try:
+        with db.transaction(conn):
+            before = _highest_event_id(conn)
+            result = transfer.import_archive(conn, payload)
+
+            touched: set[tuple[int, int]] = set()
+            for row in conn.execute(
+                "SELECT * FROM events WHERE id > ? ORDER BY id", (before,)
+            ):
+                touched |= raster.stamp_event(conn, row)
+
+            db.defer_render(conn, touched)
+    except transfer.TransferError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"That export could not be read ({exc}).",
+        ) from exc
+
+    result["tiles_touched"] = len(touched)
+    result["render_pending"] = len(db.pending_render(conn))
+    return result
+
+
+def _highest_event_id(conn: sqlite3.Connection) -> int:
+    row = conn.execute("SELECT COALESCE(MAX(id), 0) AS top FROM events").fetchone()
+    return int(row["top"])
 
 
 @app.get("/api/render")

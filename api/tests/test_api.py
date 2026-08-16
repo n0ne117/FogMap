@@ -296,3 +296,166 @@ class TestSetupRevealsTheTokenOnce:
             body = client.get("/api/setup").json()
             assert body["token"]["source"] == "environment"
             assert "value" not in body["token"]
+
+
+class TestExportImport:
+    """Only truth travels, and arriving twice changes nothing the second time."""
+
+    @pytest.fixture
+    def source(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("IRFARAN_TOKEN", "source-token")
+        monkeypatch.setenv("IRFARAN_DATA_DIR", str(tmp_path / "source"))
+        with TestClient(app) as client:
+            client.post(
+                "/api/events",
+                headers={"X-Irfaran-Token": "source-token"},
+                json={
+                    "op": "add",
+                    "geometry": {
+                        "type": "LineString",
+                        "coordinates": [[0.5, 0.3], [0.502, 0.3], [0.504, 0.3]],
+                    },
+                    "radius_m": 20,
+                },
+            )
+            client.post(
+                "/api/labels",
+                headers={"X-Irfaran-Token": "source-token"},
+                json={"name": "Home", "colour": "#402030"},
+            )
+            client.post(
+                "/api/folders",
+                headers={"X-Irfaran-Token": "source-token"},
+                json={"name": "Austria"},
+            )
+            client.post(
+                "/api/places",
+                headers={"X-Irfaran-Token": "source-token"},
+                json={"name": "A place", "lat": 0.3, "lon": 0.5},
+            )
+            yield client
+
+    def archive(self, client) -> bytes:
+        response = client.get("/api/export", headers={"X-Irfaran-Token": "source-token"})
+        assert response.status_code == 200
+        assert response.headers["content-disposition"].endswith('.irfaran"')
+        return response.content
+
+    def test_export_needs_a_token(self, source):
+        """It is the whole history of where somebody has been."""
+        assert source.get("/api/export").status_code == 401
+
+    def test_the_archive_carries_truth_and_leaves_the_rest(self, source):
+        import zipfile, io, json
+
+        archive = zipfile.ZipFile(io.BytesIO(self.archive(source)))
+        names = set(archive.namelist())
+        assert {"manifest.json", "events.ndjson", "places.json"} <= names
+        assert not any("blob" in name or "tile" in name for name in names)
+
+        settings = json.loads(archive.read("settings.json"))
+        assert "api_token" not in settings
+        assert "setup_completed" not in settings
+        assert "pending_render_kinds" not in settings
+
+    def test_a_new_instance_ends_up_with_the_same_archive(
+        self, source, monkeypatch, tmp_path
+    ):
+        payload = self.archive(source)
+        before = source.get("/api/meta").json()["counts"]
+
+        monkeypatch.setenv("IRFARAN_TOKEN", "target-token")
+        monkeypatch.setenv("IRFARAN_DATA_DIR", str(tmp_path / "target"))
+        with TestClient(app) as target:
+            assert target.get("/api/meta").json()["counts"]["events"] == 0
+
+            result = target.post(
+                "/api/import",
+                headers={"X-Irfaran-Token": "target-token"},
+                files={"file": ("backup.irfaran", payload, "application/zip")},
+            )
+            assert result.status_code == 200, result.text
+            assert result.json()["added"]["events"] == before["events"]
+
+            after = target.get("/api/meta").json()["counts"]
+            assert after["events"] == before["events"]
+            assert after["places"] == before["places"]
+
+    def test_importing_twice_adds_nothing(self, source, monkeypatch, tmp_path):
+        payload = self.archive(source)
+        monkeypatch.setenv("IRFARAN_TOKEN", "target-token")
+        monkeypatch.setenv("IRFARAN_DATA_DIR", str(tmp_path / "twice"))
+
+        with TestClient(app) as target:
+            head = {"X-Irfaran-Token": "target-token"}
+            first = target.post(
+                "/api/import", headers=head,
+                files={"file": ("b.irfaran", payload, "application/zip")},
+            ).json()
+            second = target.post(
+                "/api/import", headers=head,
+                files={"file": ("b.irfaran", payload, "application/zip")},
+            ).json()
+
+            assert first["added"]["events"] > 0
+            assert second["added"]["events"] == 0
+            assert second["skipped"]["events"] == first["added"]["events"]
+            assert second["added"]["places"] == 0
+            assert second["added"]["folders"] == 0
+
+    def test_the_token_does_not_travel(self, source, monkeypatch, tmp_path):
+        payload = self.archive(source)
+        monkeypatch.setenv("IRFARAN_TOKEN", "target-token")
+        monkeypatch.setenv("IRFARAN_DATA_DIR", str(tmp_path / "notoken"))
+
+        with TestClient(app) as target:
+            target.post(
+                "/api/import",
+                headers={"X-Irfaran-Token": "target-token"},
+                files={"file": ("b.irfaran", payload, "application/zip")},
+            )
+            # The source's token must not work here.
+            assert target.patch(
+                "/api/settings",
+                headers={"X-Irfaran-Token": "source-token"},
+                json={"ui_theme": "dark"},
+            ).status_code == 401
+
+    def test_import_needs_a_token(self, source):
+        assert source.post(
+            "/api/import",
+            files={"file": ("b.irfaran", b"nonsense", "application/zip")},
+        ).status_code == 401
+
+    def test_something_that_is_not_an_export_is_refused_by_name(self, source):
+        response = source.post(
+            "/api/import",
+            headers={"X-Irfaran-Token": "source-token"},
+            files={"file": ("holiday.jpg", b"not a zip at all", "image/jpeg")},
+        )
+        assert response.status_code == 400
+        assert "not an Irfaran export" in response.json()["detail"]
+
+    def test_an_empty_file_is_refused_by_name(self, source):
+        response = source.post(
+            "/api/import",
+            headers={"X-Irfaran-Token": "source-token"},
+            files={"file": ("empty.irfaran", b"", "application/zip")},
+        )
+        assert response.status_code == 400
+        assert "empty" in response.json()["detail"]
+
+    def test_a_zip_from_something_else_is_refused_by_name(self, source):
+        import zipfile, io
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as other:
+            other.writestr("holiday.txt", "not ours")
+
+        response = source.post(
+            "/api/import",
+            headers={"X-Irfaran-Token": "source-token"},
+            files={"file": ("other.zip", buffer.getvalue(), "application/zip")},
+        )
+        assert response.status_code == 400
+        assert "manifest.json" in response.json()["detail"]
