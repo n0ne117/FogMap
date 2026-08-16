@@ -420,7 +420,7 @@ IRFARAN_BASEMAP_HOST=/mnt/user/maps/irfaran</code></pre>
           paths:</li>
       </ol>
 
-      <pre><code>IRFARAN_IMAGE_TAG=0.10.4
+      <pre><code>IRFARAN_IMAGE_TAG=0.11.0
 IRFARAN_TOKEN=
 IRFARAN_DATA_HOST=/mnt/user/appdata/irfaran
 IRFARAN_BASEMAP_HOST=/mnt/user/maps/irfaran
@@ -452,7 +452,10 @@ IRFARAN_WEB_PORT=8080</code></pre>
 docker compose -f docker-compose.prod.yml up -d</code></pre>
       <p>
         Always pin <code>IRFARAN_IMAGE_TAG</code> to an explicit version. A host that
-        silently changes version when it pulls is a host nobody can debug.
+        silently changes version when it pulls is a host nobody can debug. The current
+        release is shown on the
+        <a href="https://github.com/n0ne117/Irfaran/releases">releases page</a>; start on
+        the newest one.
       </p>
 
       <h2>Moving to another machine</h2>
