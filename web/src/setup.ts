@@ -13,7 +13,7 @@ import {
   getToken,
   setToken,
 } from './api'
-import { element } from './ui'
+import { copyText, element } from './ui'
 
 /** Whatever the interface theme is set to, so the check writes back a no-op. */
 function getUiThemeSetting(): string {
@@ -185,13 +185,7 @@ export class Setup {
     })
 
     element('setup-token-copy').addEventListener('click', () => {
-      const button = element('setup-token-copy')
-      void navigator.clipboard
-        ?.writeText(element('setup-token-value').textContent ?? '')
-        .then(() => {
-          button.textContent = 'Copied'
-          window.setTimeout(() => (button.textContent = 'Copy'), 2000)
-        })
+      void this.copyToken()
     })
 
     // The already-set-up screen: this browser has to be given the token,
@@ -206,6 +200,38 @@ export class Setup {
     element('setup-known-skip').addEventListener('click', () => {
       void this.finish()
     })
+  }
+
+  /** Copy the token to the clipboard, on plain http as well.
+   *
+   * navigator.clipboard only exists in a secure context, which a self-hosted
+   * box reached at http://tower:8080 is not. The button used to optional-chain
+   * straight past that and do nothing whatsoever - no copy, no complaint - on
+   * exactly the setup this project is built for. The token is shown once, so
+   * silently failing to copy it is about the worst moment for it.
+   */
+  private async copyToken(): Promise<void> {
+    const button = element('setup-token-copy')
+    const token = element('setup-token-value').textContent ?? ''
+    const say = (message: string): void => {
+      button.textContent = message
+      window.setTimeout(() => (button.textContent = 'Copy'), 2500)
+    }
+
+    if (await copyText(token)) {
+      say('Copied')
+      return
+    }
+
+    // Nothing could write to the clipboard, so the token is selected instead
+    // and Ctrl+C finishes the job. Better than "Copy" quietly doing nothing
+    // and the token scrolling away unread.
+    const range = document.createRange()
+    range.selectNodeContents(element('setup-token-value'))
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    say('Selected — press Ctrl+C')
   }
 
   /**
@@ -295,8 +321,11 @@ export class Setup {
   private async start(): Promise<void> {
     const custom = element<HTMLInputElement>('setup-custom').value.trim()
     const url = custom || element<HTMLSelectElement>('setup-url').value
-    setToken(element<HTMLInputElement>('setup-token').value.trim())
 
+    // No token is read here. This screen used to have a field to type one
+    // into; it now shows the token the server generated, and refresh() adopts
+    // that for us. Reading a field that no longer exists threw before the
+    // request was ever sent, which killed every button routing through here.
     this.say('')
     try {
       // The offered builds need no token; a custom URL does, and the
@@ -495,3 +524,4 @@ export class Setup {
     }
   }
 }
+

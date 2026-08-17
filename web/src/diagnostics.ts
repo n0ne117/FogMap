@@ -8,7 +8,7 @@ import type { Map as MapLibreMap } from 'maplibre-gl'
 
 import { glyphsUrl, spriteUrl } from './map'
 import type { MapTheme } from './theme'
-import { element } from './ui'
+import { copyText, element } from './ui'
 
 const BASEMAP_SOURCE = 'protomaps'
 const FOG_LAYER = 'irfaran-fog'
@@ -255,7 +255,11 @@ export function wireDiagnostics(
     refresh()
   })
   element('diagnostics-copy').addEventListener('click', () => {
-    void navigator.clipboard?.writeText(box.textContent ?? '')
+    const button = element('diagnostics-copy')
+    void copyText(box.textContent ?? '').then((ok) => {
+      button.textContent = ok ? 'Copied' : 'Select it by hand'
+      window.setTimeout(() => (button.textContent = 'Copy'), 2500)
+    })
   })
 
   map.on('load', refresh)

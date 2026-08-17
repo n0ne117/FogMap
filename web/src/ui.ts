@@ -148,3 +148,40 @@ export function wireTokenField(onChange: () => void): void {
   })
   paint()
 }
+
+/** Copy text to the clipboard, including over plain http.
+ *
+ * navigator.clipboard exists only in a secure context. A self-hosted instance
+ * reached at http://tower:8080 is not one, and that is the normal case for
+ * this project - so the modern API is tried, and execCommand catches the rest.
+ * Deprecated, universally implemented, and the only thing that works there.
+ *
+ * Returns whether it worked, because a copy button that lies is worse than one
+ * that admits it and lets you select the text yourself.
+ */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // No permission, or an origin holding the object without the right to use
+    // it. Fall through and try the old way.
+  }
+
+  const field = document.createElement('textarea')
+  field.value = text
+  field.setAttribute('readonly', '')
+  field.style.position = 'fixed'
+  field.style.top = '-1000px'
+  document.body.append(field)
+  field.select()
+  try {
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    field.remove()
+  }
+}

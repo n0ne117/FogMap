@@ -11,6 +11,18 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.11.5] - 2026-08-17
+
+### Fixed
+- The basemap download works on a fresh install. Every button that starts one — Download, Continue in the background, Resume, and Update basemap — threw before sending anything, because the handler began by reading a token field that was deleted from the page eleven releases ago when the server started generating the token itself. Nothing reached the server, so there was nothing in the logs either. "Continue without a map" was unaffected, which is why it was the only button that appeared to work.
+- The Copy button next to the generated token copies it. `navigator.clipboard` only exists in a secure context, and a self-hosted instance reached at `http://tower:8080` is not one, so on the setup this project is built for the button silently did nothing at all. It now falls back to the older clipboard call, and if even that is refused it selects the token and says to press Ctrl+C. The token is shown once, so failing quietly there was the worst possible place for it.
+- The same silent failure in Settings → Diagnostics, where Copy is how a report gets out of the browser in the first place.
+
+### Added
+- A test that every id the front end asks for exists in the markup, and that no id is used twice. Both bugs above were invisible to the type checker and to any instance where the relevant panel never appears — this one is not.
+
+The download bug survived so long because it only shows on a machine with no basemap yet. Every instance here already had one, so the buttons were never on screen to click.
+
 ## [0.11.4] - 2026-08-17
 
 ### Changed

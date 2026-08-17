@@ -32,6 +32,10 @@ FROM testdeps AS test
 COPY api/pyproject.toml ./pyproject.toml
 COPY api/irfaran ./irfaran
 COPY api/tests ./tests
+# The front end's markup and sources are read - not executed - by the test that
+# checks element() never asks for an id index.html does not have.
+COPY web/index.html ./web/index.html
+COPY web/src ./web/src
 # The release guard and the changelog it checks, so CI's gate is itself tested.
 COPY scripts ./scripts
 COPY CHANGELOG.md ./CHANGELOG.md

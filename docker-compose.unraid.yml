@@ -20,7 +20,7 @@ services:
     # CHANGE ME: pin an explicit version. The current one is on
     # https://github.com/n0ne117/Irfaran/releases - do not use latest, a host
     # that silently changes version when it pulls is a host nobody can debug.
-    image: ghcr.io/n0ne117/irfaran-api:0.11.4
+    image: ghcr.io/n0ne117/irfaran-api:0.11.5
     container_name: irfaran-api
     environment:
       IRFARAN_DATA_DIR: /data
@@ -50,7 +50,7 @@ services:
   web:
     # CHANGE ME: the same version as the api above. They are released together
     # and the app tells you when they disagree.
-    image: ghcr.io/n0ne117/irfaran-web:0.11.4
+    image: ghcr.io/n0ne117/irfaran-web:0.11.5
     container_name: irfaran-web
     depends_on:
       - api
