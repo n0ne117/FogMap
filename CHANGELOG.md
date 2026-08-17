@@ -11,6 +11,20 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.11.6] - 2026-08-17
+
+### Changed
+- Unraid uses the same `docker-compose.prod.yml` as everywhere else again. The plugin does have somewhere to put a `.env`, so the separate variable-free compose file added in 0.11.1 was solving a problem that did not exist, and has been removed.
+- The guide no longer tells you to put the basemap on the array. That advice was optimising for the wrong thing. Serving the map is not streaming, it is seeking — the browser asks for a few kilobytes at a time, roughly one request per tile, a few dozen per screenful — so seek time is the entire cost. An SSD answers in well under a millisecond, a spinning disk in about ten, and a disk unraid has spun down takes seconds before it answers at all. If the planet will not fit on fast storage, the guide now shows how to take a regional extract with `pmtiles extract` instead, which pulls one country straight out of the hosted build without downloading the rest.
+
+### Fixed
+- Fog and trail tiles are no longer re-sent to a browser that already has them. Both validators were always sent and nothing ever checked them coming back, so once the five-minute cache expired every tile on screen was downloaded again in full. They are now answered with a `304` when unchanged.
+- Unexplored ground was the worse half of that, and the half that matters: a tile with no data behind it carried no validator at all, so it could never be revalidated — and on a fog-of-war map most of any screenful is unexplored, fifty-odd placeholder tiles for every rendered one. They are now tagged by their own content, which also means the tag changes by itself when the fog colour does.
+- The fog appearing slowly was mostly not the fetch. MapLibre cross-fades raster tiles over 300 ms by default, so the tiles had arrived and were still fading. Fog is a flat wash of a single colour and has nothing for a cross-fade to smooth over, so it is now drawn as soon as it lands.
+
+### Added
+- Tests for all of it: conditional requests, placeholder tags per theme and per kind, and that a re-render or a recolour stops the old tag matching.
+
 ## [0.11.5] - 2026-08-17
 
 ### Fixed

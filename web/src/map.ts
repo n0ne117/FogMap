@@ -36,6 +36,16 @@ const TRAIL_LAYER = 'irfaran-trail'
 /** Deepest zoom the server renders fog and trail tiles at. Matches geo.MAX_Z. */
 export const MAX_RENDERED_ZOOM = 16
 
+/** How long a fog or trail tile takes to cross-fade in, in milliseconds.
+ *
+ * MapLibre's default is 300 ms, and on top of the fetch that made the fog look
+ * slow to arrive: the tiles were there, they were still fading. Fog is a flat
+ * wash of one colour, so there is nothing for a cross-fade to smooth over -
+ * it only delays the answer. Raise this if tile edges popping in while zooming
+ * bothers you more than the wait does.
+ */
+const TILE_FADE_MS = 0
+
 /**
  * How strong the trail colouring is, as a multiplier on its own fade.
  *
@@ -261,13 +271,16 @@ export function buildStyle(setup: MapSetup): StyleSpec {
         // that takes over - but not to nothing, because the raster is the only
         // thing carrying how many times a pixel was crossed, and at low
         // opacity it reads as a glow under the crisp line.
-        paint: { 'raster-opacity': heatFade() },
+        paint: { 'raster-opacity': heatFade(), 'raster-fade-duration': TILE_FADE_MS },
       },
       {
         id: FOG_LAYER,
         type: 'raster',
         source: FOG_SOURCE,
-        paint: { 'raster-opacity': getFogOpacity() },
+        paint: {
+          'raster-opacity': getFogOpacity(),
+          'raster-fade-duration': TILE_FADE_MS,
+        },
       },
       ...(setup.hasBasemap
         ? [

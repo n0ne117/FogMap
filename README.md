@@ -75,7 +75,7 @@ docker compose exec api python -m irfaran.cli selfcheck
 
 On Fedora or any SELinux-enforcing host, bind mounts need a `:z` label. The bundled compose files already have it.
 
-On unraid, use [`docker-compose.unraid.yml`](docker-compose.unraid.yml) with the Docker Compose Manager plugin. It has no `${VARIABLE}` in it at all: the plugin's stack editor gives you the compose file and, depending on the plugin version, nowhere to put a `.env`, so everything is written out in full with four marked lines to change.
+On unraid, use the Docker Compose Manager plugin with the same `docker-compose.prod.yml` as everywhere else: paste it into the stack editor and set your paths under Edit Stack, Edit .env.
 
 ### Basemap
 

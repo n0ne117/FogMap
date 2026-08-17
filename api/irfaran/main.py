@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -11,6 +12,7 @@ import shutil
 import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from email.utils import formatdate, parsedate_to_datetime
 from pathlib import Path
 from typing import Iterator
 from urllib.parse import urlparse
@@ -43,6 +45,46 @@ TOKEN_HEADER = "X-Irfaran-Token"
 LEGACY_TOKEN_HEADER = "X-FogMap-Token"
 
 TILE_CACHE_CONTROL = "public, max-age=300, must-revalidate"
+
+
+def tile_validators(path: Path) -> tuple[str, str]:
+    """An ETag and Last-Modified for a rendered tile.
+
+    Derived from the file's modification time and size, which is what changes
+    when a tile is re-rendered - and cheap, because the stat has to happen
+    anyway to know the file is there.
+    """
+    stat = path.stat()
+    tag = hashlib.md5(
+        f"{stat.st_mtime_ns}-{stat.st_size}".encode(), usedforsecurity=False
+    ).hexdigest()
+    return f'"{tag}"', formatdate(stat.st_mtime, usegmt=True)
+
+
+def unchanged(request: Request, etag: str, last_modified: str = "") -> bool:
+    """Has the client already got this exact tile?
+
+    Answering that with a 304 is the difference between a pan over old ground
+    costing a few hundred kilobytes and costing nothing. The validators were
+    always sent; nothing ever checked them coming back, so every revalidation
+    re-sent the whole PNG.
+
+    If-None-Match wins outright when present, per RFC 9110: it is exact, where
+    a date comparison has a one-second resolution and a re-render inside the
+    same second would go unnoticed.
+    """
+    if_none_match = request.headers.get("if-none-match")
+    if if_none_match:
+        candidates = {tag.strip() for tag in if_none_match.split(",")}
+        return etag in candidates or "*" in candidates
+
+    since = request.headers.get("if-modified-since")
+    if since:
+        try:
+            return parsedate_to_datetime(since) >= parsedate_to_datetime(last_modified)
+        except (TypeError, ValueError):
+            return False
+    return False
 BASEMAP_NAME = re.compile(r"^[A-Za-z0-9._-]+\.pmtiles$")
 RANGE_HEADER = re.compile(r"^bytes=(\d*)-(\d*)$")
 BASEMAP_CHUNK = 1024 * 256
@@ -81,6 +123,19 @@ def load_placeholders(app: FastAPI, conn: sqlite3.Connection) -> None:
         (theme, kind): composite.placeholder_tile(theme, kind, conn)
         for theme in composite.THEMES
         for kind in composite.KINDS
+    }
+
+    # An ETag per placeholder, taken from the bytes themselves.
+    #
+    # These are the majority of what a browser asks for - a fog-of-war map is
+    # mostly unexplored, so most of any screenful has no file behind it - and
+    # they used to go out with no validator at all, which meant every one was
+    # re-sent in full on every revalidation, forever. Hashing the content means
+    # the tag changes by itself when the fog colour does, because that is
+    # exactly when this dictionary is rebuilt.
+    app.state.placeholder_etags = {
+        key: '"%s"' % hashlib.md5(body, usedforsecurity=False).hexdigest()
+        for key, body in app.state.placeholders.items()
     }
 
 
@@ -526,18 +581,26 @@ def tile(
 
     path = composite.tile_path(tiles_root(), theme, view, kind, z, x, y)
     if path.is_file():
-        return FileResponse(
-            path,
-            media_type="image/png",
-            headers={"Cache-Control": TILE_CACHE_CONTROL},
-        )
+        etag, last_modified = tile_validators(path)
+        headers = {
+            "Cache-Control": TILE_CACHE_CONTROL,
+            "ETag": etag,
+            "Last-Modified": last_modified,
+        }
+        if unchanged(request, etag, last_modified):
+            return Response(status_code=304, headers=headers)
+        return FileResponse(path, media_type="image/png", headers=headers)
 
     # Not a miss in the usual sense. Ground nobody has visited is not missing
     # data, it is unexplored, and unexplored ground is solid fog.
+    etag = request.app.state.placeholder_etags[(theme, kind)]
+    headers = {"Cache-Control": TILE_CACHE_CONTROL, "ETag": etag}
+    if unchanged(request, etag):
+        return Response(status_code=304, headers=headers)
     return Response(
         content=request.app.state.placeholders[(theme, kind)],
         media_type="image/png",
-        headers={"Cache-Control": TILE_CACHE_CONTROL},
+        headers=headers,
     )
 
 

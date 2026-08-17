@@ -405,42 +405,67 @@ IRFARAN_BASEMAP_HOST=/mnt/user/maps/irfaran</code></pre>
       <h2 id="unraid">Unraid</h2>
       <p>
         There is no Community Applications template. Use the
-        <strong>Docker Compose Manager</strong> plugin, and the compose file written
-        for it:
-        <a href="https://github.com/n0ne117/Irfaran/blob/main/docker-compose.unraid.yml"><code>docker-compose.unraid.yml</code></a>.
+        <strong>Docker Compose Manager</strong> plugin, which runs the same Compose file as
+        everywhere else.
       </p>
-
-      <div class="note">
-        <p>
-          <strong>Why a separate file.</strong> The normal Compose files read their
-          paths, ports and version from a <code>.env</code> beside them. The plugin's
-          stack editor gives you the compose file and, depending on which version of the
-          plugin you have, nowhere to put a <code>.env</code> — so the unraid file has no
-          variables in it at all. Everything is written out in full and four marked lines
-          are yours to change.
-        </p>
-      </div>
 
       <ol>
         <li>Install <em>Docker Compose Manager</em> from Community Applications.</li>
-        <li>Create both share paths first: <code>appdata/irfaran</code> on your cache
-          pool, and a share on the array for the basemap. Set the basemap share's
-          <strong>Use cache</strong> to <strong>No</strong> — a 137 GB download onto a
-          cache pool either fills it or spends the night being moved by the mover.</li>
-        <li><strong>Docker</strong> → <strong>Compose</strong> →
-          <strong>Add New Stack</strong>, name it <code>irfaran</code>.</li>
-        <li>Cog → <strong>Edit Stack</strong> → <strong>Compose File</strong>. Paste
-          <code>docker-compose.unraid.yml</code> and change the four
-          <code>CHANGE ME</code> lines: the two image versions, the two paths, and the
-          port if 8080 is taken.</li>
-        <li><strong>Compose Up</strong>, then open <code>http://your-server:8080</code>.</li>
+        <li>Create both share paths first — see the note below on where the basemap
+          belongs. Unraid will create them on start otherwise, but on whichever disk the
+          share settings pick.</li>
+        <li><strong>Docker</strong> → <strong>Compose</strong> → <strong>Add New Stack</strong>,
+          name it <code>irfaran</code>.</li>
+        <li>Click the cog on the stack and choose <strong>Edit Stack</strong> →
+          <strong>Compose File</strong>. Paste the contents of
+          <code>docker-compose.prod.yml</code> from the repository.</li>
+        <li>Choose <strong>Edit Stack</strong> → <strong>Edit .env</strong> and set your
+          paths:</li>
+      </ol>
+
+      <pre><code>IRFARAN_IMAGE_TAG=0.11.6
+IRFARAN_TOKEN=
+IRFARAN_DATA_HOST=/mnt/user/appdata/irfaran
+IRFARAN_BASEMAP_HOST=/mnt/cache/maps/irfaran
+IRFARAN_WEB_PORT=8080</code></pre>
+
+      <ol start="6">
+        <li><strong>Compose Up</strong>. Then open
+          <code>http://your-server:8080</code>.</li>
       </ol>
 
       <p>
-        No token is set in that file on purpose — Irfaran generates one on first start and
+        Leave <code>IRFARAN_TOKEN</code> blank. Irfaran generates one on first start and
         shows it on the setup screen. To read it back later:
       </p>
       <pre><code>docker exec irfaran-api python -m irfaran.cli token</code></pre>
+
+      <div class="note">
+        <p>
+          <strong>Put the basemap on an SSD, not on the array.</strong> Reading it is not
+          streaming, it is seeking: the browser asks for a few kilobytes at a time out of a
+          137 GB file, roughly one request per map tile, so a screenful of map is a few
+          dozen random reads. An SSD answers each in well under a millisecond. A spinning
+          disk answers in about ten, and if unraid has spun it down — which it will, because
+          this file is idle whenever you are not panning the map — the first read of the day
+          waits for the disk to spin up, several seconds of nothing.
+        </p>
+        <p>
+          If that means the planet will not fit, do not put it on the array: take a smaller
+          bite of it instead. <code>pmtiles extract</code> pulls a region straight out of
+          the hosted build without downloading the rest, and a single country is normally
+          well under a gigabyte:
+        </p>
+        <pre><code>pmtiles extract https://build.protomaps.com/20260817.pmtiles austria.pmtiles \
+  --bbox=9.5,46.3,17.2,49.1</code></pre>
+        <p>
+          Save it into the basemap directory as <code>planet.pmtiles</code> — that is the
+          name Irfaran looks for, whatever is actually inside it. If you do keep the file
+          on the array, turn off
+          spin-down for that disk, and expect the map to feel slow the first time you visit
+          any new ground.
+        </p>
+      </div>
 
       <h3>Running from published images</h3>
       <p>
