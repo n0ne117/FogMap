@@ -672,10 +672,41 @@ def render_fog(
 # something that reads as heat.
 DEEP_TRAIL_SOFT_PX = 0.7
 
+# How much the trail is thickened when a tile is zoomed out, by zoom.
+#
+# Folding the pyramid upwards keeps a track one pixel wide however far out you
+# go, so at z7 a whole year of running is a few hundred lit pixels scattered
+# over nine tiles - individually at full brightness, and collectively
+# invisible. Measured on a real archive: 454 lit pixels out of 590,000.
+#
+# Thickening rather than brightening, because brightness was never the
+# problem. A dilation also keeps the counts exactly as they are, where a blur
+# would spread them and dim the middle of every line.
+#
+# Applied when the tile is drawn, never to the array handed to the level
+# above, or each level would thicken what the last one already had.
+TRAIL_GROW_PX = {11: 3, 10: 3, 9: 5, 8: 5, 7: 5, 6: 5, 5: 5, 4: 3, 3: 3}
+
+
+def trail_grow(zoom: int) -> int:
+    return TRAIL_GROW_PX.get(zoom, 0)
+
 
 def render_trail(
-    trail: np.ndarray, theme: str, ramp: str = "ember", soft_px: float = 0.0
+    trail: np.ndarray,
+    theme: str,
+    ramp: str = "ember",
+    soft_px: float = 0.0,
+    grow_px: int = 0,
 ) -> np.ndarray:
+    if grow_px > 2 and trail.any():
+        # Each pixel takes the brightest value near it, so a hairline becomes
+        # a line you can actually see without any count changing.
+        trail = np.asarray(
+            Image.fromarray(trail, mode="L").filter(ImageFilter.MaxFilter(grow_px)),
+            dtype=np.uint8,
+        )
+
     if soft_px > 0 and trail.any():
         spread = np.asarray(
             Image.fromarray(trail, mode="L").filter(
@@ -960,12 +991,14 @@ def render_shallow(
                 rgba = (
                     render_fog(fog, theme, colour=colours[theme])
                     if kind == "fog"
-                    else render_trail(trail, theme, ramp)
+                    else render_trail(trail, theme, ramp, grow_px=trail_grow(zoom))
                 )
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(encode_png(rgba))
                 written += 1
 
+        # Deliberately the untouched arrays: the level above folds these, and
+        # thickening compounds if it is baked in on the way up.
         return fog, trail
 
     build(0, 0, 0)

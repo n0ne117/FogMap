@@ -810,3 +810,52 @@ class TestPendingKinds:
         db.clear_pending_render(conn)
         assert db.pending_render(conn) == set()
         assert db.pending_kinds(conn) == ("fog", "trail")
+
+
+class TestLowZoomTrails:
+    """Folded far enough up, a track is one pixel and effectively invisible.
+
+    Measured on a real archive before this existed: 454 lit pixels at z7,
+    across nine tiles, every one of them at full brightness. Brightness was
+    never the problem - there was simply nothing there to see.
+    """
+
+    def test_zoomed_out_tiles_thicken_the_line(self):
+        trail = np.zeros((TILE, TILE), dtype=np.uint8)
+        trail[128, 40:200] = 60  # a hairline, as the pyramid produces
+
+        thin = composite.render_trail(trail, "dark")
+        thick = composite.render_trail(trail, "dark", grow_px=composite.trail_grow(7))
+
+        assert (thick[..., 3] > 0).sum() > (thin[..., 3] > 0).sum() * 2
+
+    def test_thickening_changes_no_counts(self):
+        """A dilation takes the brightest value nearby; it invents nothing."""
+        trail = np.zeros((TILE, TILE), dtype=np.uint8)
+        trail[128, 40:200] = 60
+
+        grown = composite.render_trail(trail, "dark", grow_px=5)
+        lut = composite.trail_lut("dark")
+        # Every lit pixel is exactly the colour count 60 maps to.
+        lit = grown[..., 3] > 0
+        assert np.array_equal(np.unique(grown[lit], axis=0), lut[60].reshape(1, 4))
+
+    def test_the_zooms_that_needed_it_are_the_ones_that_get_it(self):
+        assert composite.trail_grow(14) == 0, "native detail is left alone"
+        assert composite.trail_grow(12) == 0
+        for zoom in (7, 8, 9, 10):
+            assert composite.trail_grow(zoom) >= 3, f"z{zoom} was the complaint"
+
+    def test_it_is_applied_when_drawn_and_never_folded_upwards(self, seeded, tmp_path):
+        """Otherwise each level thickens what the last one already thickened."""
+        root = tmp_path / "tiles"
+        composite.render_view(seeded, root, "all", themes=("dark",))
+
+        def lit(zoom: int) -> int:
+            return sum(
+                int((np.array(Image.open(tile))[..., 3] > 0).sum())
+                for tile in root.glob(f"dark/all/trail/{zoom}/*/*.png")
+            )
+
+        # Compounding would make each level upwards grow rather than shrink.
+        assert lit(14) > lit(12)

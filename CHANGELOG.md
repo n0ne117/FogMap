@@ -11,6 +11,14 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.11.4] - 2026-08-17
+
+### Changed
+- Tracks are visible when zoomed out. Folding the pyramid upwards keeps a track one pixel wide however far out you go, so at z7 a whole archive was 454 lit pixels scattered across nine tiles — every one at full brightness, and collectively invisible. They are thickened as the tile is drawn now, from z11 outwards: z7 went from 454 lit pixels to 2,264, and coverage across z7 to z10 is in line with the closer zooms instead of a fifth of it. Brightness was never the problem, so nothing about the colouring changed, and z12 inwards is untouched.
+- The first-run screen no longer mentions the basemap when one is already installed. It used to report the size, say everything was ready, and offer to fetch a different one — a 137 GB download is not something to put a button for on the screen somebody sees before they have looked at their map even once. Settings → Basemap still has all of it. An instance with no basemap is still offered one, or a fresh install would have no way in.
+
+The thickening is applied when a tile is drawn and never folded into the level above, or each level would thicken what the last one already had.
+
 ## [0.11.3] - 2026-08-16
 
 ### Fixed

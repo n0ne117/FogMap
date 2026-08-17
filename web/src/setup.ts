@@ -184,12 +184,6 @@ export class Setup {
       void this.finish()
     })
 
-    // Someone with an archive already can still choose to fetch another.
-    element('setup-replace').addEventListener('click', () => {
-      element('setup-ready').hidden = true
-      element('setup-fetch').hidden = false
-    })
-
     element('setup-token-copy').addEventListener('click', () => {
       const button = element('setup-token-copy')
       void navigator.clipboard
@@ -452,13 +446,14 @@ export class Setup {
     }
 
     // An archive already on disk means there is nothing to do here but leave.
+    // No size, no "everything is ready", and no offer of another one: a
+    // 137 GB download is not something to put a button for on the screen
+    // somebody sees before they have looked at their map even once. Settings,
+    // Basemap still has all of it for anyone who actually wants to swap.
     const settled = basemap.present && !running
     element('setup-ready').hidden = !settled
     if (settled) {
       element('setup-fetch').hidden = true
-      element('setup-ready-text').textContent =
-        `A basemap is already installed, ${formatBytes(basemap.bytes)}. ` +
-        'Everything is ready.'
     } else if (element('setup-ready').hidden) {
       element('setup-fetch').hidden = false
     }
