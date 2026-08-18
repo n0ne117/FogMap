@@ -1288,3 +1288,41 @@ button:disabled {
 .token-field button {
   flex: 0 0 auto;
 }
+
+/* ------------------------------------------------------------------- notices */
+
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.notice-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.notice-progress {
+  flex: 0 0 7rem;
+  width: 7rem;
+  height: 0.35rem;
+  accent-color: var(--accent);
+}
+
+/* Only ever shown on bad news, so it can afford to be quiet until hovered. */
+.notice-close {
+  flex: 0 0 auto;
+  padding: 0 0.25rem;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.65;
+}
+
+.notice-close:hover,
+.notice-close:focus-visible {
+  opacity: 1;
+}

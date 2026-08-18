@@ -230,6 +230,97 @@ export function wireTokenField(onChange: () => void): void {
   paint()
 }
 
+/**
+ * The floating notices above the timeline: draw status, trail hints, errors.
+ *
+ * They own their own markup rather than being written to directly, because a
+ * dismiss button inside a <p> is wiped the moment somebody sets textContent on
+ * it - and every writer used to do exactly that. Going through here means the
+ * button survives, and a progress bar can live in the same place.
+ *
+ * Only bad news gets a dismiss button. Good news takes itself away on a timer,
+ * and something that vanishes on its own does not need a button; something that
+ * stays until you have read it does, or it sits there covering the map.
+ */
+export interface Notice {
+  show(message: string, bad?: boolean): void
+  progress(done: number, total: number, label?: string): void
+  hide(): void
+}
+
+export function notice(id: string): Notice {
+  const host = element(id)
+
+  const text = document.createElement('span')
+  text.className = 'notice-text'
+
+  const bar = document.createElement('progress')
+  bar.className = 'notice-progress'
+  bar.hidden = true
+
+  const close = document.createElement('button')
+  close.type = 'button'
+  close.className = 'notice-close'
+  close.setAttribute('aria-label', 'Dismiss')
+  close.textContent = '\u00d7'
+  close.hidden = true
+
+  // Anything already in the markup is the initial message.
+  text.textContent = host.textContent?.trim() ?? ''
+  host.textContent = ''
+  host.append(text, bar, close)
+
+  let timer: number | undefined
+  const clearTimer = () => {
+    if (timer !== undefined) window.clearTimeout(timer)
+    timer = undefined
+  }
+
+  const hide = () => {
+    clearTimer()
+    host.hidden = true
+    bar.hidden = true
+    close.hidden = true
+  }
+
+  close.addEventListener('click', hide)
+
+  return {
+    show(message: string, bad = false): void {
+      clearTimer()
+      text.textContent = message
+      host.hidden = !message
+      host.dataset.state = bad ? 'bad' : ''
+      bar.hidden = true
+      close.hidden = !bad
+
+      // Good news clears itself; bad news waits to be dismissed.
+      if (message && !bad) {
+        timer = window.setTimeout(hide, 4000)
+      }
+    },
+
+    progress(done: number, total: number, label = ''): void {
+      clearTimer()
+      host.hidden = false
+      host.dataset.state = ''
+      close.hidden = true
+      if (label) text.textContent = label
+      bar.hidden = false
+      if (total > 0) {
+        bar.max = total
+        bar.value = done
+      } else {
+        // Nothing to divide by yet: an indeterminate bar is honest, a bar
+        // sitting at zero looks stuck.
+        bar.removeAttribute('value')
+      }
+    },
+
+    hide,
+  }
+}
+
 /** Take only the first line of a multi-line paste into a token field.
  *
  * `irfaran.cli token` prints the token on one line and where it came from on

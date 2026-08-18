@@ -771,6 +771,23 @@ def serve_basemap(request: Request, name: str) -> Response:
     )
 
 
+def _render_views_iter(
+    conn: sqlite3.Connection,
+    views: list[str],
+    touched: set[tuple[int, int]] | None = None,
+) -> Iterator[tuple[int, int]]:
+    """Re-render views, yielding (jobs done, jobs total) as it goes.
+
+    A stroke on a full archive is several seconds of rasterising into every
+    view, and the only sign of it used to be the preview refusing to vanish.
+    """
+    root = tiles_root()
+    root.mkdir(parents=True, exist_ok=True)
+    composite.write_placeholders(root, conn)
+    scope = None if touched is None else composite.rebuild_scope(touched)
+    yield from composite.render_views_iter(conn, root, views, scope=scope)
+
+
 def _render_views(
     conn: sqlite3.Connection,
     views: list[str],
@@ -1090,9 +1107,17 @@ def _views_for_layers(layers: list[str]) -> list[str]:
 
 @app.post("/api/events", status_code=201)
 def create_event(
-    payload: dict, conn: sqlite3.Connection = Depends(get_conn)
-) -> dict[str, object]:
+    payload: dict,
+    progress: bool = False,
+    conn: sqlite3.Connection = Depends(get_conn),
+):
     """Record one drawn stroke.
+
+    With `?progress=1` the response is newline-delimited JSON - a line per
+    finished unit of rendering, then a final line carrying what the plain
+    response would have returned. The browser asks for that so a stroke on a
+    large archive shows a bar rather than five silent seconds; everything else
+    gets the single JSON object it always got.
 
     A brush stroke is not a special case. It becomes a LineString event and
     goes down exactly the path a GPX import takes, which is why an erase drawn
@@ -1185,21 +1210,42 @@ def create_event(
     # from the layer it was drawn in, so every view has to be re-rendered.
     # Rendering only the erase event's own layers leaves every year view
     # showing fog that has just been rubbed out.
-    _render_views(
-        conn,
+    views = (
         composite.views_touching(conn, touched)
         if op == "erase"
-        else _views_for_layers(layers),
-        touched,
+        else _views_for_layers(layers)
     )
 
-    return {
+    result = {
         "id": event_id,
         "op": op,
         "layers": layers,
         "radius_m": radius_m,
         "tiles_touched": len(touched),
     }
+
+    if not progress:
+        _render_views(conn, views, touched)
+        return result
+
+    def report() -> Iterator[str]:
+        # Its own connection: a dependency's is closed when the handler
+        # returns, and a streaming handler returns before doing the work. The
+        # event is already committed by this point, so nothing is lost if the
+        # client hangs up part way - the tiles are simply rendered without
+        # anybody watching.
+        own = db.connect()
+        try:
+            done = total = 0
+            for done, total in _render_views_iter(own, views, touched):
+                yield json.dumps({"done": done, "total": total}) + "\n"
+            yield json.dumps({**result, "done": done, "total": total, "finished": True}) + "\n"
+        finally:
+            own.close()
+
+    return StreamingResponse(
+        report(), media_type="application/x-ndjson", status_code=201
+    )
 
 
 @app.delete("/api/events/{event_id}")

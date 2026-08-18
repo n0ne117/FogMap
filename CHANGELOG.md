@@ -11,6 +11,14 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.13.1] - 2026-08-18
+
+### Added
+- A **progress bar while a stroke is being drawn in**, in the notice above the time bar. A stroke is rasterised into every view it belongs to, which on a full archive measured 5.7 seconds — and the only sign of life was the preview refusing to disappear. `POST /api/events?progress=1` reports each finished unit of rendering and then the result; the plain response is unchanged, because the places page and everything else built on it expect one JSON object.
+- **Errors above the time bar can be dismissed.** They used to sit there until something else replaced them, which on a map means covering part of it indefinitely. Only bad news gets the button: good news clears itself after a few seconds, and something that leaves on its own does not need one.
+
+Notices now own their markup rather than being written to directly. Every writer set `textContent`, which would wipe a button inside the element — so the button lives behind a helper that cannot be clobbered, and the progress bar shares the same slot.
+
 ## [0.13.0] - 2026-08-18
 
 ### Fixed

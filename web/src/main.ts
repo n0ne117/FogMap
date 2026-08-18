@@ -61,7 +61,7 @@ import {
   type MapTheme,
   type UiTheme,
 } from './theme'
-import { element, radioGroup, Sheets, wireTabs, wireTokenField, wireZoom } from './ui'
+import { element, notice, radioGroup, Sheets, wireTabs, wireTokenField, wireZoom } from './ui'
 
 /** Named trail colour ramps, matching composite.TRAIL_RAMP_SETS. */
 type TrailRamp = 'ember' | 'ice' | 'moss' | 'mono'
@@ -207,7 +207,7 @@ function wireDrawing(
   trails: Trails,
   brush: Brush,
 ): Draw {
-  const status = element('draw-status')
+  const status = notice('draw-status')
   const hint = element('draw-hint')
   const undoButton = element<HTMLButtonElement>('draw-undo')
 
@@ -220,12 +220,10 @@ function wireDrawing(
       void trails.refresh()
       refreshUndo()
     },
-    (message, bad) => {
-      status.textContent = message
-      status.hidden = !message
-      status.dataset.state = bad ? 'bad' : ''
-      if (message && !bad) window.setTimeout(() => (status.hidden = true), 4000)
-    },
+    (message, bad) => status.show(message, bad),
+    // Rasterising a stroke into every view takes seconds on a full archive,
+    // and the only sign of it used to be the preview refusing to disappear.
+    (done, total) => status.progress(done, total, 'Drawing…'),
   )
   draw.attach()
   draw.onPreview = (points) => brush.preview(points)
@@ -366,11 +364,13 @@ async function start(): Promise<void> {
     hasBasemap,
   }
 
+  const mapError = notice('map-error')
+
   let map: MapLibreMap
   try {
     map = createMap(options)
   } catch (error) {
-    element('map-error').hidden = false
+    mapError.show('The map could not start. Check the browser console.', true)
     console.error('Irfaran could not create the map', error)
     return
   }
@@ -383,9 +383,7 @@ async function start(): Promise<void> {
     // Tiles missing at the edge of the world are normal; anything about the
     // basemap or the style is worth putting in front of someone.
     if (/pmtiles|protomaps|style|source|glyph|sprite/i.test(message)) {
-      const notice = element('map-error')
-      notice.textContent = `Map problem: ${message}`
-      notice.hidden = false
+      mapError.show(`Map problem: ${message}`, true)
     }
   })
 
@@ -483,10 +481,10 @@ async function start(): Promise<void> {
     void fogColour.load()
   })
 
+  const trailNotice = notice('trail-notice')
   const trails = new Trails(map, (message) => {
-    const notice = element('trail-notice')
-    notice.textContent = message
-    notice.hidden = !message
+    if (message) trailNotice.show(message)
+    else trailNotice.hide()
   })
   const brush = new Brush(map, element('draw-cursor'))
   const attachTrails = () => {
