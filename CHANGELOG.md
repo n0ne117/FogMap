@@ -11,6 +11,22 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.15.0] - 2026-08-18
+
+### Added
+- **Who?** on a pin. Names are registered under Settings → Places and chosen from a list, so the same person is spelled the same way on every pin and "everywhere I went with Marie" is a question that can be answered. Multiple choice, because more than one person is usually the case. Renaming somebody renames them on every pin that names them; removing somebody only stops the name being offered, and the pins that recorded them keep it.
+- **A plus on every folder row**, which makes a folder inside a folder something you can find. Nesting was always supported and the only way to reach it was a parent picker that appears while dropping a pin — so making a subfolder meant dropping a pin you did not want, choosing a parent, and pressing a button elsewhere. The plus is disabled on a folder that is already as deep as folders go, and says so.
+
+### Changed
+- **A pin is edited at the pin.** Clicking one, and choosing Edit, now shows everything — title, label, who, tags, folder, coordinates — in a panel at the pin rather than in the sidebar. Somewhere on a map is a position first and a row in a list second, and a form three hundred pixels away asks you to hold the position in your head while you type. The marker stays draggable while the form is open, so the position and the title are corrected in one gesture.
+- The settings tab called **Labels is now Places**, and holds both label and name registries. The sidebar keeps the pins.
+- **No emoji left in the interface.** The folder eye was `👁`/`🚫` and the pan tool a raised hand, both drawn by the operating system in its own colours and its own style, which is why they could never be made to match the text beside them. Replaced with line icons drawn on a 24-unit grid and stroked in `currentColor`, so they take the colour and weight of whatever they sit in and follow the theme without being told about it. The settings cog and the draw pencil went the same way.
+
+No icon library: a set is a dependency, a licence and a few hundred kilobytes for the seven glyphs this needs.
+
+### Fixed
+- Saving a pin did not refresh the map. Moving the form to the pin left the old sidebar picker code behind, still being called on every load and still asking for markup that no longer existed — so loading threw after the tree had painted, which looked like nothing wrong, and the redraw that follows a save never ran. The test that every id the front end asks for exists in the markup is what found it.
+
 ## [0.14.0] - 2026-08-18
 
 ### Added

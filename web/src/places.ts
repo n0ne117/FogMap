@@ -11,12 +11,16 @@ import { Marker, Popup } from 'maplibre-gl'
 import type { Map as MapLibreMap } from 'maplibre-gl'
 
 import { ApiError, apiGet, apiSend } from './api'
+import { icon } from './icons'
 import { element } from './ui'
 
 /** Ground a dropped pin clears, in metres. */
 export const PLACE_RADIUS_M = 30
 
 const NO_LABEL_COLOUR = '#8a8f98'
+
+/** How deep folders nest. Mirrors organise.MAX_DEPTH on the server. */
+const MAX_FOLDER_DEPTH = 2
 
 export interface Label {
   id: number
@@ -37,8 +41,14 @@ export interface Place {
   label_id: number | null
   folder_id: number | null
   tags: string[]
+  people: string[]
   lat: number
   lon: number
+}
+
+export interface Person {
+  id: number
+  name: string
 }
 
 interface PlacesResponse {
@@ -47,11 +57,17 @@ interface PlacesResponse {
   folders: Folder[]
 }
 
+interface PeopleResponse {
+  people: Person[]
+  named_on_pins: string[]
+}
+
 /** A pin being placed but not yet saved. */
 interface Pending {
   lat: number
   lon: number
   marker: Marker
+  popup?: Popup
   editing: number | null
 }
 
@@ -62,6 +78,7 @@ export class Places {
   private places: Place[] = []
   private labels: Label[] = []
   private folders: Folder[] = []
+  private roster: string[] = []
 
   private markers = new Map<number, Marker>()
   private pending: Pending | null = null
@@ -78,8 +95,6 @@ export class Places {
   wire(): void {
     element('place-drop').addEventListener('click', () => this.armDrop())
     element('folder-add').addEventListener('click', () => void this.newFolder())
-    element('place-save').addEventListener('click', () => void this.save())
-    element('place-cancel').addEventListener('click', () => this.cancel())
 
     this.map.on('click', (event) => {
       if (!this.dropping) return
@@ -95,10 +110,24 @@ export class Places {
 
   async load(): Promise<void> {
     try {
+      // The pins are the point; the roster only fills in the Who? choices. A
+      // Promise.all here meant a hiccup fetching names emptied the whole tree,
+      // which is a poor trade for a list of checkboxes.
       const body = await apiGet<PlacesResponse>('/api/places')
+      const roster = await apiGet<PeopleResponse>('/api/people').catch(
+        () => ({ people: [], named_on_pins: [] }) as PeopleResponse,
+      )
       this.places = body.places ?? []
       this.labels = body.labels ?? []
       this.folders = body.folders ?? []
+      // The registry, plus anyone named on a pin who is not on it - a name
+      // taken off the list stays on the pins that recorded it.
+      this.roster = Array.from(
+        new Set([
+          ...(roster.people ?? []).map((person) => person.name),
+          ...(roster.named_on_pins ?? []),
+        ]),
+      ).sort((a, b) => a.localeCompare(b))
       this.say('')
     } catch (error) {
       this.say(error instanceof ApiError ? error.message : String(error), true)
@@ -107,7 +136,6 @@ export class Places {
 
     this.paintTree()
     this.paintMarkers()
-    this.paintPickers()
   }
 
   // -------------------------------------------------------------- dropping
@@ -135,67 +163,204 @@ export class Places {
     // Draggable, because nobody lands on the right pixel first time.
     marker.on('dragend', () => {
       const at = marker.getLngLat()
-      if (this.pending) {
-        this.pending.lat = at.lat
-        this.pending.lon = at.lng
-        this.showCoords()
-      }
+      if (!this.pending) return
+      this.pending.lat = at.lat
+      this.pending.lon = at.lng
+      this.showCoords()
     })
 
     this.pending = { lat, lon, marker, editing: null }
-    this.openForm('New pin')
-  }
 
-  private openForm(title: string): void {
-    element('place-form-title').textContent = title
-    element('place-form').hidden = false
+    // The form opens at the pin, not in the sidebar. Somewhere on a map is a
+    // position first and a row in a list second, and a form three hundred
+    // pixels away from the thing it describes makes you hold the position in
+    // your head while you type.
+    const popup = new Popup({ offset: 26, closeOnClick: false, maxWidth: '19rem' })
+      .setDOMContent(this.formFor(null))
+    marker.setPopup(popup)
+    marker.togglePopup()
+    this.pending.popup = popup
     this.showCoords()
-    element<HTMLInputElement>('place-name').focus()
   }
 
   private showCoords(): void {
     if (!this.pending) return
-    element('place-coords').textContent =
-      `${this.pending.lat.toFixed(6)}, ${this.pending.lon.toFixed(6)} — ` +
-      `clears ${PLACE_RADIUS_M} m of fog`
+    const line = this.pending.popup
+      ?.getElement()
+      ?.querySelector<HTMLElement>('.place-coords')
+    if (line) {
+      line.textContent =
+        `${this.pending.lat.toFixed(6)}, ${this.pending.lon.toFixed(6)} — ` +
+        `clears ${PLACE_RADIUS_M} m of fog`
+    }
   }
 
   private cancel(): void {
+    const editing = this.pending?.editing ?? null
     this.pending?.marker.remove()
     this.pending = null
-    element('place-form').hidden = true
-    this.clearForm()
     this.say('')
+
+    // An edit borrowed the real pin's position, so put the pin back.
+    if (editing !== null) void this.load()
   }
 
-  private clearForm(): void {
-    element<HTMLInputElement>('place-name').value = ''
-    element<HTMLInputElement>('place-tags').value = ''
-    element<HTMLSelectElement>('place-label').value = ''
-    element<HTMLSelectElement>('place-folder').value = ''
+  /**
+   * The form for a pin, as DOM, to be shown in a popup at the pin.
+   *
+   * Built here rather than in the markup because there is one of these per pin
+   * and ids have to be unique - and because a title somebody typed goes in as
+   * text, so a place called `<script>` is a place called `<script>`.
+   */
+  private formFor(place: Place | null): HTMLElement {
+    const root = document.createElement('div')
+    root.className = 'place-popup place-form-popup'
+
+    const heading = document.createElement('h3')
+    heading.textContent = place ? 'Edit pin' : 'New pin'
+    root.append(heading)
+
+    const title = field(root, 'Title', 'input')
+    title.value = place?.name ?? ''
+    title.placeholder = "Grandparents' flat"
+
+    const label = field(root, 'Label', 'select')
+    label.append(new Option('None', ''))
+    for (const item of this.labels) label.append(new Option(item.name, String(item.id)))
+    label.value = String(place?.label_id ?? '')
+
+    const who = this.whoPicker(root, place?.people ?? [])
+
+    const tags = field(root, 'Tags', 'input')
+    tags.value = (place?.tags ?? []).join(', ')
+    tags.placeholder = 'childhood, summer'
+
+    const folder = field(root, 'Folder', 'select')
+    folder.append(new Option('Unfiled', ''))
+    for (const top of this.folders.filter((item) => item.parent_id === null)) {
+      folder.append(new Option(top.name, String(top.id)))
+      for (const child of this.folders.filter((item) => item.parent_id === top.id)) {
+        folder.append(new Option(`\u00a0\u00a0${child.name}`, String(child.id)))
+      }
+    }
+    folder.value = String(place?.folder_id ?? '')
+
+    const coords = document.createElement('p')
+    coords.className = 'place-coords hint'
+    if (place) {
+      coords.textContent = `${place.lat.toFixed(6)}, ${place.lon.toFixed(6)}`
+    }
+    root.append(coords)
+
+    const actions = document.createElement('div')
+    actions.className = 'popup-actions'
+
+    const save = document.createElement('button')
+    save.type = 'button'
+    save.className = 'primary'
+    save.textContent = 'Save'
+    save.addEventListener('click', () => {
+      void this.save({
+        name: title.value.trim(),
+        label_id: label.value || null,
+        folder_id: folder.value || null,
+        tags: tags.value,
+        people: who(),
+      })
+    })
+
+    const cancel = document.createElement('button')
+    cancel.type = 'button'
+    cancel.textContent = 'Cancel'
+    cancel.addEventListener('click', () => this.cancel())
+
+    const message = document.createElement('p')
+    message.className = 'place-popup-message status-line'
+    message.hidden = true
+
+    actions.append(save, cancel)
+    root.append(actions, message)
+
+    window.setTimeout(() => title.focus(), 0)
+    return root
   }
 
-  private async save(): Promise<void> {
+  /**
+   * Who was there: a checkbox each, because it is multiple choice.
+   *
+   * A registry rather than free text, so the same person is spelled the same
+   * way on every pin - and anyone already named on a pin appears here even if
+   * they have since been taken off the list, or they would silently vanish the
+   * next time the pin was saved.
+   */
+  private whoPicker(root: HTMLElement, chosen: string[]): () => string[] {
+    const wrap = document.createElement('div')
+    wrap.className = 'field'
+
+    const caption = document.createElement('span')
+    caption.textContent = 'Who?'
+    wrap.append(caption)
+
+    const list = document.createElement('div')
+    list.className = 'who-list'
+
+    const names = Array.from(new Set([...this.roster, ...chosen])).sort((a, b) =>
+      a.localeCompare(b),
+    )
+
+    if (!names.length) {
+      const empty = document.createElement('p')
+      empty.className = 'hint'
+      empty.textContent = 'Nobody registered yet — add names under Settings, Places.'
+      list.append(empty)
+    }
+
+    const boxes: HTMLInputElement[] = []
+    for (const name of names) {
+      const row = document.createElement('label')
+      row.className = 'check who-row'
+
+      const box = document.createElement('input')
+      box.type = 'checkbox'
+      box.value = name
+      box.checked = chosen.includes(name)
+      boxes.push(box)
+
+      const text = document.createElement('span')
+      text.textContent = name
+
+      row.append(box, text)
+      list.append(row)
+    }
+
+    wrap.append(list)
+    root.append(wrap)
+    return () => boxes.filter((box) => box.checked).map((box) => box.value)
+  }
+
+  private async save(values: {
+    name: string
+    label_id: string | null
+    folder_id: string | null
+    tags: string
+    people: string[]
+  }): Promise<void> {
     if (!this.pending) return
 
-    const name = element<HTMLInputElement>('place-name').value.trim()
-    if (!name) {
-      this.say('A pin needs a title.', true)
+    if (!values.name) {
+      this.sayInPopup('A pin needs a title.', true)
       return
     }
 
     const body = {
-      name,
+      ...values,
       lat: this.pending.lat,
       lon: this.pending.lon,
-      label_id: element<HTMLSelectElement>('place-label').value || null,
-      folder_id: element<HTMLSelectElement>('place-folder').value || null,
-      tags: element<HTMLInputElement>('place-tags').value,
       radius_m: PLACE_RADIUS_M,
     }
 
     const editing = this.pending.editing
-    this.say(editing ? 'Saving…' : 'Saving, and clearing the fog around it…')
+    this.sayInPopup(editing ? 'Saving…' : 'Saving, and clearing the fog…')
 
     try {
       if (editing) {
@@ -204,21 +369,31 @@ export class Places {
         await apiSend('POST', '/api/places', body)
       }
     } catch (error) {
-      this.say(error instanceof ApiError ? error.message : String(error), true)
+      this.sayInPopup(error instanceof ApiError ? error.message : String(error), true)
       return
     }
 
     this.pending.marker.remove()
     this.pending = null
-    element('place-form').hidden = true
-    this.clearForm()
     this.say('')
 
     await this.load()
     this.onChanged()
   }
 
-  // ---------------------------------------------------------------- markers
+  /** Say it in the popup being filled in, not three hundred pixels away. */
+  private sayInPopup(message: string, bad = false): void {
+    const line = this.pending?.popup
+      ?.getElement()
+      ?.querySelector<HTMLElement>('.place-popup-message')
+    if (!line) {
+      this.say(message, bad)
+      return
+    }
+    line.textContent = message
+    line.hidden = !message
+    line.dataset.state = bad ? 'bad' : ''
+  }
 
   private labelOf(place: Place): Label | undefined {
     return this.labels.find((label) => label.id === place.label_id)
@@ -280,6 +455,13 @@ export class Places {
       root.append(line)
     }
 
+    if (place.people.length) {
+      const who = document.createElement('div')
+      who.className = 'place-people'
+      who.textContent = `With ${place.people.join(', ')}`
+      root.append(who)
+    }
+
     const coords = document.createElement('div')
     coords.className = 'coords'
     coords.textContent = `${place.lat.toFixed(6)}, ${place.lon.toFixed(6)}`
@@ -301,14 +483,14 @@ export class Places {
 
     const edit = document.createElement('button')
     edit.type = 'button'
-    edit.textContent = 'Edit'
+    edit.append(icon('pencil', 14), text('Edit'))
     edit.addEventListener('click', () => this.edit(place))
 
     const remove = document.createElement('button')
     remove.type = 'button'
     remove.className = 'bad'
     remove.title = 'Delete this pin'
-    remove.textContent = 'Delete'
+    remove.append(icon('trash', 14), text('Delete'))
     remove.addEventListener('click', () => void this.remove(place))
 
     actions.append(edit, remove)
@@ -316,8 +498,17 @@ export class Places {
     return root
   }
 
+  /**
+   * Edit a pin where it is.
+   *
+   * The saved marker is swapped for a draggable one carrying the form, so the
+   * position can be corrected in the same gesture as the title - and so the
+   * thing being edited is the thing under the cursor rather than a row in a
+   * list on the other side of the screen.
+   */
   private edit(place: Place): void {
-    this.markers.get(place.id)?.togglePopup()
+    this.markers.get(place.id)?.remove()
+    this.markers.delete(place.id)
     this.pending?.marker.remove()
 
     const marker = new Marker({
@@ -329,20 +520,19 @@ export class Places {
 
     marker.on('dragend', () => {
       const at = marker.getLngLat()
-      if (this.pending) {
-        this.pending.lat = at.lat
-        this.pending.lon = at.lng
-        this.showCoords()
-      }
+      if (!this.pending) return
+      this.pending.lat = at.lat
+      this.pending.lon = at.lng
+      this.showCoords()
     })
 
-    this.pending = { lat: place.lat, lon: place.lon, marker, editing: place.id }
+    const popup = new Popup({ offset: 26, closeOnClick: false, maxWidth: '19rem' })
+      .setDOMContent(this.formFor(place))
+    marker.setPopup(popup)
+    marker.togglePopup()
 
-    element<HTMLInputElement>('place-name').value = place.name
-    element<HTMLInputElement>('place-tags').value = place.tags.join(', ')
-    element<HTMLSelectElement>('place-label').value = String(place.label_id ?? '')
-    element<HTMLSelectElement>('place-folder').value = String(place.folder_id ?? '')
-    this.openForm('Edit pin')
+    this.pending = { lat: place.lat, lon: place.lon, marker, editing: place.id, popup }
+    this.showCoords()
   }
 
   private async remove(place: Place): Promise<void> {
@@ -359,22 +549,34 @@ export class Places {
 
   // ------------------------------------------------------------------- tree
 
-  private async newFolder(): Promise<void> {
-    const name = window.prompt('Folder name')?.trim()
-    if (!name) return
+  /**
+   * Make a folder, optionally inside another.
+   *
+   * The parent is passed in from the row that was clicked. It used to be
+   * inferred from the pin form's folder picker, which is only on screen while a
+   * pin is being dropped - so making a subfolder meant dropping a pin you did
+   * not want, selecting a parent, and pressing a button somewhere else. Nobody
+   * was going to find that.
+   */
+  private async newFolder(parentId: number | null = null): Promise<void> {
+    const parent = parentId
+      ? this.folders.find((item) => item.id === parentId)
+      : undefined
+    const asked = parent ? `New folder inside ${parent.name}` : 'New folder'
 
-    // A folder made while another is selected goes inside it, which is the
-    // only way to make a subfolder without a second control.
-    const selected = element<HTMLSelectElement>('place-folder').value
-    const parent = selected ? this.folders.find((f) => f.id === Number(selected)) : undefined
-    const parentId = parent && parent.parent_id === null ? parent.id : null
+    const name = window.prompt(asked)?.trim()
+    if (!name) return
 
     try {
       await apiSend('POST', '/api/folders', { name, parent_id: parentId })
+      this.say(parent ? `${name} added inside ${parent.name}.` : `${name} added.`)
     } catch (error) {
       this.say(error instanceof ApiError ? error.message : String(error), true)
       return
     }
+
+    // A new subfolder is invisible if its parent happens to be collapsed.
+    if (parentId) this.collapsed.delete(parentId)
     await this.load()
   }
 
@@ -479,18 +681,35 @@ export class Places {
     const eye = document.createElement('button')
     eye.type = 'button'
     eye.dataset.action = 'visible'
-    eye.textContent = folder.visible ? '👁' : '🚫'
+    eye.append(icon(folder.visible ? 'eye' : 'eye-off'))
     eye.title = folder.visible ? 'Hide these pins' : 'Show these pins'
+    eye.setAttribute('aria-label', eye.title)
     eye.addEventListener('click', () => void this.setFolder(folder, { visible: !folder.visible }))
+
+    // A folder inside a folder was there all along and nothing said so: the
+    // only way in was the New folder button and a parent picker that looked
+    // like decoration. A plus on the row you want it under says it plainly.
+    const nest = document.createElement('button')
+    nest.type = 'button'
+    nest.dataset.action = 'nest'
+    nest.append(icon('plus'))
+    const room = depth + 1 < MAX_FOLDER_DEPTH
+    nest.title = room
+      ? `New folder inside ${folder.name}`
+      : `${folder.name} is already as deep as folders go`
+    nest.setAttribute('aria-label', nest.title)
+    nest.disabled = !room
+    nest.addEventListener('click', () => void this.newFolder(folder.id))
 
     const remove = document.createElement('button')
     remove.type = 'button'
     remove.dataset.action = 'delete'
-    remove.textContent = '×'
+    remove.append(icon('trash'))
     remove.title = 'Delete this folder'
+    remove.setAttribute('aria-label', remove.title)
     remove.addEventListener('click', () => void this.removeFolder(folder))
 
-    row.append(twist, name, count, eye, remove)
+    row.append(twist, name, count, nest, eye, remove)
     return row
   }
 
@@ -526,31 +745,44 @@ export class Places {
     return row
   }
 
-  // ---------------------------------------------------------------- pickers
-
-  private paintPickers(): void {
-    const labels = element<HTMLSelectElement>('place-label')
-    const chosenLabel = labels.value
-    labels.replaceChildren(new Option('None', ''))
-    for (const label of this.labels) labels.append(new Option(label.name, String(label.id)))
-    labels.value = chosenLabel
-
-    const folders = element<HTMLSelectElement>('place-folder')
-    const chosenFolder = folders.value
-    folders.replaceChildren(new Option('Unfiled', ''))
-    for (const folder of this.folders.filter((item) => item.parent_id === null)) {
-      folders.append(new Option(folder.name, String(folder.id)))
-      for (const child of this.folders.filter((item) => item.parent_id === folder.id)) {
-        folders.append(new Option(`  ${child.name}`, String(child.id)))
-      }
-    }
-    folders.value = chosenFolder
-  }
-
   private say(message: string, bad = false): void {
     const line = element('place-message')
     line.textContent = message
     line.hidden = !message
     line.dataset.state = bad ? 'bad' : ''
   }
+}
+
+/**
+ * One labelled control inside a popup form.
+ *
+ * Returns the input so the caller can fill and read it, which keeps the form
+ * building linear instead of a pile of createElement calls.
+ */
+function field(root: HTMLElement, caption: string, kind: 'input'): HTMLInputElement
+function field(root: HTMLElement, caption: string, kind: 'select'): HTMLSelectElement
+function field(
+  root: HTMLElement,
+  caption: string,
+  kind: 'input' | 'select',
+): HTMLInputElement | HTMLSelectElement {
+  const wrap = document.createElement('label')
+  wrap.className = 'field'
+
+  const text = document.createElement('span')
+  text.textContent = caption
+
+  const control = document.createElement(kind) as HTMLInputElement | HTMLSelectElement
+  if (kind === 'input') (control as HTMLInputElement).type = 'text'
+
+  wrap.append(text, control)
+  root.append(wrap)
+  return control
+}
+
+/** A label beside an icon inside a button. */
+function text(caption: string): HTMLSpanElement {
+  const span = document.createElement('span')
+  span.textContent = caption
+  return span
 }

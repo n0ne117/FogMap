@@ -44,7 +44,7 @@ Delete both caches, run a rebuild, get byte-identical output. That means the who
 - Per-year subdivision maps plus a cumulative all-time view
 - Manual tools: draw a route, clear fog without claiming one, enclose an area and clear all of it, or erase fog wrongly cleared by GPS drift
 - Freehand and point-to-point route drawing for pre-digital history
-- Pins with titles, colour-coded labels, tags and nested folders, each clearing the fog around it
+- Pins with titles, colour-coded labels, tags, who you were with, and nested folders, each clearing the fog around it
 - Independent light/dark themes for the interface and the map
 
 ## Quick start
@@ -233,7 +233,7 @@ Treat HA as ambient coverage — "I was in this city, this neighbourhood" — no
 ## Moving to another machine
 
 Settings → Backup exports one file holding everything that cannot be derived: the event
-log, pins, labels, folders, and how the map is set to look. Not the blobs or tiles —
+log, pins, labels, folders, who-was-there names, and how the map is set to look. Not the blobs or tiles —
 those are rebuilt from the events, byte for byte — and not the basemap, which is public
 map data the new instance can fetch itself. A 1,244-event archive is about 5 MB.
 

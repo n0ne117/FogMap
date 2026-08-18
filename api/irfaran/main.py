@@ -1677,6 +1677,56 @@ def remove_label(
         ) from exc
 
 
+@app.get("/api/people")
+def get_people(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, object]:
+    """The registry, and every name actually used on a pin.
+
+    Both, because they can differ: a name taken off the list stays on the pins
+    that recorded it, and a pin restored from an older backup may name somebody
+    who was never registered here.
+    """
+    return {"people": organise.people(conn), "named_on_pins": places.people(conn)}
+
+
+@app.post("/api/people", status_code=201)
+def post_person(
+    payload: dict, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    try:
+        with db.transaction(conn):
+            return organise.create_person(conn, payload)
+    except organise.OrganiseError as exc:
+        raise _organise_error(exc) from exc
+
+
+@app.patch("/api/people/{person_id}")
+def patch_person(
+    person_id: int, payload: dict, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    try:
+        with db.transaction(conn):
+            return organise.update_person(conn, person_id, payload)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404, detail=f"Nobody on the list with id {person_id}."
+        ) from exc
+    except organise.OrganiseError as exc:
+        raise _organise_error(exc) from exc
+
+
+@app.delete("/api/people/{person_id}")
+def remove_person(
+    person_id: int, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    try:
+        with db.transaction(conn):
+            return organise.delete_person(conn, person_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404, detail=f"Nobody on the list with id {person_id}."
+        ) from exc
+
+
 @app.get("/api/folders")
 def get_folders(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, object]:
     return {"folders": organise.folders(conn)}

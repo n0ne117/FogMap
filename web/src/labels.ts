@@ -8,6 +8,7 @@
 // the constantly-used one.
 
 import { ApiError, apiGet, apiSend } from './api'
+import { icon } from './icons'
 import { element } from './ui'
 import type { Label } from './places'
 
@@ -131,8 +132,9 @@ export class Labels {
 
       const remove = document.createElement('button')
       remove.type = 'button'
-      remove.textContent = '×'
+      remove.append(icon('trash'))
       remove.title = `Delete ${label.name}`
+      remove.setAttribute('aria-label', remove.title)
       remove.addEventListener('click', () => void this.remove(label))
 
       row.append(colour, name, remove)

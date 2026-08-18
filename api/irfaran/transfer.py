@@ -31,7 +31,7 @@ MANIFEST = "manifest.json"
 SUFFIX = ".irfaran"
 
 EVENTS = "events.ndjson"
-TABLES = ("places", "labels", "folders")
+TABLES = ("places", "labels", "folders", "people")
 
 # Settings worth carrying: how the map looks, and how imports behave. Not the
 # token, not setup state, and not which live trackers are switched on - that
@@ -183,10 +183,11 @@ def import_archive(
     head = json.loads(archive.read(MANIFEST))
     origin = str(head.get("exported_at", "unknown"))
 
-    added = {"events": 0, "places": 0, "labels": 0, "folders": 0, "settings": 0}
+    added = {"events": 0, "places": 0, "labels": 0, "folders": 0, "people": 0, "settings": 0}
     skipped = {"events": 0}
 
     labels = _merge_named(conn, archive, "labels", added)
+    _merge_people(conn, archive, added)
     folders = _merge_folders(conn, archive, labels, added)
 
     if EVENTS in archive.namelist():
@@ -260,6 +261,31 @@ def _merge_named(
         mapping[int(row["id"])] = int(cursor.lastrowid)
         added[table] += 1
     return mapping
+
+
+def _merge_people(
+    conn: sqlite3.Connection, archive: zipfile.ZipFile, added: dict
+) -> None:
+    """Merge the who-was-there registry by name.
+
+    No id mapping, unlike labels and folders: a place stores the names
+    themselves, so nothing points at a row here and the ids need not survive
+    the journey.
+    """
+    if "people.json" not in archive.namelist():
+        return
+
+    for row in json.loads(archive.read("people.json")):
+        name = str(row.get("name", "")).strip()
+        if not name:
+            continue
+        existing = conn.execute(
+            "SELECT id FROM people WHERE name = ? COLLATE NOCASE", (name,)
+        ).fetchone()
+        if existing:
+            continue
+        conn.execute("INSERT INTO people (name) VALUES (?)", (name,))
+        added["people"] += 1
 
 
 def _merge_folders(

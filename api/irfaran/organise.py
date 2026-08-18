@@ -8,6 +8,7 @@ a person can find their way around rather than a field of identical dots.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 
 from irfaran import composite
@@ -101,6 +102,97 @@ def delete_label(conn: sqlite3.Connection, label_id: int) -> dict[str, object]:
     conn.execute("UPDATE places SET label_id = NULL WHERE label_id = ?", (label_id,))
     conn.execute("DELETE FROM labels WHERE id = ?", (label_id,))
     return label_as_dict(row)
+
+
+# ------------------------------------------------------------------- people
+
+
+def person_as_dict(row: sqlite3.Row) -> dict[str, object]:
+    return {"id": row["id"], "name": row["name"]}
+
+
+def people(conn: sqlite3.Connection) -> list[dict[str, object]]:
+    rows = conn.execute("SELECT * FROM people ORDER BY name COLLATE NOCASE")
+    return [person_as_dict(row) for row in rows]
+
+
+def create_person(conn: sqlite3.Connection, payload: dict) -> dict[str, object]:
+    name = _name(payload, "person")
+    try:
+        cursor = conn.execute("INSERT INTO people (name) VALUES (?)", (name,))
+    except sqlite3.IntegrityError:
+        raise OrganiseError(f"{name} is already on the list.") from None
+
+    row = conn.execute(
+        "SELECT * FROM people WHERE id = ?", (cursor.lastrowid,)
+    ).fetchone()
+    return person_as_dict(row)
+
+
+def update_person(
+    conn: sqlite3.Connection, person_id: int, payload: dict
+) -> dict[str, object]:
+    """Rename someone, on the list and on every pin that names them.
+
+    A place stores names rather than ids, so a rename that stopped at this
+    table would leave the pins calling somebody by a name the list no longer
+    offers - which looks exactly like data loss and is worse than not being
+    able to rename at all.
+    """
+    existing = conn.execute(
+        "SELECT * FROM people WHERE id = ?", (person_id,)
+    ).fetchone()
+    if existing is None:
+        raise KeyError(person_id)
+
+    name = _name({**person_as_dict(existing), **payload}, "person")
+    was = str(existing["name"])
+
+    try:
+        conn.execute("UPDATE people SET name = ? WHERE id = ?", (name, person_id))
+    except sqlite3.IntegrityError:
+        raise OrganiseError(f"{name} is already on the list.") from None
+
+    if name != was:
+        _rename_on_places(conn, was, name)
+
+    row = conn.execute("SELECT * FROM people WHERE id = ?", (person_id,)).fetchone()
+    return person_as_dict(row)
+
+
+def _rename_on_places(conn: sqlite3.Connection, was: str, now: str) -> None:
+    for row in conn.execute(
+        "SELECT id, people FROM places WHERE people IS NOT NULL"
+    ).fetchall():
+        try:
+            names = json.loads(row["people"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(names, list) or was not in names:
+            continue
+
+        renamed = sorted(
+            dict.fromkeys(now if str(name) == was else str(name) for name in names)
+        )
+        conn.execute(
+            "UPDATE places SET people = ? WHERE id = ?",
+            (json.dumps(renamed), row["id"]),
+        )
+
+
+def delete_person(conn: sqlite3.Connection, person_id: int) -> dict[str, object]:
+    """Take someone off the list, and leave the pins alone.
+
+    Deliberately not a cascade. Removing a name from the list means "stop
+    offering it", not "forget who was there" - a pin that records who you were
+    somewhere with is exactly the kind of thing not to quietly delete.
+    """
+    row = conn.execute("SELECT * FROM people WHERE id = ?", (person_id,)).fetchone()
+    if row is None:
+        raise KeyError(person_id)
+
+    conn.execute("DELETE FROM people WHERE id = ?", (person_id,))
+    return person_as_dict(row)
 
 
 def _colour(raw: object) -> str:

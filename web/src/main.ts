@@ -40,7 +40,9 @@ import { Labels } from './labels'
 import { Places } from './places'
 import { estimate, runRender } from './render'
 import { Setup } from './setup'
+import { hydrateIcons } from './icons'
 import { History } from './history'
+import { People } from './people'
 import { Sources } from './sources'
 import { Trackers } from './trackers'
 import { Timeline } from './timeline'
@@ -401,6 +403,9 @@ async function start(): Promise<void> {
     if (event.key === 'Escape') sheets.close()
   })
 
+  // Static chrome that asked for an icon in the markup gets it here.
+  hydrateIcons()
+
   wireTabs('tabs')
   wireZoom(map as never)
   watchLifecycle(map)
@@ -548,6 +553,10 @@ async function start(): Promise<void> {
 
   // Loaded when the tab is first opened rather than on startup: it is a page
   // nobody has looked at yet, and a query for it is a query for nothing.
+  const people = new People(() => void places.load())
+  people.wire()
+  void people.load()
+
   const history = new History()
   history.wire()
   document

@@ -118,6 +118,22 @@ CREATE TABLE IF NOT EXISTS pending_render (
   PRIMARY KEY (x, y)
 ) WITHOUT ROWID;
 
+-- Who you were with, for the Who? field on a pin.
+--
+-- A registry rather than the truth: a place stores the names themselves, in
+-- places.people, so a pin remembers who was there even if the name is later
+-- removed from this list. This is the list to choose from, which is what makes
+-- multiple choice possible at all - free text cannot offer choices.
+--
+-- Renaming here does rewrite the name on every pin that carries it, because a
+-- registry that disagrees with the pins is worse than no registry.
+CREATE TABLE IF NOT EXISTS people (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS people_name ON people(name COLLATE NOCASE);
+
 -- What happened, for the History tab.
 --
 -- Separate from the event log, which records what entered the map and cannot

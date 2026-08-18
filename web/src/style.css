@@ -1384,3 +1384,101 @@ button:disabled {
 .history-row[data-category='manual'] .history-what { color: var(--history-manual); }
 .history-row[data-category='source'] .history-what { color: var(--history-source); }
 .history-row[data-category='system'] .history-what { color: var(--muted); }
+
+/* ------------------------------------------------------------------- icons */
+
+/* Line icons take the colour and weight of whatever they sit in, which is the
+   whole reason they replaced emoji: an emoji is drawn by the operating system
+   in its own colours and cannot be made to match the text beside it. */
+.icon {
+  display: block;
+  flex: 0 0 auto;
+}
+
+.tool-icon {
+  display: inline-flex;
+  vertical-align: -0.15em;
+}
+
+/* ------------------------------------------------------ the pin's own form */
+
+.place-form-popup .field {
+  margin: 0.4rem 0;
+}
+
+.place-form-popup .field span {
+  font-size: 0.72rem;
+}
+
+.place-form-popup input[type='text'],
+.place-form-popup select {
+  width: 100%;
+}
+
+.who-list {
+  max-height: 8rem;
+  overflow-y: auto;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 0.3rem;
+}
+
+.who-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.1rem 0;
+  font-size: 0.78rem;
+}
+
+.who-row input {
+  margin: 0;
+}
+
+.place-popup-message[data-state='bad'] {
+  color: var(--bad);
+}
+
+/* The row of buttons on a folder: nest, hide, delete. Square, quiet, and the
+   same size, because three different glyph sizes read as three different
+   kinds of thing. */
+.tree-row button[data-action] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.25rem;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.tree-row button[data-action]:hover:not(:disabled),
+.tree-row button[data-action]:focus-visible:not(:disabled) {
+  background: var(--line);
+  color: var(--fg);
+}
+
+.tree-row button[data-action]:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.tree-row button[data-action='delete']:hover {
+  color: var(--bad);
+}
+
+/* A button carrying an icon and a word keeps them on one line. */
+.popup-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.place-people {
+  margin-top: 0.15rem;
+  font-size: 0.76rem;
+}
