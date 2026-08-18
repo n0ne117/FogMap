@@ -423,11 +423,20 @@ IRFARAN_BASEMAP_HOST=/mnt/user/maps/irfaran</code></pre>
           paths:</li>
       </ol>
 
-      <pre><code>IRFARAN_IMAGE_TAG=0.12.0
+      <pre><code>IRFARAN_IMAGE_TAG=&lt;current release&gt;
 IRFARAN_TOKEN=
 IRFARAN_DATA_HOST=/mnt/user/appdata/irfaran
 IRFARAN_BASEMAP_HOST=/mnt/cache/maps/irfaran
 IRFARAN_WEB_PORT=8080</code></pre>
+
+      <p>
+        Take the version from the
+        <a href="https://github.com/n0ne117/Irfaran/releases">releases page</a> and write
+        it in full, as in <code>IRFARAN_IMAGE_TAG=0.12.0</code>. This page deliberately
+        does not print the current number, because a number written into a guide goes
+        stale without anyone noticing and then quietly pins new installs to an old
+        version.
+      </p>
 
       <ol start="6">
         <li><strong>Compose Up</strong>. Then open
