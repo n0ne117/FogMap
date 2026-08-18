@@ -74,7 +74,26 @@ def layers_for(date_from: str | None, date_to: str | None) -> list[str]:
     return [common.PREHISTORY]
 
 
-def _validate(payload: dict) -> tuple[str, str | None, list[str], float, float]:
+#: How prominent a pin is. Minor pins are drawn smaller and hidden when the
+#: map is zoomed further out than MINOR_FROM_ZOOM, which is where a hundred
+#: pins stop being information and start being confetti.
+PROMINENCE = ("major", "minor")
+
+
+def _prominence(raw: object) -> str:
+    if raw is None:
+        return "major"
+    value = str(raw).strip().lower()
+    if value not in PROMINENCE:
+        raise PlaceError(
+            f"prominence must be one of {', '.join(PROMINENCE)}, got {raw!r}."
+        )
+    return value
+
+
+def _validate(
+    payload: dict,
+) -> tuple[str, str | None, list[str], float, float, str]:
     name = str(payload.get("name", "")).strip()
     if not name:
         raise PlaceError("A place needs a name.")
@@ -103,7 +122,7 @@ def _validate(payload: dict) -> tuple[str, str | None, list[str], float, float]:
     if not -180.0 <= lon <= 180.0:
         raise PlaceError(f"Longitude {lon} is outside -180 to 180.")
 
-    return name, category, people, lat, lon
+    return name, category, people, lat, lon, _prominence(payload.get("prominence"))
 
 
 def _stamp(
@@ -199,6 +218,10 @@ def as_dict(row: sqlite3.Row) -> dict[str, object]:
         "tags": json.loads(row["tags"]) if "tags" in keys and row["tags"] else [],
         "category": row["category"],
         "people": json.loads(row["people"]) if row["people"] else [],
+        "prominence": (
+            row["prominence"] if "prominence" in row.keys() and row["prominence"]
+            else "major"
+        ),
         "date_from": row["date_from"],
         "date_to": row["date_to"],
         "lat": row["lat"],
@@ -215,7 +238,7 @@ def create(
     Returns the row, its layers, and the z14 tiles the fog-clearing touched -
     the last so the caller can render that ground rather than the whole world.
     """
-    name, category, people, lat, lon = _validate(payload)
+    name, category, people, lat, lon, prominence = _validate(payload)
     date_from = payload.get("date_from")
     date_to = payload.get("date_to")
     radius_m = float(payload.get("radius_m") or common.RADIUS_DEFAULTS_M[SOURCE])
@@ -223,8 +246,8 @@ def create(
     cursor = conn.execute(
         "INSERT INTO places "
         "(name, category, people, date_from, date_to, lat, lon, "
-        " label_id, folder_id, tags) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " label_id, folder_id, tags, prominence) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             name,
             category,
@@ -236,6 +259,7 @@ def create(
             _reference(conn, "labels", payload.get("label_id"), "label"),
             _reference(conn, "folders", payload.get("folder_id"), "folder"),
             json.dumps(_tags(payload.get("tags"))),
+            prominence,
         ),
     )
     place_id = int(cursor.lastrowid)
@@ -266,15 +290,15 @@ def update(
         raise KeyError(place_id)
 
     merged = {**as_dict(existing), **payload}
-    name, category, people, lat, lon = _validate(merged)
+    name, category, people, lat, lon, prominence = _validate(merged)
     date_from = merged.get("date_from")
     date_to = merged.get("date_to")
     radius_m = float(payload.get("radius_m") or common.RADIUS_DEFAULTS_M[SOURCE])
 
     conn.execute(
         "UPDATE places SET name = ?, category = ?, people = ?, date_from = ?, "
-        "date_to = ?, lat = ?, lon = ?, label_id = ?, folder_id = ?, tags = ? "
-        "WHERE id = ?",
+        "date_to = ?, lat = ?, lon = ?, label_id = ?, folder_id = ?, tags = ?, "
+        "prominence = ? WHERE id = ?",
         (
             name,
             category,
@@ -286,6 +310,7 @@ def update(
             _reference(conn, "labels", merged.get("label_id"), "label"),
             _reference(conn, "folders", merged.get("folder_id"), "folder"),
             json.dumps(_tags(merged.get("tags"))),
+            prominence,
             place_id,
         ),
     )

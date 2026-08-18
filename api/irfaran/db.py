@@ -261,6 +261,12 @@ MIGRATIONS = (
     ("places", "label_id", "INTEGER REFERENCES labels(id) ON DELETE SET NULL"),
     ("places", "folder_id", "INTEGER REFERENCES folders(id) ON DELETE SET NULL"),
     ("places", "tags", "TEXT"),
+    # How prominent a pin is: 'major' or 'minor'. Defaulted to major so every
+    # pin that existed before this stays exactly as prominent as it was.
+    #
+    # Not called `rank`: that is a window function in SQLite and a reserved word
+    # in enough dialects to be worth avoiding in a column name.
+    ("places", "prominence", "TEXT NOT NULL DEFAULT 'major'"),
 )
 
 

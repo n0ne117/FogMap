@@ -11,6 +11,16 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.16.0] - 2026-08-18
+
+### Added
+- **Major and minor pins.** They differ in exactly two ways: a minor pin is drawn smaller, and it stops being drawn once the map is further out than z7 — where a valley with three pins in it is one smudge rather than three facts. Everything else about them is identical. Chosen on the pin itself, next to the label. Every pin that already existed is major, and changing prominence costs nothing: it is a viewing choice, so it draws no tiles.
+- **Pins shrink as the map zooms out**, to a floor rather than to nothing: full size at z9 and closer, 0.8 at z7, down to 0.55 by z2. A marker is otherwise a fixed number of screen pixels at every zoom, which is right on a street and wrong on a continent. Measured 41 px at z14 down to 22.5 px at z2, with the tip staying on the same spot on the ground.
+
+The scale is one custom property written on the map container per zoom change and inherited by every marker, and the transform goes on the marker's child — MapLibre owns the marker's own transform and uses it for positioning. Minor pins are hidden by a container attribute rather than by removing markers, so zooming back in costs nothing.
+
+There is deliberately no transition on the scale. Zoom is already a continuous gesture, so easing on top of it adds lag — and a transition needs animation frames, which a backgrounded tab does not get, which would leave pins stuck at whatever size they were when the tab lost focus.
+
 ## [0.15.2] - 2026-08-18
 
 ### Fixed

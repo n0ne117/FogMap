@@ -1660,3 +1660,54 @@ button:disabled {
   color: var(--muted);
   font-size: 0.7rem;
 }
+
+/* --------------------------------------------------------------- pin sizing */
+
+/* A marker is a fixed number of screen pixels at every zoom, which is right on
+   a street and wrong on a continent. --pin-scale is written on the map
+   container once per zoom change and inherited by every marker under it.
+   
+   The transform goes on the marker's child, never on the marker itself:
+   MapLibre owns that element's transform and uses it to position the pin. The
+   origin is the bottom centre, which is the tip - so a shrinking pin keeps
+   pointing at the same spot on the ground.
+   
+   No transition. Zoom is already a continuous gesture, so easing the scale on
+   top of it only adds lag - and a transition needs animation frames, which a
+   backgrounded tab does not get, leaving the pin stuck at whatever size it was
+   when the tab lost focus. */
+.place-pin > * {
+  transform: scale(var(--pin-scale, 1));
+  transform-origin: 50% 100%;
+}
+
+/* Minor pins stop being drawn once shrinking alone is not enough. Hidden by a
+   container attribute rather than by removing the markers, so zooming back in
+   is instant and costs no work. */
+[data-minor-pins='hidden'] .place-pin-minor {
+  display: none;
+}
+
+/* The prominence choice in the pin form: two buttons, not a dropdown, because
+   there are exactly two and the difference is worth seeing at a glance. */
+.prominence-choice {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.prominence-choice button {
+  flex: 1 1 0;
+  padding: 0.25rem 0.3rem;
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.prominence-choice button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--fg);
+}

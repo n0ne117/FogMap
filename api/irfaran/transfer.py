@@ -341,7 +341,8 @@ def _merge_places(
         conn.execute(
             "INSERT INTO places "
             "(name, category, people, date_from, date_to, lat, lon, "
-            " label_id, folder_id, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " label_id, folder_id, tags, prominence) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 row.get("name"),
                 row.get("category"),
@@ -353,6 +354,7 @@ def _merge_places(
                 labels.get(row.get("label_id")),
                 folders.get(row.get("folder_id")),
                 row.get("tags"),
+                row.get("prominence") or "major",
             ),
         )
         added["places"] += 1

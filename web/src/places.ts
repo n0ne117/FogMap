@@ -22,6 +22,39 @@ const NO_LABEL_COLOUR = '#8a8f98'
 /** How deep folders nest. Mirrors organise.MAX_DEPTH on the server. */
 const MAX_FOLDER_DEPTH = 2
 
+/**
+ * The zoom at which minor pins stop being drawn.
+ *
+ * Further out than this, pins outnumber the ground they are marking: a valley
+ * with three of them is a single smudge, and the ones worth seeing from that
+ * height are the few that were marked major.
+ */
+const MINOR_FROM_ZOOM = 7
+
+/** Pin size by zoom, as a multiplier. Shrinks on the way out, never to nothing. */
+function pinScale(zoom: number): number {
+  const stops: [number, number][] = [
+    [9, 1],
+    [7, 0.8],
+    [4, 0.62],
+    [2, 0.55],
+  ]
+
+  if (zoom >= stops[0][0]) return stops[0][1]
+  const last = stops[stops.length - 1]
+  if (zoom <= last[0]) return last[1]
+
+  for (let index = 0; index < stops.length - 1; index += 1) {
+    const [highZoom, highScale] = stops[index]
+    const [lowZoom, lowScale] = stops[index + 1]
+    if (zoom <= highZoom && zoom >= lowZoom) {
+      const across = (zoom - lowZoom) / (highZoom - lowZoom)
+      return Number((lowScale + across * (highScale - lowScale)).toFixed(3))
+    }
+  }
+  return 1
+}
+
 export interface Label {
   id: number
   name: string
@@ -42,6 +75,7 @@ export interface Place {
   folder_id: number | null
   tags: string[]
   people: string[]
+  prominence: 'major' | 'minor'
   lat: number
   lon: number
 }
@@ -100,6 +134,10 @@ export class Places {
       if (!this.dropping) return
       this.dropAt(event.lngLat.lat, event.lngLat.lng)
     })
+
+    // Cheap enough to do on every frame of a zoom: it writes one custom
+    // property and one data attribute, and the browser does the rest.
+    this.map.on('zoom', () => this.sizePins())
 
     // Escape gets you out of drop mode without saving anything, which is the
     // one thing every modal state has to offer.
@@ -229,6 +267,8 @@ export class Places {
     for (const item of this.labels) label.append(new Option(item.name, String(item.id)))
     label.value = String(place?.label_id ?? '')
 
+    const prominence = this.prominencePicker(root, place?.prominence ?? 'major')
+
     const who = this.whoPicker(root, place?.people ?? [])
 
     const tags = field(root, 'Tags', 'input')
@@ -266,6 +306,7 @@ export class Places {
         folder_id: folder.value || null,
         tags: tags.value,
         people: who(),
+        prominence: prominence(),
       })
     })
 
@@ -293,6 +334,52 @@ export class Places {
    * they have since been taken off the list, or they would silently vanish the
    * next time the pin was saved.
    */
+  /**
+   * Major or minor, which is only a question of size and of when it stops
+   * being drawn. Everything else about the two is identical.
+   */
+  private prominencePicker(
+    root: HTMLElement,
+    chosen: string,
+  ): () => 'major' | 'minor' {
+    const wrap = document.createElement('label')
+    wrap.className = 'field'
+
+    const caption = document.createElement('span')
+    caption.textContent = 'Prominence'
+    wrap.append(caption)
+
+    const group = document.createElement('div')
+    group.className = 'prominence-choice'
+    group.setAttribute('role', 'group')
+
+    let current: 'major' | 'minor' = chosen === 'minor' ? 'minor' : 'major'
+    const buttons: HTMLButtonElement[] = []
+
+    for (const value of ['major', 'minor'] as const) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.textContent = value === 'major' ? 'Major' : 'Minor'
+      button.title =
+        value === 'major'
+          ? 'Full size, and drawn at every zoom'
+          : `Smaller, and hidden further out than z${MINOR_FROM_ZOOM}`
+      button.setAttribute('aria-pressed', String(value === current))
+      button.addEventListener('click', () => {
+        current = value
+        for (const other of buttons) {
+          other.setAttribute('aria-pressed', String(other === button))
+        }
+      })
+      buttons.push(button)
+      group.append(button)
+    }
+
+    wrap.append(group)
+    root.append(wrap)
+    return () => current
+  }
+
   private whoPicker(root: HTMLElement, chosen: string[]): () => string[] {
     const wrap = document.createElement('div')
     wrap.className = 'field'
@@ -344,6 +431,7 @@ export class Places {
     folder_id: string | null
     tags: string
     people: string[]
+    prominence: 'major' | 'minor'
   }): Promise<void> {
     if (!this.pending) return
 
@@ -425,9 +513,37 @@ export class Places {
         .setPopup(new Popup({ offset: 26 }).setDOMContent(this.popupFor(place)))
         .addTo(this.map)
 
-      marker.getElement().classList.add('place-pin')
+      const element_ = marker.getElement()
+      element_.classList.add('place-pin')
+      // Minor pins are hidden when the map is far enough out that a hundred of
+      // them stop being information. Marked with a class rather than removed,
+      // so zooming back in costs nothing.
+      if (place.prominence === 'minor') element_.classList.add('place-pin-minor')
       this.markers.set(place.id, marker)
     }
+
+    this.sizePins()
+  }
+
+  /**
+   * How big pins are, and whether the minor ones are drawn at all.
+   *
+   * A pin is a fixed number of screen pixels whatever the zoom, which is right
+   * when you are looking at a street and wrong when you are looking at a
+   * continent - at which point three pins in one valley are one blob. So they
+   * shrink on the way out, to a floor rather than to nothing, and the minor
+   * ones stop being drawn once the shrinking alone is not enough.
+   *
+   * Written as a custom property on the map container, once per zoom change,
+   * and inherited by every marker under it. Setting a transform on the markers
+   * themselves would fight MapLibre, which uses that transform to position
+   * them.
+   */
+  private sizePins(): void {
+    const zoom = this.map.getZoom()
+    const container = this.map.getContainer()
+    container.style.setProperty('--pin-scale', String(pinScale(zoom)))
+    container.dataset.minorPins = zoom >= MINOR_FROM_ZOOM ? 'shown' : 'hidden'
   }
 
   /**
