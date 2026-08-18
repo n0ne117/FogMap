@@ -474,13 +474,23 @@ export class Setup {
       element('setup-known').hidden = false
     }
 
+    // The already-set-up screen asks for exactly one thing: the token. It used
+    // to carry three separate ways past that question - "Continue to the map"
+    // above the card, "Just look at the map" inside it, and "Continue without a
+    // basemap" underneath - which is two too many for one decision. The card's
+    // own button is the one that stays, because its wording is the only one of
+    // the three that describes what it actually does. A genuine first run, where
+    // this card is not showing, keeps both of the others.
+    const askingForToken = !element('setup-known').hidden
+    element('setup-skip').hidden = askingForToken
+
     // An archive already on disk means there is nothing to do here but leave.
     // No size, no "everything is ready", and no offer of another one: a
     // 137 GB download is not something to put a button for on the screen
     // somebody sees before they have looked at their map even once. Settings,
     // Basemap still has all of it for anyone who actually wants to swap.
     const settled = basemap.present && !running
-    element('setup-ready').hidden = !settled
+    element('setup-ready').hidden = !settled || askingForToken
     if (settled) {
       element('setup-fetch').hidden = true
     } else if (element('setup-ready').hidden) {

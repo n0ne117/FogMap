@@ -11,6 +11,11 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.11.7] - 2026-08-18
+
+### Changed
+- The screen a second browser sees on an already-set-up server asks one question and now offers one answer to it. It used to carry three separate ways past that question — "Continue to the map" above the card, "Just look at the map" inside it, and "Continue without a basemap" underneath — for a screen whose entire purpose is to hand over a token. The card's own button is the one that stays, because its wording is the only one of the three that says what it actually does. A genuine first run is untouched and keeps both of the others.
+
 ## [0.11.6] - 2026-08-17
 
 ### Changed
