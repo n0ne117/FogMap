@@ -11,6 +11,14 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.15.2] - 2026-08-18
+
+### Fixed
+- **Editing a pin's details no longer renders anything.** A title, a label, a tag or who was there changes no pixel, and the code that decides what to re-stamp already knew that — but the endpoint rendered regardless, and passed the empty scope on as `dirty or None`. An empty set becomes `None`, `None` means *no scope*, and no scope means render these views in full. So correcting a spelling cost a complete re-render of the cumulative view and every year the pin belonged to. Measured on a real archive: **0.07 s now, 85 s before**. Moving a pin still renders, because that genuinely moves fog.
+- **The pin popup is readable in dark mode.** MapLibre ships its popups white with dark text; the content inside is ours and inherits our foreground colour, so in dark mode it was light text on a white card and the Edit button was white on white. Contrast is now 14:1 in dark and 17:1 in light. Every rule had to be qualified with `.maplibregl-popup`, because maplibre-gl.css is bundled after ours and wins at equal specificity.
+- **The edit form is no longer 130 pixels wide.** MapLibre sizes a popup to its content and a column of full-width inputs has no intrinsic width, so the whole form collapsed. It has a floor now: 268 px wide with 240 px fields.
+- The Who? checkboxes read as one block rather than loose rows: their own panel, hover states, and the accent colour on the boxes.
+
 ## [0.15.1] - 2026-08-18
 
 ### Added

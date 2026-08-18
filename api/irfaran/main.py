@@ -1873,16 +1873,27 @@ def patch_place(
     except places.PlaceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # Both ends, in two senses. The tiles it left and the tiles it arrived at
-    # are both in the scope, and the years it left and the years it arrived in
-    # are both re-rendered - otherwise the year it moved out of keeps showing
-    # fog that is no longer there.
-    _render_views(
-        conn,
-        sorted(set(_views_for_layers(layers)) | set(_views_for_layers(was))),
-        dirty or None,
-    )
-    _retire_views(before - set(composite.available_views(conn)))
+    # Nothing to draw unless the pin actually stamped something. A title, a
+    # label, a tag or who was there changes no pixel: places.update only
+    # re-stamps when the position, the dates or a missing event say it must, and
+    # `dirty` is empty otherwise.
+    #
+    # This used to render regardless, and worse: `dirty or None` turned an empty
+    # scope into no scope at all, which means "render these views in full". So
+    # correcting a spelling cost a complete re-render of the cumulative view and
+    # every year the pin belonged to - minutes of work for a spelling change.
+    if dirty:
+        # Both ends, in two senses. The tiles it left and the tiles it arrived
+        # at are both in the scope, and the years it left and the years it
+        # arrived in are both re-rendered - otherwise the year it moved out of
+        # keeps showing fog that is no longer there.
+        _render_views(
+            conn,
+            sorted(set(_views_for_layers(layers)) | set(_views_for_layers(was))),
+            dirty,
+        )
+        _retire_views(before - set(composite.available_views(conn)))
+
     return place
 
 

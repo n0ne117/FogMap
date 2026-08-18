@@ -1482,3 +1482,181 @@ button:disabled {
   margin-top: 0.15rem;
   font-size: 0.76rem;
 }
+
+/* --------------------------------------------------- the map's own popups */
+
+/* MapLibre ships its popups white with dark text. The content inside them is
+   ours and inherits our foreground colour, so in dark mode that was light text
+   on a white card - the Edit button in particular was white on white.
+   
+   Every selector here is qualified with .maplibregl-popup rather than matching
+   .maplibregl-popup-content on its own: maplibre-gl.css is bundled after this
+   file, so at equal specificity theirs wins wherever the two overlap. */
+.maplibregl-popup .maplibregl-popup-content {
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  background: var(--panel);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+  font-size: 0.82rem;
+}
+
+/* The tip is a triangle made of borders, so the colour has to be set on
+   whichever side points at the popup - one rule per anchor. */
+.maplibregl-popup.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.maplibregl-popup.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.maplibregl-popup.maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
+  border-bottom-color: var(--panel);
+}
+
+.maplibregl-popup.maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.maplibregl-popup.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.maplibregl-popup.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
+  border-top-color: var(--panel);
+}
+
+.maplibregl-popup.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: var(--panel);
+}
+
+.maplibregl-popup.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: var(--panel);
+}
+
+.maplibregl-popup .maplibregl-popup-close-button {
+  width: 1.4rem;
+  height: 1.4rem;
+  padding: 0;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.maplibregl-popup .maplibregl-popup-close-button:hover {
+  background: var(--line);
+  color: var(--fg);
+}
+
+.place-popup h3 {
+  margin: 0 0 0.35rem;
+  color: var(--fg);
+  font-size: 0.92rem;
+}
+
+.place-popup .coords {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+}
+
+.place-popup .tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.35rem;
+}
+
+.place-popup .tags span {
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.popup-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+
+.popup-actions button {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.3rem;
+  background: transparent;
+  color: var(--fg);
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.popup-actions button:hover {
+  background: var(--line);
+}
+
+.popup-actions button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.popup-actions button.bad:hover {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+/* Who was there: a list of checkboxes, so it needs to read as one block
+   rather than as loose rows floating in the form. */
+.who-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  max-height: 8.5rem;
+  overflow-y: auto;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 0.3rem;
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+}
+
+.who-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.1rem 0.15rem;
+  border-radius: 0.2rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.who-row:hover {
+  background: var(--line);
+}
+
+.who-row input[type='checkbox'] {
+  width: 0.85rem;
+  height: 0.85rem;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.place-form-popup input[type='text'],
+.place-form-popup select {
+  width: 100%;
+  padding: 0.25rem 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 0.8rem;
+}
+
+/* A form needs room. MapLibre sizes a popup to its content, and a column of
+   full-width inputs has no intrinsic width to speak of - so it collapsed to
+   about 130 pixels and every field with it. */
+.place-form-popup {
+  min-width: 15rem;
+}
+
+.place-form-popup .field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0.45rem 0;
+}
+
+.place-form-popup .field > span {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
