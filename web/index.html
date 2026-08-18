@@ -183,6 +183,7 @@
         <button type="button" role="tab" data-tab="import" aria-selected="false">Import</button>
         <button type="button" role="tab" data-tab="sources" aria-selected="false">Data sources</button>
         <button type="button" role="tab" data-tab="security" aria-selected="false">Security</button>
+        <button type="button" role="tab" data-tab="history" aria-selected="false">History</button>
         <button type="button" role="tab" data-tab="basemap" aria-selected="false">Basemap</button>
         <button type="button" role="tab" data-tab="about" aria-selected="false">About</button>
       </nav>
@@ -546,6 +547,34 @@
               Kept in this browser only, and never sent anywhere but this
               server.
             </p>
+          </section>
+        </div>
+
+        <div class="tab-panel" data-tab="history" hidden>
+          <section class="span-2">
+            <h2>History</h2>
+            <p class="hint">
+              What has happened, newest first. Errors are red, things you did by
+              hand are white, anything that arrived on its own is amber, and
+              everything else is grey.
+            </p>
+
+            <div id="history-filter" class="segmented" role="group" aria-label="Filter history">
+              <button type="button" data-value="" aria-pressed="true">All</button>
+              <button type="button" data-value="error" aria-pressed="false">Errors</button>
+              <button type="button" data-value="manual" aria-pressed="false">By hand</button>
+              <button type="button" data-value="source" aria-pressed="false">Sources</button>
+              <button type="button" data-value="system" aria-pressed="false">System</button>
+            </div>
+
+            <div id="history-list" class="history-list"></div>
+            <p id="history-empty" class="hint" hidden>Nothing recorded yet.</p>
+            <p id="history-kept" class="hint"></p>
+            <div class="button-row">
+              <button id="history-refresh" type="button">Refresh</button>
+              <button id="history-clear" type="button">Clear history</button>
+            </div>
+            <p id="history-message" class="status-line" hidden></p>
           </section>
         </div>
 

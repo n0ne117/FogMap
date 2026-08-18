@@ -11,6 +11,17 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.14.0] - 2026-08-18
+
+### Added
+- A **History** tab under Settings. Errors are red, anything done by hand is the brightest thing on the page, anything that arrived on its own is amber, and whatever the server did to itself is grey. Filter by category, and clear it if you want it gone.
+- With it, the first place an error is kept at all. A failed import used to exist in the container's stdout and nowhere else: a restart discarded it and the interface could not read it, so the answer to "why is that track missing" was always "go and look at the logs on the server".
+- Recorded: imports and what they found, strokes drawn and undone, live deliveries, tracker syncs, renders, settings changes, and anything that failed.
+
+The log is capped at 2,000 entries and 90 days, because it lives in the database that gets backed up and carried between instances. A live source delivering every few minutes folds into one line that counts up rather than three hundred lines a day that push out everything worth reading. Settings changes record the *name* of what changed and never the value, since a value can be a token and history travels with a backup.
+
+Recording is never allowed to break what it is recording — every failure writing a line is swallowed, including a locked database. A missing line in a list is a nuisance; an import that fails because a log line failed is not.
+
 ## [0.13.1] - 2026-08-18
 
 ### Added

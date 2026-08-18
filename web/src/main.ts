@@ -40,6 +40,7 @@ import { Labels } from './labels'
 import { Places } from './places'
 import { estimate, runRender } from './render'
 import { Setup } from './setup'
+import { History } from './history'
 import { Sources } from './sources'
 import { Trackers } from './trackers'
 import { Timeline } from './timeline'
@@ -544,6 +545,14 @@ async function start(): Promise<void> {
 
   const sources = new Sources()
   void sources.load()
+
+  // Loaded when the tab is first opened rather than on startup: it is a page
+  // nobody has looked at yet, and a query for it is a query for nothing.
+  const history = new History()
+  history.wire()
+  document
+    .querySelector<HTMLButtonElement>('#tabs [data-tab="history"]')
+    ?.addEventListener('click', () => void history.loadOnce())
 
   const trackers = new Trackers(() => {
     bustTileCache()

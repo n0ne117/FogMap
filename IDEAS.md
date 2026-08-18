@@ -41,6 +41,28 @@ z14 through to 100% by z10. A few lines, no re-render, no new setting.
   better-argued idea — "have I been here" is an existence question, not an
   average — and it also changed the image almost not at all.
 
+## Live ingest re-renders the whole day, every time
+
+Found while testing the History tab, and not caused by it. A single Overland
+fix reported **284 tiles touched**, because a live source appends to one event
+per day: extending the LineString means re-stamping the whole line, so every
+new fix costs a render of everything walked so far that day. Early in the day
+that is cheap and by evening it is minutes, which is why three test fixes in a
+row appeared to hang the server.
+
+Two ways out, neither started:
+
+- **Stamp only the new segment.** The tiles the appended points cover, rather
+  than the tiles the whole event covers. Correct and much smaller, but the
+  event's raster contribution and its geometry then have to stay in step
+  through undo and rebuild, which is the part to get right.
+- **Defer it.** A live fix marks tiles pending and returns; the render happens
+  on a timer. Cheap to build on the existing pending-render queue, at the cost
+  of a fix not appearing on the map immediately.
+
+Worth measuring how long a whole-day render actually takes before choosing -
+it is fine at breakfast and the problem is only at the end of a long day.
+
 ## Search
 
 Deferred, not dropped. A magnifying glass beside the settings button, expanding

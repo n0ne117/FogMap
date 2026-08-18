@@ -18,6 +18,13 @@
   --warn: #8a5a00;
   --bad: #a11f1f;
   --shadow: 0 2px 12px #00000022;
+
+  /* History categories. Errors use --bad and system uses --muted; these two
+     need names of their own, because "warn" is not what a tracker delivering
+     data means, and because "the one that stands out most" is white on a dark
+     interface and near-black on a light one. */
+  --history-manual: #101014;
+  --history-source: #8a5a00;
 }
 
 :root[data-theme='dark'] {
@@ -32,6 +39,8 @@
   --warn: #d8a13a;
   --bad: #e0645c;
   --shadow: 0 2px 12px #00000066;
+  --history-manual: #f2f4f8;
+  --history-source: #d8a13a;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -47,6 +56,8 @@
     --warn: #d8a13a;
     --bad: #e0645c;
     --shadow: 0 2px 12px #00000066;
+    --history-manual: #f2f4f8;
+    --history-source: #d8a13a;
   }
 }
 
@@ -1326,3 +1337,50 @@ button:disabled {
 .notice-close:focus-visible {
   opacity: 1;
 }
+
+/* ------------------------------------------------------------------- history */
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 26rem;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 0.375rem;
+}
+
+.history-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--panel);
+  font-size: 0.8rem;
+}
+
+.history-when {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+}
+
+.history-what {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.history-count {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+/* The four categories. Errors shout, hand-made things are bright because they
+   are the ones you went and did, arriving data is warm but quieter, and
+   everything the server did to itself stays out of the way. */
+.history-row[data-category='error'] .history-what { color: var(--bad); }
+.history-row[data-category='manual'] .history-what { color: var(--history-manual); }
+.history-row[data-category='source'] .history-what { color: var(--history-source); }
+.history-row[data-category='system'] .history-what { color: var(--muted); }

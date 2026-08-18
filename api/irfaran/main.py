@@ -30,6 +30,7 @@ from irfaran import (  # noqa: I001
     organise,
     places,
     raster,
+    history,
     settings_env,
     tokens,
     trackers,
@@ -389,6 +390,10 @@ def _ingest_upload(
     try:
         tracks = parser.parse(payload, filename=filename)
     except ValueError as exc:
+        history.record(
+            conn, "error", "import", f"Could not read {filename}: {exc}",
+            {"file": filename},
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     with db.transaction(conn):
@@ -402,6 +407,24 @@ def _ingest_upload(
             # Re-render now rather than at request time, so the tile endpoint
             # stays a file read. Only the views this import changed are touched.
             _render_views(conn, result.affected_views(), result.tiles_touched)
+
+    if result.events_created:
+        history.record(
+            conn,
+            "manual",
+            "import",
+            f"Imported {filename}: {result.events_created} "
+            f"{'track' if result.events_created == 1 else 'tracks'}",
+            {"file": filename, "points": result.points, "source": source},
+        )
+    else:
+        history.record(
+            conn,
+            "manual",
+            "import",
+            f"Imported {filename}: nothing new, already here",
+            {"file": filename, "skipped": result.events_skipped},
+        )
 
     out = result.as_dict()
     out["render_pending"] = bool(defer_render and result.events_created)
@@ -481,6 +504,20 @@ def _ingest_live(
 
     with db.transaction(conn):
         result = live.append(conn, source, fixes, meta)
+
+    if result.accepted or result.duplicates:
+        history.record(
+            conn,
+            "source",
+            f"live:{source}",
+            f"{source} delivered {result.accepted} "
+            f"{'fix' if result.accepted == 1 else 'fixes'}"
+            + (f", {result.duplicates} already had" if result.duplicates else ""),
+            {"source": source, "accepted": result.accepted},
+            # A phone posting every few minutes would otherwise be the only
+            # thing left in a capped history by tomorrow.
+            coalesce=True,
+        )
 
     if result.accepted:
         _render_views(
@@ -606,6 +643,18 @@ def patch_settings(
                 "INSERT INTO settings (key, value) VALUES (?, ?) "
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (str(key), str(value)),
+            )
+
+        # Names only. A settings value can be a token, and history is exported
+        # with the archive.
+        changed = sorted(str(key) for key in payload)
+        if changed != ["ui_theme"]:
+            history.record(
+                conn,
+                "system",
+                "settings",
+                f"Changed {', '.join(changed)}",
+                {"keys": changed},
             )
 
     # These are baked into the tiles, so everything already on disk still has
@@ -942,6 +991,14 @@ def render_pending() -> StreamingResponse:
 
             with db.transaction(conn):
                 db.clear_pending_render(conn)
+                history.record(
+                    conn,
+                    "system",
+                    "render",
+                    f"Redrew {sum(written.values())} tiles across "
+                    f"{len(views)} {'view' if len(views) == 1 else 'views'}",
+                    {"tiles": sum(written.values()), "kinds": list(kinds)},
+                )
 
             yield json.dumps(
                 {
@@ -984,6 +1041,37 @@ def drain_pending_render(conn: sqlite3.Connection) -> int:
     with db.transaction(conn):
         db.clear_pending_render(conn)
     return sum(written.values())
+
+
+@app.get("/api/history")
+def get_history(
+    limit: int = 200,
+    category: str | None = None,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> dict[str, object]:
+    """What has happened, newest first.
+
+    Readable without a token, like every other read here. It holds what was
+    done rather than what is in the data - counts, filenames, setting names -
+    and never a setting's value, because a value can be a token.
+    """
+    try:
+        entries = history.recent(conn, limit, category)
+    except history.HistoryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {
+        "entries": entries,
+        "counts": history.counts(conn),
+        "kept": {"entries": history.MAX_ENTRIES, "days": history.MAX_AGE_DAYS},
+    }
+
+
+@app.delete("/api/history")
+def clear_history(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, object]:
+    with db.transaction(conn):
+        gone = history.clear(conn)
+    return {"cleared": gone}
 
 
 # ------------------------------------------------------------ workout trackers
@@ -1078,6 +1166,7 @@ def sync_tracker(name: str, conn: sqlite3.Connection = Depends(get_conn)):
     except trackers.TrackerError as exc:
         with db.transaction(conn):
             trackers.put(conn, name, "last_error", str(exc))
+            history.record(conn, "error", f"sync:{name}", str(exc))
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     def report() -> Iterator[str]:
@@ -1086,10 +1175,17 @@ def sync_tracker(name: str, conn: sqlite3.Connection = Depends(get_conn)):
         own = db.connect()
         try:
             for step in trackers.sync_iter(own, name):
+                if step.get("finished"):
+                    history.record(
+                        own, "source", f"sync:{name}",
+                        f"{name}: {step.get('summary')}",
+                        {"imported": step.get("imported"), "no_gps": step.get("no_gps")},
+                    )
                 yield json.dumps(step) + "\n"
         except trackers.TrackerError as exc:
             with db.transaction(own):
                 trackers.put(own, name, "last_error", str(exc))
+                history.record(own, "error", f"sync:{name}", str(exc))
             yield json.dumps({"stage": "error", "error": str(exc)}) + "\n"
         finally:
             own.close()
@@ -1224,6 +1320,20 @@ def create_event(
         "tiles_touched": len(touched),
     }
 
+    if source == "manual":
+        history.record(
+            conn,
+            "manual",
+            f"draw:{op}",
+            {
+                "add": "Drew a route",
+                "reveal": "Cleared fog by hand",
+                "erase": "Erased by hand",
+            }.get(op, f"Drew {op}")
+            + f" into {', '.join(layers)}",
+            {"radius_m": radius_m, "tiles": len(touched), "geometry": geometry.get("type")},
+        )
+
     if not progress:
         _render_views(conn, views, touched)
         return result
@@ -1263,6 +1373,7 @@ def delete_event(
 
     layers = raster.parse_layers(row["layers"], event_id)
     was_erase = row["op"] == "erase"
+    was_op = str(row["op"]) if row["source"] == "manual" else ""
     before = set(composite.available_views(conn))
 
     with db.transaction(conn):
@@ -1285,6 +1396,13 @@ def delete_event(
     # no longer exists.
     _retire_views(before - set(composite.available_views(conn)))
 
+    history.record(
+        conn,
+        "manual",
+        "undo",
+        f"Removed a hand-drawn {was_op}" if was_op else "Removed an event",
+        {"event": event_id, "tiles": len(tiles)},
+    )
     return {"deleted": event_id, "tiles_rebuilt": len(tiles)}
 
 

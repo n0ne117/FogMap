@@ -117,6 +117,29 @@ CREATE TABLE IF NOT EXISTS pending_render (
   y INTEGER NOT NULL,
   PRIMARY KEY (x, y)
 ) WITHOUT ROWID;
+
+-- What happened, for the History tab.
+--
+-- Separate from the event log, which records what entered the map and cannot
+-- express a failure, a render, or a setting being changed. It is also the only
+-- place an error is kept at all: before this, a failed import existed in the
+-- container's stdout and nowhere else, which a restart discards and the
+-- interface cannot read.
+--
+-- Capped, because it is in the database somebody backs up. `count` exists so a
+-- tracker delivering every few minutes is one line that grows rather than three
+-- hundred lines a day that push out everything worth reading.
+CREATE TABLE IF NOT EXISTS log (
+  id INTEGER PRIMARY KEY,
+  at TEXT NOT NULL,
+  category TEXT NOT NULL,
+  action TEXT NOT NULL,
+  message TEXT NOT NULL,
+  count INTEGER NOT NULL DEFAULT 1,
+  detail TEXT
+);
+
+CREATE INDEX IF NOT EXISTS log_at ON log(at DESC);
 """
 
 DEFAULT_SETTINGS = {
