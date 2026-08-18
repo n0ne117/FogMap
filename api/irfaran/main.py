@@ -32,6 +32,7 @@ from irfaran import (  # noqa: I001
     places,
     raster,
     history,
+    renderq,
     settings_env,
     tokens,
     trackers,
@@ -171,7 +172,10 @@ def sync_due_trackers() -> list[str]:
                 result = trackers.sync(conn, name)
                 done.append(f"{name}: {result.summary()}")
                 if result.tiles:
-                    drain_pending_render(conn)
+                    # Hand it to the queue rather than rendering here: the queue
+                    # is the one place that knows whether a render is already
+                    # running, and two at once would fight over the same tiles.
+                    renderq.queue.start(tiles_root())
             except trackers.TrackerError as exc:
                 with db.transaction(conn):
                     trackers.put(conn, name, "last_error", str(exc))
@@ -934,50 +938,64 @@ def _highest_event_id(conn: sqlite3.Connection) -> int:
 
 @app.get("/api/render")
 def render_status(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, object]:
-    """What a render would cost, before anyone commits to waiting for it.
+    """What the render queue is doing, and what is owed.
 
-    A long-distance track is the worst case here: every z14 tile it crosses
-    also has its z15 and z16 descendants stamped, for each theme, each kind and
-    each view that contains it - so four rides can be twelve minutes of work
-    while four walks round a town are twelve seconds. Saying so up front is the
-    difference between a wait and a hang.
+    The live part comes from the worker's own memory and touches no table: this
+    is polled while a render is running, and the previous version recomputed the
+    job count from the database on every call - competing with the render for the
+    same locks and timing out under exactly the load it was meant to describe.
 
-    The rate comes from this machine's own past renders rather than a guess: the
-    hardware is whatever somebody self-hosted on, and a number measured here
-    beats a constant measured somewhere else.
+    The owed part does read the tables, because after a restart there is no
+    memory to read and "523 tiles still owe a render" is the whole answer
+    somebody needs.
     """
-    pending = db.pending_render(conn)
-    views = composite.views_touching(conn, pending) if pending else []
-    jobs = (
-        composite.count_jobs(conn, views, composite.rebuild_scope(pending))
-        if pending
-        else 0
-    )
-
+    live = renderq.queue.snapshot()
+    owed = renderq.queue.resume_hint(conn)
     rate = _seconds_per_job(conn)
+
+    # The worker's own view list is renamed on the way out. Two keys called
+    # `views` and `pending_views` in one object is a trap: one is what is being
+    # drawn right now and the other is what is owed, and nothing about the
+    # names says which.
+    live["rendering_views"] = live.pop("views", [])
+
     return {
-        "pending_tiles": len(pending),
-        "kinds": list(db.pending_kinds(conn)) if pending else [],
-        "views": views,
+        **live,
+        "pending_tiles": owed["pending_tiles"],
+        "jobs": owed["jobs"],
+        "jobs_done": owed["done"],
+        "jobs_remaining": owed["remaining"],
+        "pending_views": owed["views"],
+        "kinds": list(db.pending_kinds(conn)) if owed["pending_tiles"] else [],
         "workers": composite.render_workers(),
-        "jobs": jobs,
         "seconds_per_job": rate,
-        "estimated_seconds": round(jobs * rate) if rate else None,
+        "estimated_seconds": (
+            round(owed["remaining"] * rate) if rate and owed["remaining"] else None
+        ),
+        "can_start": owed["pending_tiles"] > 0 and not renderq.queue.running,
+        "can_stop": renderq.queue.running,
     }
 
 
-def _plain_duration(seconds: float) -> str:
-    if seconds < 60:
-        return f"{round(seconds)}s"
-    minutes = seconds / 60
-    return f"{minutes:.0f} min" if minutes >= 2 else "just over a minute"
+@app.post("/api/render")
+def render_start() -> dict[str, object]:
+    """Start the queue, and return at once.
+
+    The work belongs to the server. This used to stream its progress, which made
+    the render depend on somebody keeping a response open - so closing a tab
+    stopped it. Poll GET /api/render instead; the render carries on regardless of
+    who is watching.
+    """
+    return renderq.queue.start(tiles_root())
 
 
 def _seconds_per_job(conn: sqlite3.Connection) -> float | None:
     """Seconds per job, averaged over the last few renders on this machine.
 
     None until a render has been recorded, because inventing a rate is worse
-    than admitting there is nothing to base one on.
+    than admitting there is nothing to base one on. Self-hosted hardware is
+    whatever somebody had, so a number measured here beats a constant measured
+    somewhere else.
     """
     jobs = seconds = 0
     for entry in history.recent(conn, limit=40, category="system"):
@@ -1000,116 +1018,14 @@ def _seconds_per_job(conn: sqlite3.Connection) -> float | None:
     return round(seconds / jobs, 4) if jobs else None
 
 
-@app.post("/api/render")
-def render_pending() -> StreamingResponse:
-    """Render everything a deferred import left owing, reporting as it goes.
+@app.post("/api/render/stop")
+def render_stop() -> dict[str, object]:
+    """Ask the queue to stop after the tile it is drawing.
 
-    This is the other half of ingesting with defer_render: a bulk import
-    stamps every file into the blob store and writes down which native tiles
-    went stale, and this pays the render once for the lot instead of once per
-    file.
-
-    The body is newline-delimited JSON, one object per finished unit of work,
-    because a render of a large archive takes long enough that a spinner is
-    not an honest answer. The last line carries the summary.
+    Nothing is thrown away. The finished jobs stay written down and the tiles
+    still owing stay owing, so starting again continues rather than repeats.
     """
-
-    started = time.monotonic()
-
-    def report() -> Iterator[str]:
-        # Its own connection, deliberately. A dependency's connection is closed
-        # when the handler returns, and a streaming handler returns before it
-        # has done any of the work.
-        conn = db.connect()
-        try:
-            pending = db.pending_render(conn)
-            if not pending:
-                yield json.dumps(
-                    {"done": 0, "total": 0, "pending_tiles": 0, "views": [], "finished": True}
-                ) + "\n"
-                return
-
-            views = composite.views_touching(conn, pending)
-            kinds = db.pending_kinds(conn)
-            root = tiles_root()
-            root.mkdir(parents=True, exist_ok=True)
-            composite.write_placeholders(root, conn)
-
-            written: dict[str, int] = {}
-            finished = jobs = 0
-            for finished, jobs in composite.render_views_iter(
-                conn,
-                root,
-                views,
-                scope=composite.rebuild_scope(pending),
-                written=written,
-                kinds=kinds,
-            ):
-                yield json.dumps(
-                    {"done": finished, "total": jobs, "kinds": list(kinds)}
-                ) + "\n"
-
-            with db.transaction(conn):
-                db.clear_pending_render(conn)
-                elapsed = round(time.monotonic() - started, 1)
-                history.record(
-                    conn,
-                    "system",
-                    "render",
-                    f"Redrew {sum(written.values())} tiles across "
-                    f"{len(views)} {'view' if len(views) == 1 else 'views'}"
-                    f" in {_plain_duration(elapsed)}",
-                    # jobs and seconds are what the estimate on GET /api/render
-                    # learns this machine's rate from.
-                    {
-                        "tiles": sum(written.values()),
-                        "kinds": list(kinds),
-                        "jobs": jobs,
-                        "seconds": elapsed,
-                    },
-                )
-
-            yield json.dumps(
-                {
-                    "done": finished,
-                    "total": jobs,
-                    "pending_tiles": len(pending),
-                    "views": views,
-                    "tiles_rendered": sum(written.values()),
-                    "finished": True,
-                }
-            ) + "\n"
-        finally:
-            conn.close()
-
-    return StreamingResponse(report(), media_type="application/x-ndjson")
-
-
-def drain_pending_render(conn: sqlite3.Connection) -> int:
-    """Render whatever is owing, with nobody watching.
-
-    The streaming endpoint above is for a person holding a progress bar. A sync
-    that ran on a timer has no such person, and leaving the tiles owing would
-    mean an activity that arrived overnight not appearing until somebody
-    happened to trigger a render.
-    """
-    pending = db.pending_render(conn)
-    if not pending:
-        return 0
-
-    root = tiles_root()
-    root.mkdir(parents=True, exist_ok=True)
-    composite.write_placeholders(root, conn)
-    written = composite.render_views(
-        conn,
-        root,
-        composite.views_touching(conn, pending),
-        scope=composite.rebuild_scope(pending),
-        kinds=db.pending_kinds(conn),
-    )
-    with db.transaction(conn):
-        db.clear_pending_render(conn)
-    return sum(written.values())
+    return renderq.queue.stop()
 
 
 @app.get("/api/history")
@@ -1260,6 +1176,14 @@ def sync_tracker(name: str, conn: sqlite3.Connection = Depends(get_conn)):
             own.close()
 
     return StreamingResponse(report(), media_type="application/x-ndjson")
+
+
+def _views_for_layers(layers: list[str]) -> list[str]:
+    views = ["all"]
+    views += sorted(f"year:{layer}" for layer in layers if layer.isdigit())
+    if common.PREHISTORY in layers:
+        views.append(common.PREHISTORY)
+    return views
 
 
 def _views_for_layers(layers: list[str]) -> list[str]:

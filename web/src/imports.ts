@@ -9,7 +9,7 @@
 // settles the whole debt in one pass once the last file is in.
 
 import { ApiError, getToken } from './api'
-import { describeCost, estimate, renderCost, runRender } from './render'
+import { describeCost, describeRemaining, renderState, runRender } from './render'
 import { element } from './ui'
 
 export interface ImportOutcome {
@@ -147,21 +147,25 @@ export class Imports {
     bar.max = 1
 
     // Say what the wait is before it starts. The size is knowable up front and
-    // a long-distance track makes this minutes rather than seconds, which is
-    // worth knowing at the beginning rather than working out from a bar.
-    const cost = await renderCost()
-    const size = describeCost(cost)
+    // a long-distance track makes this minutes rather than seconds.
+    const size = describeCost(await renderState())
     text.textContent = size
       ? `${imported}. Drawing the map — ${size}.`
       : `${imported}. Drawing the map…`
 
-    const startedAt = Date.now()
-    await runRender((step) => {
-      if (!step.total) return
-      bar.max = step.total
-      bar.value = step.done
-      text.textContent = `${imported}. Drawing the map — ${estimate(step, startedAt)}`
+    const finished = await runRender((state) => {
+      if (state.total) {
+        bar.max = state.total
+        bar.value = state.done
+      }
+      text.textContent =
+        `${imported}. Drawing the map — ${describeRemaining(state)}. ` +
+        'This carries on if you close the browser.'
     })
+
+    if (finished?.state === 'failed') {
+      throw new ApiError(500, finished.error || 'The render stopped.')
+    }
   }
 
   private report(outcomes: ImportOutcome[], message = ''): void {

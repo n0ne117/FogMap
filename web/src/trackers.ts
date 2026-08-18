@@ -9,7 +9,7 @@
 // changed the sync interval.
 
 import { ApiError, apiGet, apiSend, getToken } from './api'
-import { estimate, readNdjson, runRender } from './render'
+import { describeRemaining, readNdjson, runRender } from './render'
 import { element } from './ui'
 
 interface TrackerState {
@@ -233,13 +233,12 @@ export class Trackers {
     row.hidden = false
     bar.value = 0
     bar.max = 1
-    const startedAt = Date.now()
-
-    await runRender((step) => {
-      if (!step.total) return
-      bar.max = step.total
-      bar.value = step.done
-      text.textContent = `Drawing what arrived — ${estimate(step, startedAt)}`
+    await runRender((state) => {
+      if (state.total) {
+        bar.max = state.total
+        bar.value = state.done
+      }
+      text.textContent = `Drawing what arrived — ${describeRemaining(state)}.`
     })
 
     row.hidden = true

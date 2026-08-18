@@ -25,7 +25,7 @@ import shutil
 import sqlite3
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 
 import numpy as np
 from PIL import Image, ImageFilter
@@ -1069,6 +1069,13 @@ def count_jobs(
     return jobs
 
 
+#: The shallow job's stand-in coordinates. A view has one of them and it
+#: covers z0 to z13, so it belongs to no single native tile.
+SHALLOW = (-1, -1)
+
+JobKey = tuple[str, int, int]
+
+
 def render_views_iter(
     conn: sqlite3.Connection,
     root: Path,
@@ -1078,6 +1085,9 @@ def render_views_iter(
     workers: int | None = None,
     written: dict[str, int] | None = None,
     kinds: tuple[str, ...] = KINDS,
+    skip: set[JobKey] | None = None,
+    on_done: Callable[[JobKey], None] | None = None,
+    stop: Callable[[], bool] | None = None,
 ) -> Iterator[tuple[int, int]]:
     """Render a list of views, yielding (jobs finished, jobs total) as it goes.
 
@@ -1092,6 +1102,12 @@ def render_views_iter(
     to leave this function while it is still working. `written` is filled in
     with the per-view tile counts, since a generator has nowhere good to put a
     return value.
+
+    `skip`, `on_done` and `stop` are what make a render resumable. A queue that
+    was interrupted knows which jobs finished, hands them in as `skip`, records
+    each new one through `on_done`, and is asked through `stop` whether to keep
+    going - so closing a browser or restarting the server costs the job in
+    flight and nothing else.
 
     One caveat for callers writing a script: with more than one worker this
     starts processes through forkserver, which re-imports the caller's main
@@ -1114,6 +1130,7 @@ def render_views_iter(
 
     kept: dict[str, set[Path]] = {view: set() for view in views}
     owners: list[str] = []
+    keys: list[JobKey] = []
     jobs: list[Job] = []
 
     database, root_text = db.path_of(conn), str(root)
@@ -1124,12 +1141,21 @@ def render_views_iter(
             prune_stale(root, view, set())
             continue
 
-        owners.append(view)
-        jobs.append(("shallow", database, root_text, view, themes, scope, None, kinds))
+        finished = skip or set()
+
+        if (view, *SHALLOW) not in finished:
+            owners.append(view)
+            keys.append((view, *SHALLOW))
+            jobs.append(
+                ("shallow", database, root_text, view, themes, scope, None, kinds)
+            )
 
         parents = native if scope is None else native & scope.get(geo.NATIVE_Z, set())
         for parent in sorted(parents):
+            if (view, parent[0], parent[1]) in finished:
+                continue
             owners.append(view)
+            keys.append((view, parent[0], parent[1]))
             jobs.append(
                 ("deep", database, root_text, view, themes, scope, parent, kinds)
             )
@@ -1155,20 +1181,33 @@ def render_views_iter(
             mp_context=multiprocessing.get_context("forkserver"),
         ) as pool:
             futures = {
-                pool.submit(_render_job, job): owner
-                for job, owner in zip(jobs, owners)
+                pool.submit(_render_job, job): (owner, key)
+                for job, owner, key in zip(jobs, owners, keys)
             }
             # as_completed rather than map, so a finished job is reported the
             # moment it lands instead of in the order it was queued.
             for future in as_completed(futures):
-                absorb(futures[future], future.result())
+                owner, key = futures[future]
+                absorb(owner, future.result())
+                if on_done is not None:
+                    on_done(key)
                 done += 1
                 yield done, total
+                if stop is not None and stop():
+                    # Cancel what has not started. Jobs already running are let
+                    # finish, because killing one mid-write leaves a half tile.
+                    for pending in futures:
+                        pending.cancel()
+                    return
     else:
-        for job, owner in zip(jobs, owners):
+        for job, owner, key in zip(jobs, owners, keys):
             absorb(owner, _render_job(job))
+            if on_done is not None:
+                on_done(key)
             done += 1
             yield done, total
+            if stop is not None and stop():
+                return
 
     for view in views:
         if kept[view]:

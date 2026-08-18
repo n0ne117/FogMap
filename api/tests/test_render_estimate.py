@@ -90,9 +90,14 @@ class TestTheEndpoint:
         body = client.get("/api/render").json()
         assert body["pending_tiles"] == 1
         assert body["seconds_per_job"] == pytest.approx(2.0)
-        # jobs may be zero if no view holds that tile; the arithmetic is what
-        # matters here, and it must be consistent with the rate.
-        assert body["estimated_seconds"] == round(body["jobs"] * 2.0)
+
+        # The tile may belong to no view, in which case there is no work to
+        # estimate and saying so beats saying zero seconds. What must hold is
+        # that the estimate and the remaining work agree.
+        if body["jobs_remaining"]:
+            assert body["estimated_seconds"] == round(body["jobs_remaining"] * 2.0)
+        else:
+            assert body["estimated_seconds"] is None
 
     def test_the_estimate_needs_no_token(self, client) -> None:
         assert client.get("/api/render").status_code == 200
@@ -102,8 +107,10 @@ class TestCountingJobs:
     def test_no_views_is_no_work(self, conn) -> None:
         assert composite.count_jobs(conn, []) == 0
 
-    def test_it_matches_what_a_render_reports(self, client, conn) -> None:
+    def test_it_matches_what_the_queue_actually_does(self, client, conn) -> None:
         """The estimate is worthless if it disagrees with the real queue."""
+        import time
+
         client.post(
             "/api/events",
             headers={"X-Irfaran-Token": TOKEN},
@@ -118,10 +125,17 @@ class TestCountingJobs:
             db.defer_render(conn, {(8214, 8180)})
 
         predicted = client.get("/api/render").json()["jobs"]
-        streamed = client.post("/api/render", headers={"X-Irfaran-Token": TOKEN})
-        import json as jsonlib
+        client.post("/api/render", headers={"X-Irfaran-Token": TOKEN})
 
-        first = jsonlib.loads(streamed.text.splitlines()[0])
-        assert predicted == first["total"], (
-            "the estimate and the render disagree about how much work there is"
+        deadline = time.monotonic() + 60
+        final = None
+        while time.monotonic() < deadline:
+            final = client.get("/api/render").json()
+            if final["state"] not in ("running", "stopping"):
+                break
+            time.sleep(0.05)
+
+        assert final is not None
+        assert predicted == final["total"], (
+            "the estimate and the queue disagree about how much work there is"
         )

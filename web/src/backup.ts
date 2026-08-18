@@ -8,7 +8,7 @@
 // shows up as a message rather than as a downloaded page of JSON saying 401.
 
 import { ApiError, apiGet, getToken } from './api'
-import { estimate, runRender } from './render'
+import { describeRemaining, runRender } from './render'
 import { element } from './ui'
 
 interface ImportResult {
@@ -142,12 +142,14 @@ export class Backup {
     bar.max = 1
     this.say('backup-import-message', `${summary}. Drawing the map…`)
 
-    const startedAt = Date.now()
-    await runRender((step) => {
-      if (!step.total) return
-      bar.max = step.total
-      bar.value = step.done
-      text.textContent = `Drawing the map — ${estimate(step, startedAt)}`
+    await runRender((state) => {
+      if (state.total) {
+        bar.max = state.total
+        bar.value = state.done
+      }
+      text.textContent =
+        `Drawing the map — ${describeRemaining(state)}. ` +
+        'This carries on if you close the browser.'
     })
 
     row.hidden = true

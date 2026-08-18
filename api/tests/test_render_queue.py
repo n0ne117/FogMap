@@ -1,0 +1,250 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+"""The render queue, which belongs to the server.
+
+Rendering used to be driven by a streaming HTTP response: the work advanced only
+while a browser held that response open, so closing a tab stopped it mid-pyramid
+and left the map half drawn with nothing in the interface offering a way back.
+
+What these check is the part that makes that impossible now - a render that can
+be stopped and resumed without repeating itself, and a state anyone can read
+without touching the render's own locks.
+"""
+
+from __future__ import annotations
+
+import time
+
+import pytest
+from fastapi.testclient import TestClient
+
+from irfaran import composite, db, renderq
+from irfaran.main import app, tiles_root
+
+from . import synthetic
+from .synthetic import BASE_LAT, BASE_LON
+
+TOKEN = "synthetic-queue-token"
+
+
+@pytest.fixture
+def clean():
+    conn = db.open_initialised()
+    conn.execute("DELETE FROM events")
+    conn.execute("DELETE FROM blobs")
+    conn.execute("DELETE FROM pending_render")
+    conn.execute("DELETE FROM render_done")
+    conn.execute("DELETE FROM log")
+    conn.commit()
+    yield conn
+    conn.close()
+
+
+@pytest.fixture
+def client(monkeypatch, clean):
+    monkeypatch.setenv("IRFARAN_TOKEN", TOKEN)
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+def auth() -> dict[str, str]:
+    return {"X-Irfaran-Token": TOKEN}
+
+
+def owe_some_work(client, tracks: int = 3) -> int:
+    """Import a few tracks with the render deferred, and return the tiles owed."""
+    for index in range(tracks):
+        points = [
+            (BASE_LON + index * 0.05 + n * 0.0002, BASE_LAT + index * 0.01)
+            for n in range(40)
+        ]
+        client.post(
+            "/api/ingest/gpx?defer_render=true",
+            headers=auth(),
+            files={
+                "file": (
+                    f"q{index}.gpx",
+                    synthetic.gpx_document(points, name=f"q{index}"),
+                    "application/gpx+xml",
+                )
+            },
+        )
+    return int(client.get("/api/render").json()["pending_tiles"])
+
+
+def wait_until_idle(client, timeout: float = 120.0) -> dict:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        state = client.get("/api/render").json()
+        if state["state"] not in ("running", "stopping"):
+            return state
+        time.sleep(0.03)
+    raise AssertionError("the queue never went idle")
+
+
+class TestState:
+    def test_idle_with_nothing_owed(self, client) -> None:
+        body = client.get("/api/render").json()
+        assert body["state"] == "idle"
+        assert body["pending_tiles"] == 0
+        assert body["can_start"] is False
+        assert body["can_stop"] is False
+
+    def test_owed_work_offers_a_start(self, client) -> None:
+        assert owe_some_work(client) > 0
+        body = client.get("/api/render").json()
+        assert body["can_start"] is True
+        assert body["jobs"] > 0
+        assert body["jobs_remaining"] == body["jobs"]
+        assert body["pending_views"]
+
+    def test_status_needs_no_token(self, client) -> None:
+        assert client.get("/api/render").status_code == 200
+
+    def test_starting_needs_the_token(self, client) -> None:
+        assert client.post("/api/render").status_code in (401, 403)
+
+
+class TestARun:
+    def test_it_finishes_and_settles_the_debt(self, client) -> None:
+        owe_some_work(client)
+        client.post("/api/render", headers=auth())
+        final = wait_until_idle(client)
+
+        assert final["state"] == "idle"
+        assert final["pending_tiles"] == 0
+        assert final["tiles_written"] > 0
+        assert final["done"] == final["total"]
+
+    def test_the_progress_note_is_cleared_when_it_completes(self, client, clean) -> None:
+        """render_done is the resume memory. A finished pass has no use for it."""
+        owe_some_work(client)
+        client.post("/api/render", headers=auth())
+        wait_until_idle(client)
+        assert db.render_done_count(clean) == 0
+
+    def test_it_is_recorded_in_the_history(self, client) -> None:
+        owe_some_work(client)
+        client.post("/api/render", headers=auth())
+        wait_until_idle(client)
+
+        entries = client.get("/api/history?category=system").json()["entries"]
+        renders = [e for e in entries if e["action"] == "render"]
+        assert renders, "a completed render left no trace"
+        assert "jobs" in (renders[0]["detail"] or {})
+        assert "seconds" in (renders[0]["detail"] or {})
+
+
+class TestStoppingAndResuming:
+    def test_stopping_keeps_what_was_done(self, client, clean) -> None:
+        """The whole point: an interrupted render resumes rather than restarts."""
+        owe_some_work(client, tracks=6)
+        total = client.get("/api/render").json()["jobs"]
+        assert total > 4, "not enough work to interrupt meaningfully"
+
+        client.post("/api/render", headers=auth())
+
+        # Stop as soon as it has actually done something.
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            if db.render_done_count(clean) > 0:
+                break
+            time.sleep(0.01)
+        client.post("/api/render/stop", headers=auth())
+        stopped = wait_until_idle(client)
+
+        done_after_stop = db.render_done_count(clean)
+        assert done_after_stop > 0, "nothing was written down as finished"
+        assert stopped["pending_tiles"] > 0, "the debt was cleared by a stop"
+
+        # Resuming reports the earlier work as already done.
+        state = client.get("/api/render").json()
+        assert state["jobs_done"] == done_after_stop
+        assert state["jobs_remaining"] == max(0, state["jobs"] - done_after_stop)
+        assert state["can_start"] is True
+
+    def test_resuming_finishes_the_job(self, client, clean) -> None:
+        owe_some_work(client, tracks=6)
+        client.post("/api/render", headers=auth())
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline and db.render_done_count(clean) == 0:
+            time.sleep(0.01)
+        client.post("/api/render/stop", headers=auth())
+        wait_until_idle(client)
+
+        client.post("/api/render", headers=auth())
+        final = wait_until_idle(client)
+        assert final["pending_tiles"] == 0
+        assert db.render_done_count(clean) == 0
+
+    def test_stopping_when_nothing_runs_says_so(self, client) -> None:
+        body = client.post("/api/render/stop", headers=auth()).json()
+        assert body["stopping"] is False
+        assert body["reason"] == "not running"
+
+
+class TestSurvivingARestart:
+    def test_the_debt_and_the_progress_outlive_the_process(self, client, clean) -> None:
+        """Both live in the database, which is what makes tomorrow's resume work.
+
+        A restart loses the worker and its in-memory progress; it must not lose
+        the knowledge of what is owed or of what was already drawn.
+        """
+        owe_some_work(client, tracks=4)
+        db.mark_render_done(clean, ("all", 8214, 8180))
+
+        # A fresh queue object stands in for a restarted process.
+        fresh = renderq.RenderQueue()
+        hint = fresh.resume_hint(clean)
+
+        assert hint["pending_tiles"] > 0
+        assert hint["done"] == 1
+        assert hint["remaining"] == hint["jobs"] - 1
+        assert fresh.snapshot()["state"] == "idle"
+
+
+class TestSkippingFinishedJobs:
+    def test_render_views_iter_skips_what_is_already_done(self, clean) -> None:
+        """The mechanism underneath a resume."""
+        points = [(BASE_LON + n * 0.0002, BASE_LAT) for n in range(30)]
+        from irfaran.ingest import common, gpx
+
+        common.ingest_tracks(clean, "workout", gpx.parse(synthetic.gpx_document(points)))
+        root = tiles_root()
+        composite.write_placeholders(root, clean)
+
+        views = ["all"]
+        every = list(composite.render_views_iter(clean, root, views, workers=1))
+        total = every[-1][1]
+        assert total >= 2
+
+        seen: list[tuple[str, int, int]] = []
+        list(
+            composite.render_views_iter(
+                clean, root, views, workers=1, on_done=seen.append
+            )
+        )
+        assert len(seen) == total
+
+        # Hand back one finished job and the queue is one shorter.
+        again = list(
+            composite.render_views_iter(
+                clean, root, views, workers=1, skip={seen[0]}
+            )
+        )
+        assert again[-1][1] == total - 1
+
+    def test_stop_ends_it_early(self, clean) -> None:
+        points = [(BASE_LON + n * 0.0002, BASE_LAT) for n in range(30)]
+        from irfaran.ingest import common, gpx
+
+        common.ingest_tracks(clean, "workout", gpx.parse(synthetic.gpx_document(points)))
+        root = tiles_root()
+        composite.write_placeholders(root, clean)
+
+        steps = list(
+            composite.render_views_iter(
+                clean, root, ["all"], workers=1, stop=lambda: True
+            )
+        )
+        # One job runs before the first check, and then it gives up.
+        assert steps[-1][0] < steps[-1][1] or steps[-1][1] <= 1

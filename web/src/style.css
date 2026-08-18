@@ -1711,3 +1711,29 @@ button:disabled {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
   color: var(--fg);
 }
+
+/* --------------------------------------------------------- in-progress table */
+
+.progress-table {
+  width: 100%;
+  margin: 0.6rem 0;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.progress-table th,
+.progress-table td {
+  padding: 0.3rem 0.4rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.progress-table th {
+  width: 45%;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.progress-table td {
+  font-variant-numeric: tabular-nums;
+}

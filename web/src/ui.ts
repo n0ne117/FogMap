@@ -51,7 +51,10 @@ export class Sheets {
   }
 }
 
-export function wireTabs(navId: string): void {
+export function wireTabs(
+  navId: string,
+  onShow: (tab: string) => void = () => {},
+): (tab: string) => void {
   const nav = element(navId)
   const buttons = Array.from(nav.querySelectorAll<HTMLButtonElement>('button'))
 
@@ -62,12 +65,16 @@ export function wireTabs(navId: string): void {
     for (const panel of document.querySelectorAll<HTMLElement>('.tab-panel')) {
       panel.hidden = panel.dataset.tab !== name
     }
+    // Which tab is showing matters to anything that polls: there is no reason
+    // to ask the server every second about a panel nobody is looking at.
+    onShow(name)
   }
 
   for (const button of buttons) {
     button.addEventListener('click', () => show(button.dataset.tab ?? ''))
   }
   show(buttons[0]?.dataset.tab ?? '')
+  return show
 }
 
 /** Radio-style buttons whose value lives in a data attribute. */

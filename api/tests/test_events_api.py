@@ -398,17 +398,28 @@ class TestDeferredRender:
 
         status = client.get("/api/render").json()
         assert status["pending_tiles"] > 0
-        assert "all" in status["views"]
+        assert "all" in status["pending_views"]
 
-    def settle(self, client) -> list[dict]:
-        """Run the render and return every progress line it reported."""
-        response = client.post("/api/render", headers=auth())
-        assert response.status_code == 200
-        return [
-            json.loads(line)
-            for line in response.text.splitlines()
-            if line.strip()
-        ]
+    def settle(self, client, timeout: float = 120.0) -> dict:
+        """Start the render and wait for the queue to finish.
+
+        The render belongs to the server now: POST returns as soon as the worker
+        has started, and progress is read from GET. So a test asks it to go and
+        then waits, exactly as the interface does - no response is being held
+        open, which is the whole point of the change.
+        """
+        import time
+
+        began = client.post("/api/render", headers=auth())
+        assert began.status_code == 200
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            state = client.get("/api/render").json()
+            if state["state"] not in ("running", "stopping"):
+                return state
+            time.sleep(0.05)
+        raise AssertionError("the render did not finish inside the timeout")
 
     def test_rendering_settles_the_whole_batch_at_once(self, client):
         for offset in (0.0, 0.05, 0.1):
@@ -417,33 +428,65 @@ class TestDeferredRender:
         owed = client.get("/api/render").json()["pending_tiles"]
         assert owed >= 1
 
-        steps = self.settle(client)
-        assert steps[-1]["pending_tiles"] == owed
-        assert steps[-1]["finished"] is True
+        final = self.settle(client)
+        assert final["state"] == "idle"
 
         # Paid off, and the tiles are on disk.
         assert client.get("/api/render").json()["pending_tiles"] == 0
         assert list((tiles_root() / "dark" / "all" / "fog").glob("14/*/*.png"))
 
     def test_progress_is_reported_while_it_works(self, client):
+        """The queue counts jobs, and the count is readable while it runs."""
         for offset in (0.0, 0.05, 0.1):
             assert self.upload(client, offset, defer=True).status_code == 200
 
-        steps = self.settle(client)
-        assert len(steps) >= 3, "no progress was reported, only a result"
+        before = client.get("/api/render").json()
+        assert before["jobs"] > 0, "nothing was reported as owed"
+        assert before["can_start"] is True
 
-        # Starts at nothing, never goes backwards, ends complete.
-        assert steps[0]["done"] == 0
-        assert steps[0]["total"] > 0
-        assert [step["done"] for step in steps] == sorted(
-            step["done"] for step in steps
-        )
-        assert steps[-1]["done"] == steps[-1]["total"]
+        final = self.settle(client)
+        assert final["done"] == final["total"]
+        assert final["tiles_written"] > 0
+
+    def test_the_queue_reports_itself_running(self, client):
+        """A render nobody is watching still says it is happening."""
+        import time
+
+        for offset in (0.0, 0.05, 0.1, 0.15, 0.2):
+            assert self.upload(client, offset, defer=True).status_code == 200
+
+        client.post("/api/render", headers=auth())
+        seen_running = False
+        deadline = time.monotonic() + 120
+        while time.monotonic() < deadline:
+            state = client.get("/api/render").json()
+            if state["state"] == "running":
+                seen_running = True
+                assert state["can_stop"] is True
+            if state["state"] not in ("running", "stopping"):
+                break
+            time.sleep(0.02)
+
+        assert seen_running, "the queue never reported itself as running"
+
+    def test_starting_twice_does_not_start_twice(self, client):
+        for offset in (0.0, 0.05):
+            self.upload(client, offset, defer=True)
+
+        first = client.post("/api/render", headers=auth()).json()
+        second = client.post("/api/render", headers=auth()).json()
+        assert first.get("started") is True
+        # Either it is still going, in which case the second is refused, or it
+        # finished so fast there is nothing left to do. Never two at once.
+        assert second.get("started") is not True
+        assert second.get("reason") in ("already running", "nothing pending")
+        self.settle(client)
 
     def test_rendering_with_nothing_owed_is_a_no_op(self, client):
-        steps = self.settle(client)
-        assert steps[-1]["pending_tiles"] == 0
-        assert steps[-1]["total"] == 0
+        response = client.post("/api/render", headers=auth()).json()
+        assert response.get("started") is False
+        assert response.get("reason") == "nothing pending"
+        assert client.get("/api/render").json()["pending_tiles"] == 0
 
     def test_a_deferred_import_matches_an_immediate_one(self, client, tmp_path):
         """Deferring must change when tiles are written, not what they are."""
@@ -457,13 +500,14 @@ class TestDeferredRender:
         conn.execute("DELETE FROM blobs")
         conn.execute("DELETE FROM events")
         conn.execute("DELETE FROM pending_render")
+        conn.execute("DELETE FROM render_done")
         conn.close()
         import shutil
 
         shutil.rmtree(tiles_root(), ignore_errors=True)
 
         assert self.upload(client, 0.0, defer=True).status_code == 200
-        assert self.settle(client)[-1]["finished"] is True
+        assert self.settle(client)["state"] == "idle"
         deferred = sorted(
             (path.relative_to(tiles_root()), path.read_bytes())
             for path in tiles_root().rglob("dark/all/**/*.png")

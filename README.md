@@ -111,6 +111,16 @@ It is a doorstop, not a security model: it stops a misbehaving tracker or a stra
 
 PMTiles is read over HTTP range requests, so the archive doesn't have to sit on the same machine — point the basemap at any host that serves ranges.
 
+## Rendering
+
+Anything that changes what the tiles look like — an import, the fog colour, a tracker sync — marks the ground it affects as owing a render. A queue inside the API process pays that debt.
+
+It is entirely server-side. Start a render and close the browser: it carries on. Settings → In progress shows what is being drawn, how much is left, and offers Resume and Stop. Renders are resumable to the job, so an interruption of any kind — a stop, a closed tab, a restart, a power cut — costs the tile in flight and nothing else.
+
+```bash
+docker compose exec api python -m irfaran.cli render   # the same work, from the console
+```
+
 ## Workout trackers (optional)
 
 Services that already hold your activities. Nothing is pushed here — Irfaran asks, either on a timer or when you press **Sync now** under Settings → Data sources → Workout trackers.

@@ -11,6 +11,23 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.17.0] - 2026-08-18
+
+### Changed
+- **Rendering is the server's job now, and no browser is part of it.** It used to be driven by a request that streamed its progress, which meant the work only advanced while something held that response open — so closing a tab stopped a render mid-pyramid and left the map half drawn, with nothing in the interface offering a way back. There is one queue in the API process, one render at a time, and a state anyone can read. Start it and close the browser: it carries on. Come back and it tells you where it got to.
+- Progress is polled rather than streamed, and the status is answered from the worker's own memory without touching a table. The old status endpoint recomputed the job count from the database on every call, which under a running render meant competing with it for the same locks — it timed out under exactly the load it existed to describe.
+
+### Added
+- **An In progress tab** under Settings: what is being drawn, how far along, how much is owed, which views are affected, and buttons to resume or stop. It polls only while it is on screen.
+- **Renders are resumable.** Each finished job is written down, so a pass interrupted by a button, a closed browser, a restart or a power cut carries on rather than starting again — and can say exactly how much is left. The job in flight when the lights go out is the only work ever repeated.
+- **Stop after this tile.** Nothing already drawn is discarded and nothing owed is forgotten: stopping and resuming is a pause, not a cancel.
+- The import panel now says the render carries on if you close the browser, because it does.
+
+### Note
+Two tables hold the truth between them: `pending_render` for which tiles owe a render, and `render_done` for which jobs of the current pass are finished. Both are cleared together when a pass completes.
+
+While rebuilding the endpoints I destroyed four unrelated routes — history and all three tracker routes sat inside the block I replaced. The test suite caught it as an import error and four failing endpoint tests, and they were recovered from git. Worth recording as the reason the endpoint tests exist.
+
 ## [0.16.0] - 2026-08-18
 
 ### Added

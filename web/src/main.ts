@@ -38,11 +38,12 @@ import {
 } from './map'
 import { Labels } from './labels'
 import { Places } from './places'
-import { estimate, runRender } from './render'
+import { describeRemaining, runRender } from './render'
 import { Setup } from './setup'
 import { hydrateIcons } from './icons'
 import { History } from './history'
 import { People } from './people'
+import { Progress } from './progress'
 import { Sources } from './sources'
 import { Trackers } from './trackers'
 import { Timeline } from './timeline'
@@ -170,11 +171,12 @@ function wireFogColour(map: MapLibreMap, options: MapSetup): { load: () => Promi
       'The colour is baked into every tile, so this re-renders all of them. ' +
       'On a large archive that is several minutes. Settings are locked until it finishes.'
 
-    const startedAt = Date.now()
     void apiSend('PATCH', '/api/settings', { [key()]: value })
       .then(() =>
-        runRender((step) => {
-          status.textContent = `Recolouring the fog — ${estimate(step, startedAt)}`
+        runRender((state) => {
+          status.textContent =
+            `Recolouring the fog — ${describeRemaining(state)}. ` +
+            'This carries on if you close the browser.'
         }),
       )
       .then(() => {
@@ -406,7 +408,16 @@ async function start(): Promise<void> {
   // Static chrome that asked for an icon in the markup gets it here.
   hydrateIcons()
 
-  wireTabs('tabs')
+  const progress = new Progress(() => {
+    bustTileCache()
+    applyView(map, options)
+    void timeline.load()
+    void trails.refresh()
+  })
+  progress.wire()
+
+  // The In progress panel polls only while it is on screen.
+  wireTabs('tabs', (tab) => progress.watch(tab === 'progress'))
   wireZoom(map as never)
   watchLifecycle(map)
   wireDiagnostics(map, hasBasemap, options.theme)
@@ -447,11 +458,12 @@ async function start(): Promise<void> {
       'The colours are baked into every tile, so this re-renders all of them. ' +
       'On a large archive that is several minutes. Settings are locked until it finishes.'
 
-    const startedAt = Date.now()
     void apiSend('PATCH', '/api/settings', { trail_ramp: value })
       .then(() =>
-        runRender((step) => {
-          rampStatus.textContent = `Recolouring the trails — ${estimate(step, startedAt)}`
+        runRender((state) => {
+          rampStatus.textContent =
+            `Recolouring the trails — ${describeRemaining(state)}. ` +
+            'This carries on if you close the browser.'
         }),
       )
       .then(() => {

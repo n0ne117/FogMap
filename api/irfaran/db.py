@@ -118,6 +118,23 @@ CREATE TABLE IF NOT EXISTS pending_render (
   PRIMARY KEY (x, y)
 ) WITHOUT ROWID;
 
+-- Which jobs of the current render pass are finished.
+--
+-- The progress bar's memory, and what makes a render resumable: a pass that was
+-- stopped - by a button, a restart, a power cut - hands these in as work to
+-- skip, so it carries on rather than starting again. Cleared together with
+-- pending_render when a pass completes, because at that point the debt is paid
+-- and the note of what was done with it is no longer of any use.
+--
+-- x and y are -1 for a view's shallow job, which covers z0 to z13 and so
+-- belongs to no single native tile.
+CREATE TABLE IF NOT EXISTS render_done (
+  view TEXT NOT NULL,
+  x INTEGER NOT NULL,
+  y INTEGER NOT NULL,
+  PRIMARY KEY (view, x, y)
+) WITHOUT ROWID;
+
 -- Who you were with, for the Who? field on a pin.
 --
 -- A registry rather than the truth: a place stores the names themselves, in
@@ -389,6 +406,42 @@ def _recorded_kinds(conn: sqlite3.Connection) -> set[str]:
     if not row or not str(row["value"]).strip():
         return set()
     return {part for part in str(row["value"]).split(",") if part}
+
+
+def mark_render_done(conn: sqlite3.Connection, key: tuple[str, int, int]) -> None:
+    """Write down one finished render job.
+
+    Its own transaction, and failures are swallowed. This is called once per
+    job while a render is running; a lost row costs that job being redone on a
+    resume, which is a great deal better than a render that dies because a
+    bookkeeping write lost a race.
+    """
+    view, x, y = key
+    try:
+        with transaction(conn):
+            conn.execute(
+                "INSERT OR IGNORE INTO render_done (view, x, y) VALUES (?, ?, ?)",
+                (view, int(x), int(y)),
+            )
+    except sqlite3.Error:
+        pass
+
+
+def render_done(conn: sqlite3.Connection) -> set[tuple[str, int, int]]:
+    """Every render job already finished in the current pass."""
+    return {
+        (str(row["view"]), int(row["x"]), int(row["y"]))
+        for row in conn.execute("SELECT view, x, y FROM render_done")
+    }
+
+
+def render_done_count(conn: sqlite3.Connection) -> int:
+    row = conn.execute("SELECT COUNT(*) AS n FROM render_done").fetchone()
+    return int(row["n"]) if row else 0
+
+
+def clear_render_done(conn: sqlite3.Connection) -> None:
+    conn.execute("DELETE FROM render_done")
 
 
 def pending_kinds(conn: sqlite3.Connection) -> tuple[str, ...]:
