@@ -11,6 +11,14 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.12.4] - 2026-08-18
+
+### Fixed
+- A token copied out of a web page could be refused while looking character for character correct. JavaScript's `\s` covers space, tab, newline, non-breaking space and even a byte order mark, but not the zero-width family — `U+200B` and its neighbours survive trimming and splitting, and then fail a byte comparison invisibly. Those are now stripped, along with soft hyphens and control characters, on both the paste path and Apply.
+
+### Changed
+- A refused token now says **which server** refused it and **how much** was sent: "http://tower:8080 refused that token (sent 66 characters, including 2 that are not a hex digit)". "The server refused that token" is true and names none of the several possible reasons. Which server matters most — a token belongs to one instance, and a browser pointed somewhere other than you assumed is indistinguishable from a bad token — and the length catches anything that came along with the paste. Neither reveals the secret.
+
 ## [0.12.3] - 2026-08-18
 
 ### Added

@@ -3,7 +3,15 @@
 // Chrome that is not the map: the full-screen sheets, the settings tabs, the
 // zoom control and the API token field.
 
-import { ApiError, apiSend, getToken, setToken, tokenFrom } from './api'
+import {
+  ApiError,
+  apiSend,
+  clean,
+  describeToken,
+  getToken,
+  setToken,
+  tokenFrom,
+} from './api'
 import { getUiTheme } from './theme'
 
 export function element<T extends HTMLElement>(id: string): T {
@@ -197,10 +205,17 @@ export function wireTokenField(onChange: () => void): void {
         onChange()
       } catch (error) {
         setToken(previous)
+        // Name the server and describe what was sent. Which server is the
+        // question that matters most - a token is per instance, and a browser
+        // pointed somewhere other than you assumed looks exactly like a bad
+        // token - and the length says at a glance whether something came along
+        // with it.
         state.textContent =
           error instanceof ApiError && error.status === 401
-            ? 'The server refused that token. Each Irfaran instance has its own, ' +
-              'so check it came from this one.'
+            ? `${window.location.origin} refused that token ` +
+              `(sent ${describeToken(candidate)}). Each Irfaran instance has ` +
+              'its own token, so check this one came from that server: ' +
+              'docker compose exec api python -m irfaran.cli token'
             : error instanceof Error
               ? error.message
               : String(error)
@@ -234,7 +249,7 @@ export function acceptTokenPaste(input: HTMLInputElement): void {
     if (!/[\r\n]/.test(pasted)) return
 
     event.preventDefault()
-    const [firstLine = ''] = pasted.trim().split(/\r?\n/)
+    const [firstLine = ''] = clean(pasted).trim().split(/\r?\n/)
     input.value = firstLine.trim()
     input.dispatchEvent(new Event('input', { bubbles: true }))
   })

@@ -24,8 +24,38 @@ export function getToken(): string {
  * newline, a copied shell prompt, or a stray bullet.
  */
 export function tokenFrom(pasted: string): string {
-  const [first = ''] = pasted.trim().split(/\s+/)
+  const [first = ''] = clean(pasted).trim().split(/\s+/)
   return first
+}
+
+/** Invisible characters a copy out of a rendered web page can carry.
+ *
+ * JavaScript's \s covers the ordinary suspects - space, tab, newline,
+ * non-breaking space, even a byte order mark - but not the zero-width family,
+ * which survives trimming and splitting and then fails a byte comparison while
+ * looking character for character correct on screen.
+ */
+const INVISIBLE = /[\u200b-\u200d\u2060\u180e\ufeff\u00ad]|[\u0000-\u001f\u007f]/g
+
+export function clean(text: string): string {
+  return text.replace(INVISIBLE, '')
+}
+
+/** What was actually sent, described without giving the secret away.
+ *
+ * "The server refused that token" is true and tells you nothing about which of
+ * the several possible reasons it was. The length and the character set are
+ * safe to show and usually name the problem on sight.
+ */
+export function describeToken(token: string): string {
+  const odd = token.replace(/[0-9a-fA-F]/g, '')
+  const parts = [`${token.length} characters`]
+  if (odd) {
+    parts.push(
+      `including ${odd.length} that ${odd.length === 1 ? 'is' : 'are'} not a hex digit`,
+    )
+  }
+  return parts.join(', ')
 }
 
 export function setToken(token: string): void {
