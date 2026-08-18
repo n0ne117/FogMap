@@ -524,9 +524,17 @@
             <h2>API token</h2>
             <label class="field">
               <span>Value of IRFARAN_TOKEN</span>
-              <input id="settings-token" type="password" autocomplete="off" placeholder="paste it here" />
+              <span class="token-field">
+                <input id="settings-token" type="password" autocomplete="off" placeholder="paste it here" />
+                <button id="token-apply" type="button" class="primary">Apply</button>
+              </span>
             </label>
             <p id="token-state" class="status-line"></p>
+            <p class="hint">
+              Apply checks the token against the server before believing it, and
+              picks up whatever is in the field however it got there — a password
+              manager filling it in does not always tell the page it happened.
+            </p>
             <p class="hint">
               Needed to change anything: drawing, places, imports, and the
               switches under Data sources. Reading the map needs no token at

@@ -1270,3 +1270,21 @@ button:disabled {
   flex: 1 1 8rem;
   min-width: 0;
 }
+
+/* The token field and its Apply button on one line, shrinking before the
+   button does - same reasoning as the label row. */
+.token-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.token-field input {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.token-field button {
+  flex: 0 0 auto;
+}

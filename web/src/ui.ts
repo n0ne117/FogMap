@@ -3,7 +3,8 @@
 // Chrome that is not the map: the full-screen sheets, the settings tabs, the
 // zoom control and the API token field.
 
-import { getToken, setToken, tokenFrom } from './api'
+import { ApiError, apiSend, getToken, setToken, tokenFrom } from './api'
+import { getUiTheme } from './theme'
 
 export function element<T extends HTMLElement>(id: string): T {
   const found = document.getElementById(id)
@@ -149,6 +150,68 @@ export function wireTokenField(onChange: () => void): void {
     paint()
     onChange()
   })
+
+  // Apply exists because storing on `input` alone is not enough.
+  //
+  // A password manager, an autofill, or any extension sets .value directly and
+  // does not dispatch an input event - so the field visibly holds the right
+  // token, nothing is stored, the status line says "No token set", and every
+  // write is refused while the answer sits on screen in plain sight. A button
+  // reads the field whatever put it there.
+  //
+  // It also verifies. Storing a token and finding out at the first edit is how
+  // somebody ends up certain they entered it correctly and an app that
+  // disagrees quietly.
+  const apply = element<HTMLButtonElement>('token-apply')
+  apply.addEventListener('click', () => {
+    void (async () => {
+      const candidate = tokenFrom(input.value)
+      if (!candidate) {
+        state.textContent = 'Paste the token first.'
+        state.dataset.state = 'warn'
+        return
+      }
+
+      const previous = getToken()
+      apply.disabled = true
+      state.textContent = 'Checking with the server.'
+      state.dataset.state = ''
+      setToken(candidate)
+
+      // A browser with storage blocked accepts setToken silently and hands
+      // back nothing, which would otherwise look like the token being wrong.
+      if (getToken() !== candidate) {
+        state.textContent =
+          'This browser will not let the page remember anything, so the token ' +
+          'cannot be kept. Private browsing usually does this.'
+        state.dataset.state = 'bad'
+        apply.disabled = false
+        return
+      }
+
+      try {
+        // Harmless: it writes back the theme this browser already has.
+        await apiSend('PATCH', '/api/settings', { ui_theme: getUiTheme() })
+        state.textContent = 'Token accepted by the server and kept in this browser.'
+        state.dataset.state = 'good'
+        onChange()
+      } catch (error) {
+        setToken(previous)
+        state.textContent =
+          error instanceof ApiError && error.status === 401
+            ? 'The server refused that token. Each Irfaran instance has its own, ' +
+              'so check it came from this one.'
+            : error instanceof Error
+              ? error.message
+              : String(error)
+        state.dataset.state = 'bad'
+        input.value = previous
+      } finally {
+        apply.disabled = false
+      }
+    })()
+  })
+
   paint()
 }
 

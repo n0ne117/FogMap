@@ -124,3 +124,57 @@ class TestPastingItBack:
         """tokenFrom stays for the ordinary case of a trailing space."""
         source = self.source("api.ts")
         assert "export function tokenFrom" in source
+
+
+class TestApplyingIt:
+    """The Apply button on Settings, Security.
+
+    Storing on the field's `input` event alone is not enough, and the failure is
+    a nasty one: a password manager, an autofill or any extension sets .value
+    directly without dispatching an input event, so the field visibly holds the
+    right token, nothing is stored, the status line says "No token set", and
+    every write is refused while the answer is on screen. Reproduced in a
+    browser before this was added.
+    """
+
+    @staticmethod
+    def source(name: str) -> str:
+        for parent in Path(__file__).resolve().parents:
+            candidate = parent / "web" / "src" / name
+            if candidate.is_file():
+                return candidate.read_text()
+        raise AssertionError(f"web/src/{name} not found above this test")
+
+    def test_the_button_is_in_the_markup(self) -> None:
+        for parent in Path(__file__).resolve().parents:
+            page = parent / "web" / "index.html"
+            if page.is_file():
+                assert 'id="token-apply"' in page.read_text()
+                return
+        raise AssertionError("web/index.html not found above this test")
+
+    def test_it_reads_the_field_rather_than_trusting_an_event(self) -> None:
+        source = self.source("ui.ts")
+        handler = source[source.index("const apply = element"):]
+        assert "input.value" in handler, (
+            "Apply does not read the field, so a value put there by a password "
+            "manager is still invisible to it"
+        )
+
+    def test_it_verifies_before_believing_the_token(self) -> None:
+        source = self.source("ui.ts")
+        handler = source[source.index("const apply = element"):]
+        assert "apiSend" in handler, "Apply stores without checking with the server"
+
+    def test_a_refused_token_restores_the_previous_one(self) -> None:
+        """Otherwise one bad paste locks a working browser out."""
+        source = self.source("ui.ts")
+        handler = source[source.index("const apply = element"):]
+        assert "setToken(previous)" in handler
+
+    def test_blocked_storage_is_reported_not_blamed_on_the_token(self) -> None:
+        """Private browsing swallows setToken silently, which looks identical."""
+        source = self.source("ui.ts")
+        handler = source[source.index("const apply = element"):]
+        assert "getToken() !== candidate" in handler
+

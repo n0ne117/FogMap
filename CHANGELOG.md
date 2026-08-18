@@ -11,6 +11,14 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.12.3] - 2026-08-18
+
+### Added
+- An **Apply** button beside the API token under Settings → Security, which fixes a real way of being locked out. The token used to be stored only when the field raised an `input` event — which typing does and a password manager, an autofill or any browser extension does not. So the field visibly held the correct token, nothing was stored, the status line said "No token set", and every write was refused while the answer sat on screen. Apply reads the field whatever put it there.
+- Apply also verifies the token against the server before believing it, and says which happened: accepted and kept, refused by the server, or — the case that looks identical to a wrong token — a browser that will not let the page remember anything, which is what private browsing does. A refused token restores the one that was working rather than leaving the browser locked out.
+
+Suggested by exactly the person who got locked out by it, which is the useful kind of bug report.
+
 ## [0.12.2] - 2026-08-18
 
 ### Fixed
