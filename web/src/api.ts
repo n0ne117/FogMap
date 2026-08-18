@@ -70,7 +70,7 @@ export async function apiSend<T>(
     throw new ApiError(
       401,
       'No API token set. Put the value of IRFARAN_TOKEN into ' +
-        'Settings, Data sources, API token.',
+        'Settings, Security.',
     )
   }
 

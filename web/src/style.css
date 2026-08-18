@@ -1247,3 +1247,26 @@ button:disabled {
 .maplibregl-ctrl-attrib {
   font-size: 0.7rem;
 }
+
+/* ------------------------------------------------------------ workout trackers */
+
+.tracker {
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  background: var(--panel-sunken, transparent);
+}
+
+/* Three short fields side by side, and stacked the moment that stops fitting.
+   Same lesson as the label row: without min-width a flex item refuses to
+   shrink below its own content and pushes its neighbours off the edge. */
+.tracker-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.tracker-row .field {
+  flex: 1 1 8rem;
+  min-width: 0;
+}

@@ -123,6 +123,7 @@ DEFAULT_SETTINGS = {
     "ha_ingest_enabled": "false",
     "overland_ingest_enabled": "false",
     "owntracks_ingest_enabled": "false",
+    "intervals_enabled": "false",
     "ui_theme": "system",
     "map_theme": "dark",
 }
@@ -276,7 +277,9 @@ def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
 # refuse anybody. Filtered at the source rather than at each caller, because
 # the next caller will not remember. tokens.py reads the row directly, which
 # is the one place that should.
-SECRET_SETTINGS = frozenset({"api_token"})
+# Never served back out. The tracker key is somebody's credential on another
+# service, which makes leaking it worse than leaking this server's own token.
+SECRET_SETTINGS = frozenset({"api_token", "intervals_api_key"})
 
 
 def get_settings(conn: sqlite3.Connection) -> dict[str, str]:

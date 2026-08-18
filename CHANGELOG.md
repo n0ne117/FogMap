@@ -11,6 +11,20 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.12.0] - 2026-08-18
+
+### Added
+- **Workout trackers**, a second kind of data source alongside live tracking, and **intervals.icu** as the first one. Nothing is pushed: Irfaran asks, either on a timer you set in hours or when you press Sync now. Under Settings → Data sources → Workout trackers.
+- Activities arrive as GPX and are filed under the same `workout` source a file drop uses, so anything already imported by hand is recognised and skipped rather than drawn a second time. Sessions with no GPS — indoor rides, pool swims — are counted and skipped rather than failing the sync, and one unreadable file does not stop the rest.
+- The intervals.icu API key is stored on the server and never returned to any browser, so the field is blank every time the page opens and leaving it blank keeps the key already saved. It sits in `SECRET_SETTINGS` with the app's own token, which means no endpoint will hand it out.
+- A sync defers its render the same way a bulk import does, so twenty new activities cost one render rather than twenty. A sync that ran on a timer draws them itself, because there is nobody holding a progress bar to do it.
+
+### Changed
+- The old workout-API sync idea in the build plan is dropped in favour of this. A service that already holds your history and has an API is a better place to ask than a per-vendor integration.
+
+### Note
+The live handshake with intervals.icu is the one part that cannot be tested here — that needs a real key against the real service. Everything Irfaran is responsible for is covered: the auth format the service documents, the required `oldest` parameter, dedup against hand-imported workouts, activities without GPS, unreadable files, and the key never leaving the server.
+
 ## [0.11.8] - 2026-08-18
 
 ### Changed

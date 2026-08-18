@@ -42,7 +42,7 @@ export class Backup {
   private async export(): Promise<void> {
     const button = element<HTMLButtonElement>('export-start')
     if (!getToken()) {
-      this.say('export-message', 'No API token set. Add it under Settings, Data sources.', true)
+      this.say('export-message', 'No API token set. Add it under Settings, Security.', true)
       return
     }
 

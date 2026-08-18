@@ -83,7 +83,7 @@ export class Imports {
   async run(files: File[]): Promise<void> {
     if (this.running) return
     if (!getToken()) {
-      this.report([], 'No API token set. Add it under Settings, Data sources, API token.')
+      this.report([], 'No API token set. Add it under Settings, Security.')
       return
     }
 

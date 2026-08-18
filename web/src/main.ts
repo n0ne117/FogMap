@@ -41,6 +41,7 @@ import { Places } from './places'
 import { estimate, runRender } from './render'
 import { Setup } from './setup'
 import { Sources } from './sources'
+import { Trackers } from './trackers'
 import { Timeline } from './timeline'
 import {
   getTrailPopups,
@@ -546,7 +547,19 @@ async function start(): Promise<void> {
   const sources = new Sources()
   void sources.load()
 
-  wireTokenField(() => void sources.load())
+  const trackers = new Trackers(() => {
+    bustTileCache()
+    applyView(map, options)
+    void timeline.load()
+    void trails.refresh()
+  })
+  trackers.wire()
+  void trackers.load()
+
+  wireTokenField(() => {
+    void sources.load()
+    void trackers.load()
+  })
 
   const imports = new Imports(() => {
     bustTileCache()

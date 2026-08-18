@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
@@ -10,7 +11,7 @@ import re
 import secrets
 import shutil
 import sqlite3
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 from email.utils import formatdate, parsedate_to_datetime
 from pathlib import Path
@@ -31,6 +32,7 @@ from irfaran import (  # noqa: I001
     raster,
     settings_env,
     tokens,
+    trackers,
     transfer,
 )
 from irfaran.ingest import common, gpx, live, tcx
@@ -85,6 +87,8 @@ def unchanged(request: Request, etag: str, last_modified: str = "") -> bool:
         except (TypeError, ValueError):
             return False
     return False
+
+
 BASEMAP_NAME = re.compile(r"^[A-Za-z0-9._-]+\.pmtiles$")
 RANGE_HEADER = re.compile(r"^bytes=(\d*)-(\d*)$")
 BASEMAP_CHUNK = 1024 * 256
@@ -139,6 +143,63 @@ def load_placeholders(app: FastAPI, conn: sqlite3.Connection) -> None:
     }
 
 
+# How often to wake up and ask whether any tracker is due. Not how often a
+# tracker syncs - that is its own setting, in hours. This only has to be finer
+# grained than the shortest interval anyone would sensibly choose.
+TRACKER_TICK_S = 600
+
+
+def sync_due_trackers() -> list[str]:
+    """Sync every tracker whose timer has come round, and draw what arrived.
+
+    Its own connection, because this runs in a worker thread and a SQLite
+    connection belongs to the thread that opened it.
+
+    Errors are written to the tracker's own last_error and go no further. A
+    service being down, or a key having been revoked, is not a reason for the
+    next tick to stop happening.
+    """
+    done: list[str] = []
+    conn = db.connect()
+    try:
+        for name in trackers.TRACKERS:
+            if not trackers.is_due(conn, name):
+                continue
+            try:
+                result = trackers.sync(conn, name)
+                done.append(f"{name}: {result.summary()}")
+                if result.tiles:
+                    drain_pending_render(conn)
+            except trackers.TrackerError as exc:
+                with db.transaction(conn):
+                    trackers.put(conn, name, "last_error", str(exc))
+                    # Stamped even on failure, or a server that cannot reach
+                    # the service would retry on every single tick.
+                    trackers.put(
+                        conn,
+                        name,
+                        "last_sync",
+                        datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    )
+                done.append(f"{name}: {exc}")
+    finally:
+        conn.close()
+    return done
+
+
+async def tracker_ticker() -> None:
+    """Check the trackers on a timer, for as long as the app is up."""
+    while True:
+        try:
+            await asyncio.sleep(TRACKER_TICK_S)
+            for line in await run_in_threadpool(sync_due_trackers):
+                print(f"tracker sync - {line}", flush=True)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - the loop outlives any one failure
+            print(f"tracker tick failed: {exc}", flush=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # One connection at startup purely to create the schema. Requests open
@@ -156,7 +217,13 @@ async def lifespan(app: FastAPI):
     if basemap.downloader.resume_if_interrupted():
         print("resuming interrupted basemap download", flush=True)
 
-    yield
+    ticker = asyncio.create_task(tracker_ticker())
+    try:
+        yield
+    finally:
+        ticker.cancel()
+        with suppress(asyncio.CancelledError):
+            await ticker
 
 
 app = FastAPI(
@@ -868,6 +935,130 @@ def render_pending() -> StreamingResponse:
             conn.close()
 
     return StreamingResponse(report(), media_type="application/x-ndjson")
+
+
+def drain_pending_render(conn: sqlite3.Connection) -> int:
+    """Render whatever is owing, with nobody watching.
+
+    The streaming endpoint above is for a person holding a progress bar. A sync
+    that ran on a timer has no such person, and leaving the tiles owing would
+    mean an activity that arrived overnight not appearing until somebody
+    happened to trigger a render.
+    """
+    pending = db.pending_render(conn)
+    if not pending:
+        return 0
+
+    root = tiles_root()
+    root.mkdir(parents=True, exist_ok=True)
+    composite.write_placeholders(root, conn)
+    written = composite.render_views(
+        conn,
+        root,
+        composite.views_touching(conn, pending),
+        scope=composite.rebuild_scope(pending),
+        kinds=db.pending_kinds(conn),
+    )
+    with db.transaction(conn):
+        db.clear_pending_render(conn)
+    return sum(written.values())
+
+
+# ------------------------------------------------------------ workout trackers
+
+
+@app.get("/api/trackers")
+def list_trackers(
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> dict[str, object]:
+    """What is configured, and never the keys themselves."""
+    return {
+        "trackers": [trackers.status(conn, name) for name in trackers.TRACKERS]
+    }
+
+
+@app.patch("/api/trackers/{name}")
+def patch_tracker(
+    name: str, payload: dict, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    """Change one tracker's configuration.
+
+    An empty api_key is ignored rather than stored. The field comes back blank
+    every time the page loads - the server will not say what the key is - so
+    treating blank as "clear it" would wipe the key on any unrelated save.
+    Clearing is what the switch is for.
+    """
+    try:
+        trackers.check(name)
+    except trackers.TrackerError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if not isinstance(payload, dict) or not payload:
+        raise HTTPException(
+            status_code=400, detail="Send an object of tracker settings to change."
+        )
+
+    unknown = {str(key) for key in payload} - set(trackers.FIELDS)
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Cannot set {', '.join(sorted(unknown))} on a tracker. "
+                f"Settable: {', '.join(trackers.FIELDS)}."
+            ),
+        )
+
+    for field_name in ("sync_hours", "since_days"):
+        if field_name in payload:
+            try:
+                int(str(payload[field_name]))
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{field_name} has to be a whole number of "
+                    + ("hours." if field_name == "sync_hours" else "days."),
+                ) from None
+
+    with db.transaction(conn):
+        for field_name, value in payload.items():
+            text = str(value).strip() if isinstance(value, str) else str(value)
+            if field_name == "api_key" and not text:
+                continue
+            if field_name == "enabled":
+                text = "true" if value in (True, "true", "True", 1, "1") else "false"
+            trackers.put(conn, name, field_name, text)
+
+    return trackers.status(conn, name)
+
+
+@app.post("/api/trackers/{name}/sync")
+def sync_tracker(
+    name: str, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    """Fetch now, on purpose.
+
+    Runs even when the tracker's timer is switched off, because pressing the
+    button is a clearer statement of intent than the timer setting is. It still
+    needs a key, and being switched off entirely still means no.
+    """
+    try:
+        trackers.check(name)
+    except trackers.TrackerError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    try:
+        result = trackers.sync(conn, name)
+    except trackers.TrackerError as exc:
+        with db.transaction(conn):
+            trackers.put(conn, name, "last_error", str(exc))
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return {
+        "result": "ok",
+        **result.as_dict(),
+        "summary": result.summary(),
+        "status": trackers.status(conn, name),
+    }
 
 
 def _views_for_layers(layers: list[str]) -> list[str]:

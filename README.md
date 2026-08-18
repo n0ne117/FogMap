@@ -39,6 +39,7 @@ Delete both caches, run a rebuild, get byte-identical output. That means the who
 - Raster fog-of-war rendering, fast at every zoom level
 - Trail layer showing route frequency, so your regular loops stand out from one-off trips
 - Live tracking via Overland, OwnTracks or Home Assistant (all optional, off by default)
+- Workout trackers: intervals.icu, checked on a timer or on demand (optional, off by default)
 - GPX and TCX import
 - Per-year subdivision maps plus a cumulative all-time view
 - Manual tools: draw a route, clear fog without claiming one, enclose an area and clear all of it, or erase fog wrongly cleared by GPS drift
@@ -100,6 +101,16 @@ Set `IRFARAN_TOKEN` in the environment to choose your own instead, in which case
 It is a doorstop, not a security model: it stops a misbehaving tracker or a stray `curl` from altering history. It does not protect reads, which are open to anyone who can reach the app — so run it somewhere only you can.
 
 PMTiles is read over HTTP range requests, so the archive doesn't have to sit on the same machine — point the basemap at any host that serves ranges.
+
+## Workout trackers (optional)
+
+Services that already hold your activities. Nothing is pushed here — Irfaran asks, either on a timer or when you press **Sync now** under Settings → Data sources → Workout trackers.
+
+**intervals.icu.** Paste an API key from intervals.icu → Settings → Developer, leave the athlete as `0` for whoever the key belongs to, and set how often to check. Zero hours means never on its own, only the button.
+
+Activities are downloaded as GPX and filed under the same `workout` source a file drop uses, so anything already imported by hand is recognised and skipped rather than drawn twice. Sessions with no GPS — indoor trainer rides, pool swims — are counted and skipped.
+
+The key is stored on the server and never sent back to any browser, so the field is blank every time you open it; leaving it blank keeps the key already saved. It is listed in `SECRET_SETTINGS` alongside the app's own token, which means no endpoint will return it.
 
 ## Live tracking (optional)
 

@@ -443,6 +443,70 @@
 
         <div class="tab-panel" data-tab="sources" hidden>
           <section class="span-2">
+            <h2>Workout trackers</h2>
+            <p class="hint">
+              Services that already hold your activities. Nothing is pushed
+              here — Irfaran asks, on a timer or when you press the button.
+              Activities are filed as workouts, the same as a file you drop in
+              under Import, so anything already imported is recognised rather
+              than drawn a second time.
+            </p>
+
+            <div class="tracker">
+              <label class="check">
+                <input id="intervals-enabled" type="checkbox" />
+                <span><strong>intervals.icu</strong></span>
+              </label>
+
+              <label class="field">
+                <span>API key</span>
+                <input
+                  id="intervals-key"
+                  type="password"
+                  autocomplete="off"
+                  placeholder="paste to set or change"
+                />
+              </label>
+              <p class="hint">
+                From intervals.icu, Settings, Developer. Stored on this server
+                and never sent back to any browser, so this field is blank
+                every time you open it — leaving it blank keeps the key you
+                already saved.
+              </p>
+
+              <div class="tracker-row">
+                <label class="field">
+                  <span>Athlete</span>
+                  <input id="intervals-athlete" type="text" placeholder="0" />
+                </label>
+                <label class="field">
+                  <span>Check every (hours)</span>
+                  <input id="intervals-hours" type="number" min="0" max="168" step="1" />
+                </label>
+                <label class="field">
+                  <span>First look back (days)</span>
+                  <input id="intervals-days" type="number" min="1" max="3650" step="1" />
+                </label>
+              </div>
+              <p class="hint">
+                Leave the athlete as <code>0</code> for whoever the key belongs
+                to. Zero hours means never on its own — only the button below.
+              </p>
+
+              <div class="button-row">
+                <button id="intervals-save" type="button">Save</button>
+                <button id="intervals-sync" type="button" class="primary">Sync now</button>
+              </div>
+              <p id="intervals-state" class="status-line"></p>
+              <p id="intervals-message" class="status-line" hidden></p>
+              <div id="intervals-progress-row" class="progress-row" hidden>
+                <progress id="intervals-progress" max="100" value="0"></progress>
+                <p id="intervals-progress-text" class="progress-text"></p>
+              </div>
+            </div>
+          </section>
+
+          <section class="span-2">
             <h2>Live tracking</h2>
             <div id="source-list" class="source-list"></div>
             <p class="hint">
