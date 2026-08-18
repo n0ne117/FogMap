@@ -163,6 +163,7 @@ export function getTrailStyle(): TrailStyle {
   try {
     const stored = window.localStorage.getItem(STYLE_KEY)
     if (
+      stored === 'auto' ||
       stored === 'detailed' ||
       stored === 'single' ||
       stored === 'faint' ||
@@ -173,7 +174,15 @@ export function getTrailStyle(): TrailStyle {
   } catch {
     /* the default is a fine answer */
   }
-  return 'auto'
+  // Off by default. The trail colouring underneath already says how often you
+  // went somewhere, and it says it without turning a busy area white - so
+  // individual lines are something to switch on when you want to read one
+  // journey, not the first thing a new map shows you.
+  //
+  // 'auto' has to be in the list above now that it is no longer what falls
+  // through: without it, choosing Auto would store a value this function does
+  // not recognise and hand back Off on the next load.
+  return 'off'
 }
 
 export function setTrailStyle(value: TrailStyle): void {

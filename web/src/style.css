@@ -561,19 +561,32 @@ a {
   cursor: pointer;
 }
 
+/* Four controls in a row inside a narrow panel. A flex item will not shrink
+   below the width of its own content unless it is told it may, so the name
+   field held the row wider than the panel and pushed the hex field and the
+   Add button off the edge. min-width lets it give way, and wrapping catches
+   the case where even that is not enough. */
 .label-new {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
 }
 
 .label-new input[type='text']:first-child {
-  flex: 1 1 auto;
+  flex: 1 1 7rem;
+  min-width: 0;
 }
 
 .label-new input#label-colour-hex {
+  flex: 0 1 6rem;
   width: 6rem;
+  min-width: 4.5rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.label-new button {
+  flex: 0 0 auto;
 }
 
 .label-new input[type='color'] {

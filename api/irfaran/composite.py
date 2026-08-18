@@ -57,8 +57,13 @@ DEFAULT_FOG_EDGE_PX = 2.5
 # fog and the ground beneath it differ by so little that thinning the fog
 # reveals almost nothing; a grey reads as haze over the map instead of as an
 # absence of one.
+# A neutral mid grey for the dark theme: fog is the absence of knowledge
+# rather than a feature of the landscape, so it does not want to belong to the
+# palette underneath it. The light theme keeps its pale fog, because the two
+# themes have to stay distinguishable - and anyone who prefers the grey there
+# can set it, which is a stored setting rather than a rebuild.
 FOG_COLOUR = {
-    "dark": (28, 30, 35),
+    "dark": (94, 92, 100),
     "light": (232, 232, 228),
 }
 

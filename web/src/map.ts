@@ -51,8 +51,12 @@ const TILE_FADE_MS = 0
  *
  * A viewing choice, like fog thickness: MapLibre scales the raster layer on
  * the GPU, so it changes as the slider moves and nothing is re-rendered.
+ *
+ * Half strength by default. At full strength the colouring is the loudest
+ * thing on the map and drowns the streets it is drawn over; at half it still
+ * reads as how often you went somewhere, over a basemap you can still see.
  */
-const DEFAULT_HEAT_OPACITY = 1
+const DEFAULT_HEAT_OPACITY = 0.5
 
 export function getHeatOpacity(): number {
   try {
@@ -133,9 +137,12 @@ export function getFogOpacity(): number {
  */
 export function getBordersVisible(): boolean {
   try {
-    return window.localStorage.getItem(BORDERS_KEY) === 'true'
+    // On unless it was explicitly turned off. Country lines are how you tell
+    // at a glance which country a cleared patch is in, which is most of what
+    // a zoomed-out fog map is for.
+    return window.localStorage.getItem(BORDERS_KEY) !== 'false'
   } catch {
-    return false
+    return true
   }
 }
 

@@ -182,6 +182,7 @@
         <button type="button" role="tab" data-tab="backup" aria-selected="false">Backup</button>
         <button type="button" role="tab" data-tab="import" aria-selected="false">Import</button>
         <button type="button" role="tab" data-tab="sources" aria-selected="false">Data sources</button>
+        <button type="button" role="tab" data-tab="security" aria-selected="false">Security</button>
         <button type="button" role="tab" data-tab="basemap" aria-selected="false">Basemap</button>
         <button type="button" role="tab" data-tab="about" aria-selected="false">About</button>
       </nav>
@@ -221,7 +222,7 @@
                 min="0"
                 max="100"
                 step="1"
-                value="60"
+                value="80"
                 aria-label="Fog thickness"
               />
             </label>
@@ -234,13 +235,13 @@
             <label class="field">
               <span>Colour of the unknown</span>
               <span class="colour-field">
-                <input id="fog-colour" type="color" value="#1c1e23" />
+                <input id="fog-colour" type="color" value="#5e5c64" />
                 <input
                   id="fog-colour-hex"
                   type="text"
                   spellcheck="false"
                   maxlength="7"
-                  placeholder="#1c1e23"
+                  placeholder="#5e5c64"
                   aria-label="Fog colour as hex"
                 />
                 <button id="fog-colour-apply" type="button">Apply</button>
@@ -249,7 +250,8 @@
             <p class="hint">
               Set per map theme — this is the <output id="fog-colour-theme">dark</output>
               one. Unlike thickness, the colour is baked into the tiles, so
-              applying it re-renders them. That takes a few seconds.
+              applying it re-renders them. On a full archive that takes several
+              minutes, and the settings stay locked until it finishes.
             </p>
             <p id="fog-colour-status" class="notice" hidden></p>
           </section>
@@ -316,7 +318,7 @@
           <section>
             <h2>Borders</h2>
             <label class="check">
-              <input id="show-borders" type="checkbox" />
+              <input id="show-borders" type="checkbox" checked />
               <span>Show country borders</span>
             </label>
             <p class="hint">
@@ -440,20 +442,6 @@
         </div>
 
         <div class="tab-panel" data-tab="sources" hidden>
-          <section>
-            <h2>API token</h2>
-            <label class="field">
-              <span>Value of IRFARAN_TOKEN</span>
-              <input id="settings-token" type="password" autocomplete="off" placeholder="paste it here" />
-            </label>
-            <p id="token-state" class="status-line"></p>
-            <p class="hint">
-              Needed to change anything: drawing, places, imports and the
-              switches beside this. Same value as IRFARAN_TOKEN in the server's
-              environment. Kept in this browser only.
-            </p>
-          </section>
-
           <section class="span-2">
             <h2>Live tracking</h2>
             <div id="source-list" class="source-list"></div>
@@ -464,6 +452,28 @@
               tracker setup.
             </p>
             <p id="source-message" class="status-line" hidden></p>
+          </section>
+        </div>
+
+        <div class="tab-panel" data-tab="security" hidden>
+          <section>
+            <h2>API token</h2>
+            <label class="field">
+              <span>Value of IRFARAN_TOKEN</span>
+              <input id="settings-token" type="password" autocomplete="off" placeholder="paste it here" />
+            </label>
+            <p id="token-state" class="status-line"></p>
+            <p class="hint">
+              Needed to change anything: drawing, places, imports, and the
+              switches under Data sources. Reading the map needs no token at
+              all. Same value as IRFARAN_TOKEN in the server's environment, or
+              the one this server generated on first start — read it back with
+              <code>docker compose exec api python -m irfaran.cli token</code>
+            </p>
+            <p class="hint">
+              Kept in this browser only, and never sent anywhere but this
+              server.
+            </p>
           </section>
         </div>
 

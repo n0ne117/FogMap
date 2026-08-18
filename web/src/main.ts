@@ -103,8 +103,16 @@ async function checkApiVersion(): Promise<void> {
 }
 
 /** Built-in fog colours, matching composite.FOG_COLOUR on the server. */
+/**
+ * What the server falls back to when no colour has been stored.
+ *
+ * A second copy of composite.FOG_COLOUR, because the settings endpoint returns
+ * what is stored and not what is defaulted, so the picker has nothing else to
+ * show on an instance that has never set one. test_fog_defaults.py fails if
+ * these two drift - which they did, the first time this changed.
+ */
 const FOG_COLOUR_DEFAULTS: Record<MapTheme, string> = {
-  dark: '#1c1e23',
+  dark: '#5e5c64',
   light: '#e8e8e4',
 }
 

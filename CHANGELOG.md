@@ -11,6 +11,22 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.11.8] - 2026-08-18
+
+### Changed
+- New defaults, chosen so a fresh install looks right without touching a slider. Fog thickness 80%, trail colouring 50%, country borders on, individual track lines off, and the dark theme's fog is now a neutral mid grey (`#5e5c64`) instead of near-black. Track lines are off because the colouring underneath already says how often you went somewhere, and says it without turning a busy junction white. These are browser preferences, so an existing browser keeps whatever it has.
+- The API token has its own **Security** tab rather than sitting above the live-tracking switches. It is not a data source, and Data sources is where the switches that need it live.
+- The fog re-render warning says minutes, not seconds, and mentions that settings stay locked until it finishes. On a full archive it is minutes.
+
+### Fixed
+- The Add-a-label row no longer runs off the edge of the panel. Measured in a 300px-wide panel, the hex field ended 24px past the edge and the Add button 72px past it, with the colour swatch crushed from 38px to 8px. A flex item will not shrink below the width of its own content unless told it may, so the name field held the row wider than the panel. It can give way now, and wraps to a second line when even that is not enough.
+
+### Added
+- A test that the fog colour default in the front end matches the server's. It is written down in both places, because the settings endpoint returns what is stored rather than what is defaulted — and the two drifted the very first time the default changed, which would have shown one colour in the picker and rendered another into the tiles.
+
+### Note on upgrading
+The dark fog colour is baked into tiles, so an instance that never set one explicitly has tiles rendered in the old colour and placeholders in the new one, which shows as a seam at the edge of explored ground. Settings, Appearance, Colour of the unknown, Apply re-renders them. An instance with a colour already chosen is unaffected.
+
 ## [0.11.7] - 2026-08-18
 
 ### Changed
