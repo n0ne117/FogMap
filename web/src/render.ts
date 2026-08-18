@@ -8,7 +8,7 @@
 // reports each finished piece as it lands, so a minute of rendering is a
 // minute of progress rather than a minute of nothing.
 
-import { ApiError, getToken } from './api'
+import { ApiError, apiGet, getToken } from './api'
 
 export interface RenderStep {
   done: number
@@ -76,6 +76,43 @@ export function lockRenderControls(locked: boolean): void {
  * which is the only way a progress bar can mean anything during work that
  * takes longer than a moment.
  */
+export interface RenderCost {
+  pending_tiles: number
+  jobs: number
+  views: string[]
+  estimated_seconds: number | null
+}
+
+/**
+ * What the render is about to cost, asked before starting it.
+ *
+ * Four long-distance tracks are twelve minutes of work and four walks round a
+ * town are twelve seconds, because every z14 tile a track crosses also has its
+ * z15 and z16 descendants stamped for each theme, kind and view. A wait nobody
+ * warned you about is indistinguishable from a hang.
+ */
+export async function renderCost(): Promise<RenderCost | null> {
+  try {
+    return await apiGet<RenderCost>('/api/render')
+  } catch {
+    // Only used to phrase a sentence; the render can proceed without it.
+    return null
+  }
+}
+
+/** "about 12 minutes", or nothing when there is no measured rate yet. */
+export function describeCost(cost: RenderCost | null): string {
+  if (!cost || !cost.jobs) return ''
+
+  const pieces = `${cost.jobs.toLocaleString()} ${cost.jobs === 1 ? 'piece' : 'pieces'} of work`
+  if (!cost.estimated_seconds) return pieces
+
+  const seconds = cost.estimated_seconds
+  if (seconds < 45) return `${pieces}, a few seconds`
+  const minutes = Math.max(1, Math.round(seconds / 60))
+  return `${pieces}, about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
+}
+
 export async function runRender(report: (step: RenderStep) => void): Promise<void> {
   lockRenderControls(true)
   try {

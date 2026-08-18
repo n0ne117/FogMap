@@ -9,7 +9,7 @@
 // settles the whole debt in one pass once the last file is in.
 
 import { ApiError, getToken } from './api'
-import { estimate, runRender } from './render'
+import { describeCost, estimate, renderCost, runRender } from './render'
 import { element } from './ui'
 
 export interface ImportOutcome {
@@ -145,7 +145,15 @@ export class Imports {
 
     bar.value = 0
     bar.max = 1
-    text.textContent = `${imported}. Drawing the map…`
+
+    // Say what the wait is before it starts. The size is knowable up front and
+    // a long-distance track makes this minutes rather than seconds, which is
+    // worth knowing at the beginning rather than working out from a bar.
+    const cost = await renderCost()
+    const size = describeCost(cost)
+    text.textContent = size
+      ? `${imported}. Drawing the map — ${size}.`
+      : `${imported}. Drawing the map…`
 
     const startedAt = Date.now()
     await runRender((step) => {

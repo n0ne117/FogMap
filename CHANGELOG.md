@@ -11,6 +11,16 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.15.1] - 2026-08-18
+
+### Added
+- An import now says how big the render will be **before** it starts: "4 of 4 imported. Drawing the map — 1,198 pieces of work, about 12 minutes." Four long-distance tracks measured 12 min 43 s and 40,712 tiles on a real archive, because every z14 tile a track crosses also has its z15 and z16 descendants stamped for each theme, each kind and each view containing it — four walks round a town are twelve seconds. A wait nobody warned you about is indistinguishable from a hang, and the size is knowable before any work begins.
+- The estimate is measured, not guessed. Each render records how many jobs it did and how long it took, and `GET /api/render` divides one by the other over recent renders — so the number comes from the hardware it is actually running on. Until a render has been recorded it says how much work there is and declines to guess at a duration.
+- Renders in the History tab now say how long they took.
+
+### Note
+The progress bar itself was checked and is not broken: on an import of four long tracks it moved through 324 distinct steps with a settling estimate, and nginx was confirmed to stream the progress lines rather than buffer them. A render that takes twelve minutes on a bar with a thousand steps simply looks still, which is what the up-front estimate is for.
+
 ## [0.15.0] - 2026-08-18
 
 ### Added

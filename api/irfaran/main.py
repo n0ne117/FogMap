@@ -11,6 +11,7 @@ import re
 import secrets
 import shutil
 import sqlite3
+import time
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 from email.utils import formatdate, parsedate_to_datetime
@@ -933,13 +934,70 @@ def _highest_event_id(conn: sqlite3.Connection) -> int:
 
 @app.get("/api/render")
 def render_status(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, object]:
+    """What a render would cost, before anyone commits to waiting for it.
+
+    A long-distance track is the worst case here: every z14 tile it crosses
+    also has its z15 and z16 descendants stamped, for each theme, each kind and
+    each view that contains it - so four rides can be twelve minutes of work
+    while four walks round a town are twelve seconds. Saying so up front is the
+    difference between a wait and a hang.
+
+    The rate comes from this machine's own past renders rather than a guess: the
+    hardware is whatever somebody self-hosted on, and a number measured here
+    beats a constant measured somewhere else.
+    """
     pending = db.pending_render(conn)
+    views = composite.views_touching(conn, pending) if pending else []
+    jobs = (
+        composite.count_jobs(conn, views, composite.rebuild_scope(pending))
+        if pending
+        else 0
+    )
+
+    rate = _seconds_per_job(conn)
     return {
         "pending_tiles": len(pending),
         "kinds": list(db.pending_kinds(conn)) if pending else [],
-        "views": composite.views_touching(conn, pending) if pending else [],
+        "views": views,
         "workers": composite.render_workers(),
+        "jobs": jobs,
+        "seconds_per_job": rate,
+        "estimated_seconds": round(jobs * rate) if rate else None,
     }
+
+
+def _plain_duration(seconds: float) -> str:
+    if seconds < 60:
+        return f"{round(seconds)}s"
+    minutes = seconds / 60
+    return f"{minutes:.0f} min" if minutes >= 2 else "just over a minute"
+
+
+def _seconds_per_job(conn: sqlite3.Connection) -> float | None:
+    """Seconds per job, averaged over the last few renders on this machine.
+
+    None until a render has been recorded, because inventing a rate is worse
+    than admitting there is nothing to base one on.
+    """
+    jobs = seconds = 0
+    for entry in history.recent(conn, limit=40, category="system"):
+        if entry.get("action") != "render":
+            continue
+        detail = entry.get("detail")
+        if not isinstance(detail, dict):
+            continue
+        try:
+            these_jobs = int(detail.get("jobs") or 0)
+            these_seconds = float(detail.get("seconds") or 0)
+        except (TypeError, ValueError):
+            continue
+        if these_jobs > 0 and these_seconds > 0:
+            jobs += these_jobs
+            seconds += these_seconds
+        if jobs > 400:
+            break
+
+    return round(seconds / jobs, 4) if jobs else None
 
 
 @app.post("/api/render")
@@ -955,6 +1013,8 @@ def render_pending() -> StreamingResponse:
     because a render of a large archive takes long enough that a spinner is
     not an honest answer. The last line carries the summary.
     """
+
+    started = time.monotonic()
 
     def report() -> Iterator[str]:
         # Its own connection, deliberately. A dependency's connection is closed
@@ -991,13 +1051,22 @@ def render_pending() -> StreamingResponse:
 
             with db.transaction(conn):
                 db.clear_pending_render(conn)
+                elapsed = round(time.monotonic() - started, 1)
                 history.record(
                     conn,
                     "system",
                     "render",
                     f"Redrew {sum(written.values())} tiles across "
-                    f"{len(views)} {'view' if len(views) == 1 else 'views'}",
-                    {"tiles": sum(written.values()), "kinds": list(kinds)},
+                    f"{len(views)} {'view' if len(views) == 1 else 'views'}"
+                    f" in {_plain_duration(elapsed)}",
+                    # jobs and seconds are what the estimate on GET /api/render
+                    # learns this machine's rate from.
+                    {
+                        "tiles": sum(written.values()),
+                        "kinds": list(kinds),
+                        "jobs": jobs,
+                        "seconds": elapsed,
+                    },
                 )
 
             yield json.dumps(

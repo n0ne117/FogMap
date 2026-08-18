@@ -1047,6 +1047,28 @@ def prune_view(
                         path.unlink(missing_ok=True)
 
 
+def count_jobs(
+    conn: sqlite3.Connection,
+    views: list[str],
+    scope: dict[int, set[tuple[int, int]]] | None = None,
+) -> int:
+    """How many units of work a render would be, without doing any of it.
+
+    The same arithmetic render_views_iter does when it builds its queue: one
+    shallow job per view, plus one deep job per native tile that view actually
+    has inside the scope. Split out so a caller can say how long the wait will
+    be before starting it rather than after.
+    """
+    jobs = 0
+    for view in views:
+        native = tiles_with_data(conn, view_layers(view))
+        if not native:
+            continue
+        jobs += 1
+        jobs += len(native if scope is None else native & scope.get(geo.NATIVE_Z, set()))
+    return jobs
+
+
 def render_views_iter(
     conn: sqlite3.Connection,
     root: Path,
