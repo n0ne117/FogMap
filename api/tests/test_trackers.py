@@ -47,7 +47,35 @@ def conn(monkeypatch):
 
 @pytest.fixture
 def client(monkeypatch):
+    """A client with no tracker configured, and no way out to the network.
+
+    Cleaned between tests because tracker settings live in the settings table,
+    which outlives any one test - one test leaving a key behind used to decide
+    whether the next one took the "no key" branch or went looking for
+    intervals.icu.
+
+    urlopen is blocked rather than left alone. A test that reaches the real
+    service would be slow, flaky, and would use somebody's account; failing
+    loudly is better than any of that. Tests that want a service install their
+    own stub over this one.
+    """
     monkeypatch.setenv("IRFARAN_TOKEN", TOKEN)
+
+    def no_network(request, timeout=None):
+        raise AssertionError(
+            f"a test tried to reach {getattr(request, 'full_url', request)}. "
+            "Install a FakeService with serve() instead."
+        )
+
+    monkeypatch.setattr(trackers.urllib.request, "urlopen", no_network)
+
+    connection = db.open_initialised()
+    try:
+        connection.execute("DELETE FROM settings WHERE key LIKE 'intervals%'")
+        connection.commit()
+    finally:
+        connection.close()
+
     with TestClient(app) as test_client:
         yield test_client
 
@@ -70,6 +98,39 @@ class FakeResponse:
         return False
 
 
+def streams_for(points: int = 40, start_hour: int = 6, day: int = 1) -> list[dict]:
+    """Streams shaped the way intervals.icu really shapes them.
+
+    Positions come as two parallel arrays - `data` holds latitudes and `data2`
+    longitudes - not as pairs, and times are offsets in seconds rather than
+    timestamps. Getting that wrong is exactly what shipped the first time.
+    """
+    lats = [45.6 + index * 0.0001 for index in range(points)]
+    lons = [12.9 + index * 0.0001 for index in range(points)]
+    return [
+        {"type": "time", "data": list(range(points))},
+        {"type": "latlng", "data": lats, "data2": lons, "allNull": False},
+        {"type": "altitude", "data": [10.0] * points},
+    ]
+
+
+def an_activity(
+    identifier: str = "i1000",
+    *,
+    gps: bool = True,
+    day: int = 1,
+    hour: int = 6,
+) -> dict:
+    types = ["time", "altitude"] + (["latlng"] if gps else [])
+    return {
+        "id": identifier,
+        "name": "Synthetic",
+        "type": "Ride",
+        "start_date": f"2026-08-{day:02d}T{hour:02d}:00:00Z",
+        "stream_types": types,
+    }
+
+
 class FakeService:
     """Stands in for intervals.icu, at the transport.
 
@@ -79,9 +140,9 @@ class FakeService:
     fetch would have skipped exactly the code most likely to be wrong.
     """
 
-    def __init__(self, activities, gpx_for=None, status=None):
+    def __init__(self, activities, streams=None, status=None):
         self.activities = activities
-        self.gpx_for = gpx_for or {}
+        self.streams = streams or {}
         self.status = status or {}
         self.requests: list[urllib.request.Request] = []
 
@@ -104,11 +165,10 @@ class FakeService:
         if "/activities" in path:
             return FakeResponse(json.dumps(self.activities).encode())
 
-        for identifier, document in self.gpx_for.items():
-            if path == f"/activity/{identifier}.gpx":
-                return FakeResponse(document.encode())
+        for identifier, streams in self.streams.items():
+            if path == f"/activity/{identifier}/streams":
+                return FakeResponse(json.dumps(streams).encode())
 
-        # No GPX for this activity: what an indoor session looks like.
         raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, None)
 
 
@@ -117,16 +177,9 @@ def serve(monkeypatch, service: FakeService) -> FakeService:
     return service
 
 
-def a_track(hour: int = 6, day: int = 1) -> str:
-    """A synthetic GPX document, timestamped so dedup has something to work on.
-
-    The timestamp is the dedup key, so two calls wanting to be different
-    activities have to differ here.
-    """
-    return synthetic.gpx_document(
-        synthetic.square_loop(20),
-        start=datetime(2026, 8, day, hour, 0, 0, tzinfo=timezone.utc),
-    )
+def configured(conn, enabled: bool = True) -> None:
+    trackers.put(conn, "intervals", "api_key", KEY)
+    trackers.put(conn, "intervals", "enabled", "true" if enabled else "false")
 
 
 # ------------------------------------------------------------------------ auth
@@ -158,25 +211,67 @@ class TestAuthentication:
 
 class TestSync:
     def test_an_activity_is_imported(self, conn, monkeypatch) -> None:
-        service = FakeService(
-            [{"id": "i1000"}], gpx_for={"i1000": a_track(6, 1)}
-        )
-        serve(monkeypatch, service)
-        trackers.put(conn, "intervals", "api_key", KEY)
-        trackers.put(conn, "intervals", "enabled", "true")
+        serve(monkeypatch, FakeService([an_activity()], {"i1000": streams_for()}))
+        configured(conn)
 
         result = trackers.sync(conn, "intervals")
         assert result.imported == 1
         assert result.events > 0
         assert result.tiles
 
+    def test_positions_come_from_two_parallel_arrays(self, conn, monkeypatch) -> None:
+        """latlng holds latitudes in `data` and longitudes in `data2`.
+
+        Reading it as a list of pairs finds nothing, which is how the first
+        version imported no activities at all while reporting success.
+        """
+        serve(monkeypatch, FakeService([an_activity()], {"i1000": streams_for(40)}))
+        configured(conn)
+        trackers.sync(conn, "intervals")
+
+        row = conn.execute(
+            "SELECT geometry FROM events WHERE source = 'workout' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        geometry = json.loads(row["geometry"])
+        lon, lat = geometry["coordinates"][0][:2]
+        # Longitudes near 12.9, latitudes near 45.6 - not swapped, not merged.
+        assert 12.8 < lon < 13.0, f"longitude looks wrong: {lon}"
+        assert 45.5 < lat < 45.7, f"latitude looks wrong: {lat}"
+
+    def test_samples_get_real_timestamps(self, conn, monkeypatch) -> None:
+        """The streams carry offsets in seconds; the start date is the anchor.
+
+        Without it there is nothing to hang them on, and the dedup key is the
+        first fix's time.
+        """
+        serve(monkeypatch, FakeService(
+            [an_activity(day=3, hour=8)], {"i1000": streams_for()}
+        ))
+        configured(conn)
+        trackers.sync(conn, "intervals")
+
+        row = conn.execute(
+            "SELECT external_id, layers FROM events WHERE source = 'workout' "
+            "ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert row["external_id"].startswith("20260803T0800"), row["external_id"]
+        assert "2026" in row["layers"]
+
+    def test_a_dropped_sample_is_left_out(self, conn, monkeypatch) -> None:
+        """A null position is a GPS dropout, not a line through nowhere."""
+        streams = streams_for(10)
+        latlng = next(s for s in streams if s["type"] == "latlng")
+        latlng["data"][4] = None
+        latlng["data2"][4] = None
+        serve(monkeypatch, FakeService([an_activity()], {"i1000": streams}))
+        configured(conn)
+
+        result = trackers.sync(conn, "intervals")
+        assert result.imported == 1
+
     def test_the_same_activity_twice_is_not_drawn_twice(self, conn, monkeypatch) -> None:
-        service = FakeService(
-            [{"id": "i1000"}], gpx_for={"i1000": a_track(6, 1)}
-        )
-        serve(monkeypatch, service)
-        trackers.put(conn, "intervals", "api_key", KEY)
-        trackers.put(conn, "intervals", "enabled", "true")
+        serve(monkeypatch, FakeService([an_activity()], {"i1000": streams_for()}))
+        configured(conn)
 
         trackers.sync(conn, "intervals")
         before = conn.execute("SELECT COUNT(*) AS n FROM events").fetchone()["n"]
@@ -187,53 +282,47 @@ class TestSync:
         assert again.imported == 0
         assert again.already_here == 1
 
-    def test_a_workout_imported_by_hand_is_recognised(self, conn, monkeypatch) -> None:
-        """The whole reason these are filed under `workout` and not `intervals`."""
-        document = a_track(7, 2)
-        common.ingest_tracks(conn, "workout", gpx.parse(document))
-        before = conn.execute("SELECT COUNT(*) AS n FROM events").fetchone()["n"]
-        assert before > 0
-
-        service = FakeService([{"id": "i2000"}], gpx_for={"i2000": document})
-        serve(monkeypatch, service)
-        trackers.put(conn, "intervals", "api_key", KEY)
-        trackers.put(conn, "intervals", "enabled", "true")
+    def test_an_activity_without_gps_is_not_downloaded_at_all(
+        self, conn, monkeypatch
+    ) -> None:
+        """The listing says which streams exist, so a trainer ride costs nothing."""
+        service = serve(monkeypatch, FakeService([an_activity(gps=False)], {}))
+        configured(conn)
 
         result = trackers.sync(conn, "intervals")
-        after = conn.execute("SELECT COUNT(*) AS n FROM events").fetchone()["n"]
-        assert after == before
-        assert result.already_here == 1
-        assert result.imported == 0
+        assert result.no_gps == 1
+        assert result.failed == 0
+        assert not [path for path in service.paths if "/streams" in path], (
+            "it downloaded streams for an activity the listing said had none"
+        )
 
-    def test_an_activity_with_no_gps_is_counted_not_failed(self, conn, monkeypatch) -> None:
-        """A winter of indoor sessions must not look like a broken sync."""
-        service = FakeService([{"id": "trainer1"}], gpx_for={})
-        serve(monkeypatch, service)
-        trackers.put(conn, "intervals", "api_key", KEY)
-        trackers.put(conn, "intervals", "enabled", "true")
+    def test_an_all_null_position_stream_counts_as_no_gps(
+        self, conn, monkeypatch
+    ) -> None:
+        streams = streams_for(5)
+        next(s for s in streams if s["type"] == "latlng")["allNull"] = True
+        serve(monkeypatch, FakeService([an_activity()], {"i1000": streams}))
+        configured(conn)
 
         result = trackers.sync(conn, "intervals")
         assert result.no_gps == 1
         assert result.failed == 0
 
-    def test_one_unreadable_file_does_not_stop_the_rest(self, conn, monkeypatch) -> None:
-        service = FakeService(
-            [{"id": "bad"}, {"id": "good"}],
-            gpx_for={"bad": "this is not gpx at all", "good": a_track()},
-        )
-        serve(monkeypatch, service)
-        trackers.put(conn, "intervals", "api_key", KEY)
-        trackers.put(conn, "intervals", "enabled", "true")
+    def test_one_failure_does_not_stop_the_rest(self, conn, monkeypatch) -> None:
+        serve(monkeypatch, FakeService(
+            [an_activity("bad"), an_activity("good", day=2)],
+            {"good": streams_for()},
+            status={"/activity/bad/streams": 500},
+        ))
+        configured(conn)
 
         result = trackers.sync(conn, "intervals")
         assert result.imported == 1
-        assert result.failed + result.no_gps == 1
+        assert result.failed == 1
 
     def test_a_sync_defers_the_render_rather_than_doing_it(self, conn, monkeypatch) -> None:
-        service = FakeService([{"id": "i1"}], gpx_for={"i1": a_track()})
-        serve(monkeypatch, service)
-        trackers.put(conn, "intervals", "api_key", KEY)
-        trackers.put(conn, "intervals", "enabled", "true")
+        serve(monkeypatch, FakeService([an_activity()], {"i1000": streams_for()}))
+        configured(conn)
 
         trackers.sync(conn, "intervals")
         assert db.pending_render(conn), "the tiles should be owing a render"
@@ -244,25 +333,82 @@ class TestSync:
             trackers.sync(conn, "intervals")
 
     def test_switched_off_is_refused(self, conn) -> None:
-        trackers.put(conn, "intervals", "api_key", KEY)
-        trackers.put(conn, "intervals", "enabled", "false")
+        configured(conn, enabled=False)
         with pytest.raises(trackers.TrackerError, match="switched off"):
             trackers.sync(conn, "intervals")
 
     def test_the_listing_always_carries_an_oldest_date(self, conn, monkeypatch) -> None:
         """Leaving it off is a 422 from the service, not a default of all time."""
-        service = FakeService([], gpx_for={})
-        serve(monkeypatch, service)
-        trackers.put(conn, "intervals", "api_key", KEY)
-        trackers.put(conn, "intervals", "enabled", "true")
+        service = serve(monkeypatch, FakeService([], {}))
+        configured(conn)
 
         trackers.sync(conn, "intervals")
         listing = [path for path in service.paths if "activities" in path]
         assert listing and "oldest=" in listing[0]
 
+    def test_it_asks_for_streams_and_not_for_gpx(self, conn, monkeypatch) -> None:
+        """There is no GPX endpoint. Assuming there was is what broke this."""
+        service = serve(monkeypatch, FakeService([an_activity()], {"i1000": streams_for()}))
+        configured(conn)
+
+        trackers.sync(conn, "intervals")
+        assert any("/streams" in path for path in service.paths)
+        assert not any(".gpx" in path for path in service.paths)
+
     def test_an_unknown_tracker_is_refused(self, conn) -> None:
         with pytest.raises(trackers.TrackerError, match="Unknown workout tracker"):
             trackers.sync(conn, "strava")
+
+
+class TestProgress:
+    """sync_iter reports as it goes, so a long sync is not a minute of silence."""
+
+    def test_it_reports_a_step_per_activity(self, conn, monkeypatch) -> None:
+        serve(monkeypatch, FakeService(
+            [an_activity("a", day=1), an_activity("b", day=2), an_activity("c", day=3)],
+            {"a": streams_for(), "b": streams_for(), "c": streams_for()},
+        ))
+        configured(conn)
+
+        steps = list(trackers.sync_iter(conn, "intervals"))
+        stages = [step["stage"] for step in steps]
+        assert stages[0] == "listing"
+        assert stages[1] == "listed"
+        assert stages.count("activity") == 3
+        assert stages[-1] == "done"
+
+    def test_the_counts_climb_as_it_goes(self, conn, monkeypatch) -> None:
+        serve(monkeypatch, FakeService(
+            [an_activity("a", day=1), an_activity("b", day=2)],
+            {"a": streams_for(), "b": streams_for()},
+        ))
+        configured(conn)
+
+        activity_steps = [
+            step for step in trackers.sync_iter(conn, "intervals")
+            if step["stage"] == "activity"
+        ]
+        assert [step["done"] for step in activity_steps] == [1, 2]
+        assert all(step["total"] == 2 for step in activity_steps)
+        assert activity_steps[-1]["imported"] == 2
+
+    def test_the_last_step_carries_the_summary(self, conn, monkeypatch) -> None:
+        serve(monkeypatch, FakeService([an_activity()], {"i1000": streams_for()}))
+        configured(conn)
+
+        last = list(trackers.sync_iter(conn, "intervals"))[-1]
+        assert last["finished"] is True
+        assert "new" in str(last["summary"])
+        assert last["tiles_touched"]
+
+    def test_sync_and_sync_iter_agree(self, conn, monkeypatch) -> None:
+        """sync() is the timer's path; it must do exactly what the stream does."""
+        serve(monkeypatch, FakeService([an_activity()], {"i1000": streams_for()}))
+        configured(conn)
+
+        result = trackers.sync(conn, "intervals")
+        assert result.imported == 1
+        assert result.summary() == "1 new"
 
 
 # ----------------------------------------------------------------------- timer
@@ -290,11 +436,8 @@ class TestDue:
         assert trackers.is_due(conn, "intervals") is False
 
     def test_not_due_again_straight_after_a_run(self, conn, monkeypatch) -> None:
-        service = FakeService([], gpx_for={})
-        serve(monkeypatch, service)
-        trackers.put(conn, "intervals", "api_key", KEY)
-        trackers.put(conn, "intervals", "enabled", "true")
-
+        serve(monkeypatch, FakeService([], {}))
+        configured(conn)
         trackers.sync(conn, "intervals")
         assert trackers.is_due(conn, "intervals") is False
 

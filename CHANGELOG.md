@@ -11,6 +11,20 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.13.0] - 2026-08-18
+
+### Fixed
+- **intervals.icu sync imported nothing at all**, and said so in a way that sounded like an explanation: "7 activities, 7 without GPS". There is no GPX endpoint. `/activity/{id}.gpx` answers 404 with a real key — the 401 it gives without one comes from the security filter rather than from a route that exists, and that 401 is what 0.12.0 was built on. Activities are read from `/activity/{id}/streams` now, where positions arrive as two parallel arrays (`data` holds latitudes, `data2` longitudes) with a `time` stream of offsets in seconds hung on the activity's start date. Verified against a real account: five of seven activities imported, the two skipped genuinely have no positions, and running it again imports nothing.
+- An activity with no positions is skipped without downloading anything, because the listing already says which streams exist. A winter of indoor sessions costs one request rather than one per session, and "without GPS" now means it.
+- Samples where a position is null are left out rather than drawn as a line through nowhere.
+
+### Added
+- **Sync reports as it goes.** Newline-delimited JSON, the same as the render: listing, then one step per activity with a running count of what is new, then the summary. Downloading a month of activities is a minute or more, and a minute with no bytes sent is indistinguishable from a hang — to a person watching a spinner, and to a reverse proxy deciding a request has stalled.
+- The render that follows a sync reports separately, so a sync that finds five rides shows the fetching and then the drawing rather than one long wait.
+
+### Note
+The tests now block outbound requests by default, so a test that reaches the real service fails loudly instead of quietly using somebody's account. The stub also speaks the real stream shape — parallel arrays and second offsets — because reading it as a list of pairs is exactly what shipped before and the old stub agreed with the bug.
+
 ## [0.12.4] - 2026-08-18
 
 ### Fixed

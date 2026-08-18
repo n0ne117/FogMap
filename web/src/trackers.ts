@@ -8,8 +8,8 @@
 // rather than "clear it". Anything else would wipe the key every time somebody
 // changed the sync interval.
 
-import { ApiError, apiGet, apiSend } from './api'
-import { estimate, runRender } from './render'
+import { ApiError, apiGet, apiSend, getToken } from './api'
+import { estimate, readNdjson, runRender } from './render'
 import { element } from './ui'
 
 interface TrackerState {
@@ -25,7 +25,7 @@ interface TrackerState {
   due: boolean
 }
 
-interface SyncResponse {
+interface SyncSummary {
   imported: number
   already_here: number
   no_gps: number
@@ -34,7 +34,6 @@ interface SyncResponse {
   tiles_touched: number
   summary: string
   notes: string[]
-  status: TrackerState
 }
 
 const NAME = 'intervals'
@@ -122,30 +121,108 @@ export class Trackers {
 
     const button = element<HTMLButtonElement>('intervals-sync')
     button.disabled = true
-    this.say('Asking intervals.icu what is new…')
+
+    const row = element('intervals-progress-row')
+    const bar = element<HTMLProgressElement>('intervals-progress')
+    const text = element('intervals-progress-text')
 
     try {
       // Save first, so pressing Sync after typing a key does what it looks
       // like it does rather than syncing with the previous settings.
       await this.save()
 
-      const body = await apiSend<SyncResponse>('POST', `/api/trackers/${NAME}/sync`)
-      if (!body.tiles_touched) {
-        this.say(capital(body.summary) + '. Nothing to draw.')
+      this.say('Asking intervals.icu what is new…')
+      row.hidden = false
+      bar.removeAttribute('value')
+      text.textContent = 'Listing your activities.'
+
+      const summary = await this.stream((step) => {
+        if (step.stage === 'listed') {
+          const total = Number(step.total ?? 0)
+          bar.max = Math.max(1, total)
+          bar.value = 0
+          text.textContent = total
+            ? `Checking ${total} ${total === 1 ? 'activity' : 'activities'}.`
+            : 'Nothing in that window.'
+          return
+        }
+
+        if (step.stage === 'activity') {
+          const done = Number(step.done ?? 0)
+          const total = Number(step.total ?? 0)
+          bar.max = Math.max(1, total)
+          bar.value = done
+          const found = Number(step.imported ?? 0)
+          text.textContent =
+            `Activity ${done} of ${total}` + (found ? ` — ${found} new so far` : '')
+        }
+      })
+
+      row.hidden = true
+      if (!summary) return
+
+      if (!summary.tiles_touched) {
+        this.say(`${capital(summary.summary)}. Nothing to draw.`)
         await this.load()
         return
       }
 
-      await this.draw(body.summary)
+      await this.draw(summary.summary)
       this.onChanged()
       await this.load()
     } catch (error) {
+      row.hidden = true
       this.say(error instanceof ApiError ? error.message : String(error), true)
       await this.load()
     } finally {
       button.disabled = false
       this.busy = false
     }
+  }
+
+  /**
+   * Follow the sync, reporting each activity as it lands.
+   *
+   * Downloading a month of activities is a minute or more, and a minute of
+   * nothing is indistinguishable from a hang - to a person watching, and to a
+   * reverse proxy deciding a request has stalled. Returns the final summary,
+   * or null if the server reported an error part way through.
+   */
+  private async stream(
+    onStep: (step: Record<string, unknown>) => void,
+  ): Promise<SyncSummary | null> {
+    const response = await fetch(`/api/trackers/${NAME}/sync`, {
+      method: 'POST',
+      headers: { 'X-Irfaran-Token': getToken() },
+    })
+
+    if (!response.ok) {
+      let detail = `${response.status} ${response.statusText}`
+      try {
+        detail = ((await response.json()) as { detail?: string }).detail ?? detail
+      } catch {
+        /* not JSON, keep the status line */
+      }
+      throw new ApiError(response.status, detail)
+    }
+
+    let summary: SyncSummary | null = null
+    let failure = ''
+
+    await readNdjson(response, (step) => {
+      if (step.stage === 'error') {
+        failure = String(step.error ?? 'The sync failed.')
+        return
+      }
+      if (step.finished) {
+        summary = step as unknown as SyncSummary
+        return
+      }
+      onStep(step)
+    })
+
+    if (failure) throw new ApiError(502, failure)
+    return summary
   }
 
   private async draw(summary: string): Promise<void> {

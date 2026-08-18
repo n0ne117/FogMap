@@ -1037,14 +1037,19 @@ def patch_tracker(
 
 
 @app.post("/api/trackers/{name}/sync")
-def sync_tracker(
-    name: str, conn: sqlite3.Connection = Depends(get_conn)
-) -> dict[str, object]:
-    """Fetch now, on purpose.
+def sync_tracker(name: str, conn: sqlite3.Connection = Depends(get_conn)):
+    """Fetch now, on purpose, reporting each activity as it lands.
 
     Runs even when the tracker's timer is switched off, because pressing the
     button is a clearer statement of intent than the timer setting is. It still
     needs a key, and being switched off entirely still means no.
+
+    Newline-delimited JSON, for the same reason /api/render is: fifty activities
+    is a minute or more of downloading, and a minute with no bytes sent is
+    indistinguishable from a hang - to a person and to a reverse proxy.
+
+    Whether it can start at all is settled before the stream begins, so a
+    missing key is an ordinary 502 rather than an error smuggled inside a 200.
     """
     try:
         trackers.check(name)
@@ -1052,18 +1057,27 @@ def sync_tracker(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     try:
-        result = trackers.sync(conn, name)
+        trackers.precheck(conn, name)
     except trackers.TrackerError as exc:
         with db.transaction(conn):
             trackers.put(conn, name, "last_error", str(exc))
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    return {
-        "result": "ok",
-        **result.as_dict(),
-        "summary": result.summary(),
-        "status": trackers.status(conn, name),
-    }
+    def report() -> Iterator[str]:
+        # Its own connection. A dependency's is closed when the handler
+        # returns, and a streaming handler returns before doing any work.
+        own = db.connect()
+        try:
+            for step in trackers.sync_iter(own, name):
+                yield json.dumps(step) + "\n"
+        except trackers.TrackerError as exc:
+            with db.transaction(own):
+                trackers.put(own, name, "last_error", str(exc))
+            yield json.dumps({"stage": "error", "error": str(exc)}) + "\n"
+        finally:
+            own.close()
+
+    return StreamingResponse(report(), media_type="application/x-ndjson")
 
 
 def _views_for_layers(layers: list[str]) -> list[str]:

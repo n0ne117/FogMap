@@ -116,7 +116,9 @@ Services that already hold your activities. Nothing is pushed here — Irfaran a
 
 **intervals.icu.** Paste an API key from intervals.icu → Settings → Developer, leave the athlete as `0` for whoever the key belongs to, and set how often to check. Zero hours means never on its own, only the button.
 
-Activities are downloaded as GPX and filed under the same `workout` source a file drop uses, so anything already imported by hand is recognised and skipped rather than drawn twice. Sessions with no GPS — indoor trainer rides, pool swims — are counted and skipped.
+Activities are read from intervals.icu's sample streams and filed under the same `workout` source a file drop uses, so anything already imported by hand is recognised and skipped rather than drawn twice. Sessions with no GPS — indoor trainer rides, pool swims — are skipped without being downloaded at all, because the activity listing already says which streams exist.
+
+A sync reports its progress as it runs: how many activities it is checking, which one it is on, and how many are new so far.
 
 The key is stored on the server and never sent back to any browser, so the field is blank every time you open it; leaving it blank keeps the key already saved. It is listed in `SECRET_SETTINGS` alongside the app's own token, which means no endpoint will return it.
 

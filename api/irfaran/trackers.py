@@ -12,10 +12,17 @@ say - are the same for any of them.
 
 Two decisions worth knowing about:
 
-  activities arrive as GPX, not as streams. intervals.icu will serve either,
-  and Irfaran already has a GPX parser that has been through every awkward
-  file the author owns. Adding a second geometry path to save one HTTP request
-  would be trading tested code for untested code.
+  activities arrive as sample streams. There is no GPX endpoint - the first
+  version of this assumed there was, on the strength of an unauthenticated
+  probe where `/activity/{id}.gpx` answered 401 rather than 404. With a real
+  key it answers 404: the 401 came from the security filter, not from a route.
+  The original upload is available as FIT, which would mean carrying a FIT
+  parser, so streams it is. They are JSON and need nothing.
+
+  Positions arrive as two parallel arrays - `data` holds latitudes and `data2`
+  longitudes - alongside a `time` stream of offsets in seconds. The listing
+  carries `stream_types`, so an activity with no positions is skipped without
+  downloading anything.
 
   they are ingested as `workout`, the same source a file drop uses. Dedup is
   on (source, external_id) and the external id is the segment's own start
@@ -33,9 +40,10 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
+from typing import Iterator
 
 from irfaran import db
-from irfaran.ingest import common, gpx
+from irfaran.ingest import common
 
 TRACKERS = ("intervals",)
 
@@ -244,8 +252,116 @@ def list_activities(
     return [item for item in listed if isinstance(item, dict)]
 
 
-def download_gpx(key: str, activity_id: str) -> bytes:
-    return fetch(f"/activity/{activity_id}.gpx", key, accept="application/gpx+xml")
+def download_streams(key: str, activity_id: str) -> dict[str, dict[str, object]]:
+    """The sample streams for one activity, keyed by type.
+
+    Not GPX. There is no GPX endpoint - `/activity/{id}.gpx` answers 404 with a
+    real key, and the 401 it gives without one comes from the security filter
+    rather than from a route that exists. The original upload is available as
+    FIT, which would mean a FIT parser; streams are JSON and need nothing.
+    """
+    raw = fetch(f"/activity/{activity_id}/streams", key)
+    try:
+        listed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise TrackerError(
+            f"intervals.icu returned something that is not JSON for the "
+            f"streams of activity {activity_id}."
+        ) from exc
+
+    if not isinstance(listed, list):
+        raise TrackerError(
+            f"intervals.icu returned streams for {activity_id} that are not a list."
+        )
+    return {
+        str(item.get("type")): item
+        for item in listed
+        if isinstance(item, dict) and item.get("type")
+    }
+
+
+def has_gps(activity: dict[str, object]) -> bool:
+    """Does the listing already say this activity has positions?
+
+    Every activity carries `stream_types`, so an indoor session can be skipped
+    without downloading anything at all - which is most of a winter, and the
+    difference between a sync that fetches five files and one that fetches
+    fifty.
+    """
+    types = activity.get("stream_types")
+    return isinstance(types, list) and "latlng" in types
+
+
+def started_at(activity: dict[str, object]) -> datetime | None:
+    """When the activity began, as an aware datetime.
+
+    The sample streams carry offsets in seconds, not timestamps, so without
+    this there is nothing to hang them on - and the dedup key is the first
+    fix's time, which is what lets an activity already imported from a file be
+    recognised rather than drawn twice.
+    """
+    for field_name in ("start_date", "start_date_local"):
+        raw = activity.get(field_name)
+        if not isinstance(raw, str) or not raw:
+            continue
+        try:
+            when = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        return when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+    return None
+
+
+def track_from_streams(
+    activity: dict[str, object], streams: dict[str, dict[str, object]]
+) -> common.Track | None:
+    """Turn latitude, longitude and time streams into a track.
+
+    intervals.icu splits a position into two parallel arrays: `data` holds the
+    latitudes and `data2` the longitudes. Samples where either is null are GPS
+    dropouts and are left out rather than drawn as a line through nowhere.
+    """
+    latlng = streams.get("latlng")
+    if not latlng or latlng.get("allNull"):
+        return None
+
+    lats = latlng.get("data")
+    lons = latlng.get("data2")
+    if not isinstance(lats, list) or not isinstance(lons, list):
+        return None
+
+    offsets = streams.get("time", {}).get("data")
+    offsets = offsets if isinstance(offsets, list) else []
+    begin = started_at(activity)
+
+    fixes: list[common.Fix] = []
+    for index in range(min(len(lats), len(lons))):
+        lat, lon = lats[index], lons[index]
+        if not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)):
+            continue
+
+        when = None
+        if begin is not None:
+            # One second per sample when there is no time stream, rather than
+            # one timestamp for all of them: identical times would look like a
+            # single instant, and a second apart is well inside the gap
+            # threshold that splits a track into segments.
+            offset = offsets[index] if index < len(offsets) else index
+            if not isinstance(offset, (int, float)):
+                offset = index
+            when = begin + timedelta(seconds=float(offset))
+
+        fixes.append(common.Fix(lon=float(lon), lat=float(lat), time=when))
+
+    if not fixes:
+        return None
+
+    return common.Track(
+        name=str(activity.get("name") or "intervals.icu activity"),
+        fixes=fixes,
+        activity=str(activity.get("type") or "") or None,
+        source_id=str(activity.get("id") or "") or None,
+    )
 
 
 # ----------------------------------------------------------------------- sync
@@ -311,18 +427,13 @@ def oldest_to_ask_for(conn: sqlite3.Connection, name: str) -> date:
     return (datetime.now(timezone.utc) - window).date()
 
 
-def sync(
-    conn: sqlite3.Connection,
-    name: str = "intervals",
-    *,
-    force: bool = False,
-) -> SyncResult:
-    """Fetch what is new and rasterise it. Safe to run repeatedly.
+def precheck(conn: sqlite3.Connection, name: str, force: bool = False) -> str:
+    """Everything that must be true before a sync is worth starting.
 
-    Nothing is rendered here. Every activity that lands adds to the pending
-    render queue and one render is asked for at the end, because rendering per
-    activity turned a three-file import into ten seconds of work back when
-    imports did that.
+    Separate from the sync itself because the endpoint streams its progress,
+    and a generator does not run - so does not raise - until something pulls on
+    it. A missing key has to be a plain refusal with a status code, not an
+    error line arriving inside a 200.
     """
     check(name)
     key = api_key(conn, name)
@@ -335,57 +446,60 @@ def sync(
             f"The {name} tracker is switched off. Turn it on under Data "
             "sources, Workout trackers."
         )
+    return key
 
+
+def sync_iter(
+    conn: sqlite3.Connection,
+    name: str = "intervals",
+    *,
+    force: bool = False,
+    result: SyncResult | None = None,
+) -> Iterator[dict[str, object]]:
+    """Fetch what is new, reporting each activity as it lands.
+
+    Yields progress a caller can show. Downloading fifty activities is a minute
+    or more of work, and a minute of nothing is indistinguishable from a hang -
+    which is also long enough for a reverse proxy to give up on a request that
+    has sent no bytes, so this is not only about manners.
+
+    `result` is filled in as it goes, so a caller that wants the totals rather
+    than the commentary can hand one in and ignore what is yielded. Same shape
+    as composite.render_views_iter.
+
+    Nothing is rendered here. Every activity that lands adds to the pending
+    render queue and one render is asked for at the end, because rendering per
+    activity turned a three-file import into ten seconds of work back when
+    imports did that.
+    """
+    key = precheck(conn, name, force)
+    result = result if result is not None else SyncResult()
     started = datetime.now(timezone.utc)
-    result = SyncResult()
+
+    yield {"stage": "listing"}
 
     activities = list_activities(key, athlete_id(conn, name), oldest_to_ask_for(conn, name))
     result.looked_at = len(activities)
+    batch = activities[:MAX_PER_SYNC]
 
-    for activity in activities[:MAX_PER_SYNC]:
-        identifier = activity.get("id")
-        if identifier in (None, ""):
+    yield {"stage": "listed", "found": len(activities), "total": len(batch)}
+
+    for index, activity in enumerate(batch, start=1):
+        if activity.get("id") in (None, ""):
             result.failed += 1
-            continue
-
-        try:
-            document = download_gpx(key, str(identifier))
-        except TrackerError as exc:
-            # An indoor session has no GPS to hand over, and that is not a
-            # failure worth shouting about - it is most of a winter.
-            if "nothing at" in str(exc):
-                result.no_gps += 1
-            else:
-                result.failed += 1
-                result.notes.append(f"{identifier}: {exc}")
-            continue
-
-        try:
-            # The activity id goes in as the filename so any parse error names
-            # the activity rather than a generic upload.
-            tracks = gpx.parse(document, f"intervals-{identifier}.gpx")
-        except Exception as exc:  # noqa: BLE001 - one bad file must not stop the rest
-            result.failed += 1
-            result.notes.append(f"{identifier}: unreadable GPX ({exc})")
-            continue
-
-        if not tracks or not any(track.fixes for track in tracks):
-            result.no_gps += 1
-            continue
-
-        try:
-            ingested = common.ingest_tracks(conn, INGEST_SOURCE, tracks)
-        except Exception as exc:  # noqa: BLE001
-            result.failed += 1
-            result.notes.append(f"{identifier}: {exc}")
-            continue
-
-        if ingested.events_created:
-            result.imported += 1
-            result.events += ingested.events_created
         else:
-            result.already_here += 1
-        result.tiles |= set(ingested.tiles_touched)
+            _take_one(conn, key, activity, result)
+
+        yield {
+            "stage": "activity",
+            "done": index,
+            "total": len(batch),
+            "name": str(activity.get("name") or activity.get("type") or ""),
+            "imported": result.imported,
+            "already_here": result.already_here,
+            "no_gps": result.no_gps,
+            "failed": result.failed,
+        }
 
     if len(activities) > MAX_PER_SYNC:
         result.notes.append(
@@ -398,4 +512,75 @@ def sync(
     put(conn, name, "last_sync", started.isoformat(timespec="seconds"))
     put(conn, name, "last_result", result.summary())
     put(conn, name, "last_error", "")
+
+    yield {
+        "stage": "done",
+        "finished": True,
+        "summary": result.summary(),
+        **result.as_dict(),
+    }
+
+
+def _take_one(
+    conn: sqlite3.Connection,
+    key: str,
+    activity: dict[str, object],
+    result: SyncResult,
+) -> None:
+    """One activity, from download to rasterised. Never raises.
+
+    One awkward activity must not end a sync - the rest of the archive is still
+    worth having.
+    """
+    identifier = str(activity.get("id"))
+
+    if not has_gps(activity):
+        result.no_gps += 1
+        return
+
+    try:
+        streams = download_streams(key, identifier)
+    except TrackerError as exc:
+        result.failed += 1
+        result.notes.append(f"{identifier}: {exc}")
+        return
+
+    try:
+        track = track_from_streams(activity, streams)
+    except Exception as exc:  # noqa: BLE001
+        result.failed += 1
+        result.notes.append(f"{identifier}: unreadable streams ({exc})")
+        return
+
+    if track is None:
+        result.no_gps += 1
+        return
+
+    try:
+        ingested = common.ingest_tracks(conn, INGEST_SOURCE, [track])
+    except Exception as exc:  # noqa: BLE001
+        result.failed += 1
+        result.notes.append(f"{identifier}: {exc}")
+        return
+
+    if ingested.events_created:
+        result.imported += 1
+        result.events += ingested.events_created
+    else:
+        result.already_here += 1
+    result.tiles |= set(ingested.tiles_touched)
+
+
+def sync(
+    conn: sqlite3.Connection, name: str = "intervals", *, force: bool = False
+) -> SyncResult:
+    """Run a whole sync and hand back the totals. Safe to repeat.
+
+    The timer uses this; the endpoint uses sync_iter so it can report as it
+    goes. Nothing is deleted and nothing is overwritten - a sync adds what is
+    not already here, and running it twice changes nothing the second time.
+    """
+    result = SyncResult()
+    for _ in sync_iter(conn, name, force=force, result=result):
+        pass
     return result

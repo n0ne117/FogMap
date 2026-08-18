@@ -95,13 +95,29 @@ async function stream(report: (step: RenderStep) => void): Promise<void> {
   }
   if (!response.body) return
 
+  await readNdjson(response, (step) => report(step as unknown as RenderStep))
+}
+
+/**
+ * Read a newline-delimited JSON stream, calling back on every complete line.
+ *
+ * Shared with the tracker sync, which reports the same way for the same
+ * reason: work that takes a minute has to say so while it happens, or it is
+ * indistinguishable from a hang.
+ */
+export async function readNdjson(
+  response: Response,
+  onLine: (value: Record<string, unknown>) => void,
+): Promise<void> {
+  if (!response.body) return
+
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
 
   const consume = (line: string) => {
     if (!line.trim()) return
-    report(JSON.parse(line) as RenderStep)
+    onLine(JSON.parse(line) as Record<string, unknown>)
   }
 
   for (;;) {
