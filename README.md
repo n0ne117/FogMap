@@ -96,6 +96,14 @@ Lost it? Read it back on the server:
 docker compose exec api python -m irfaran.cli token
 ```
 
+The token is printed on its own line, so it is safe to pipe or wrap in `$(...)`; the line saying where it came from goes to stderr. Without a Compose project directory to run in — the unraid plugin, for instance — address the container directly, which is your stack name plus `-api-1`:
+
+```bash
+docker exec irfaran-api-1 python -m irfaran.cli token
+```
+
+**The token belongs to the server.** Every instance generates its own, so one read from one machine is refused by another — correctly, though the message sounds like a malformed token rather than somebody else's. If a token is rejected, check first that it came from the instance the browser is actually pointing at.
+
 Set `IRFARAN_TOKEN` in the environment to choose your own instead, in which case that value is used, the generated one is ignored, and it is never displayed at all — you picked it, so you already have it.
 
 It is a doorstop, not a security model: it stops a misbehaving tracker or a stray `curl` from altering history. It does not protect reads, which are open to anyone who can reach the app — so run it somewhere only you can.

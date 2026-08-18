@@ -445,9 +445,26 @@ IRFARAN_WEB_PORT=8080</code></pre>
 
       <p>
         Leave <code>IRFARAN_TOKEN</code> blank. Irfaran generates one on first start and
-        shows it on the setup screen. To read it back later:
+        shows it on the setup screen. To read it back later — the container is your stack
+        name with <code>-api-1</code> after it, so <code>irfaran-api-1</code> for a stack
+        called <code>irfaran</code>:
       </p>
-      <pre><code>docker exec irfaran-api python -m irfaran.cli token</code></pre>
+      <pre><code>docker exec irfaran-api-1 python -m irfaran.cli token</code></pre>
+      <p>
+        If that name is not right, <code>docker ps --format '{{.Names}}' | grep irfaran</code>
+        will say what is. The token is printed on its own line, so it is safe to pipe or to
+        wrap in <code>$(...)</code>; the line telling you where it came from goes to stderr.
+      </p>
+
+      <div class="note">
+        <p>
+          <strong>The token belongs to the server, not to you.</strong> Every instance has
+          its own, so a token read from one machine will be refused by another — correctly,
+          and with a message that sounds like the token is malformed rather than simply
+          somebody else's. If a token is rejected, check first that it came from the
+          instance you are pointing the browser at.
+        </p>
+      </div>
 
       <div class="note">
         <p>

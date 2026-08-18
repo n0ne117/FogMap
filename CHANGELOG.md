@@ -11,6 +11,14 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.12.2] - 2026-08-18
+
+### Fixed
+- The unraid guide told you to read the token with `docker exec irfaran-api`, which stopped being a real container name in 0.11.6. That name came from the separate unraid Compose file, which set it explicitly; reverting to `docker-compose.prod.yml` means Compose names containers itself, as `<stack>-api-1`. The guide now says `irfaran-api-1`, explains the rule, and shows how to list them when a stack is called something else. This was the one command someone needs to recover a token, so it failing was worse than most.
+
+### Changed
+- A rejected token now says why it is likely rejected. "The header does not match the token configured on this server" is accurate and reads like a malformed token, when much the commonest cause is a perfectly good token belonging to a *different* instance — every server generates its own. Both the server's message and the setup screen's now say so, and the README and the site say it too.
+
 ## [0.12.1] - 2026-08-18
 
 ### Fixed

@@ -281,10 +281,15 @@ def token_error(request: Request) -> tuple[int, str] | None:
         )
 
     if not secrets.compare_digest(presented, expected):
+        # Naming the likely cause, because the wording of a mismatch sounds
+        # like a malformed token when the common case is a perfectly good token
+        # belonging to a different instance. Every server has its own.
         return (
             401,
-            f"The {TOKEN_HEADER} header does not match the token configured "
-            "on this server.",
+            f"The {TOKEN_HEADER} header does not match this server's token. "
+            "Each Irfaran instance has its own, so a token from another one is "
+            "refused here - read this server's with "
+            "`docker compose exec api python -m irfaran.cli token`.",
         )
     return None
 

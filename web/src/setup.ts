@@ -267,7 +267,8 @@ export class Setup {
       setToken(previous)
       say(
         error instanceof ApiError && error.status === 401
-          ? 'That token is not the one this server is using.'
+          ? 'That is not this server\u2019s token. Every instance has its own, ' +
+            'so check it came from this one and not another.'
           : error instanceof ApiError
             ? error.message
             : String(error),
