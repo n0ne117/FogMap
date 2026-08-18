@@ -14,6 +14,20 @@ export function getToken(): string {
   }
 }
 
+/** The token out of whatever was pasted.
+ *
+ * `irfaran.cli token` printed the token and then a line saying where it came
+ * from, and the obvious thing to do with two lines of console output is copy
+ * both - which was then rejected as the wrong token while the right one sat in
+ * the clipboard one line up. A token has no whitespace in it, so the first
+ * chunk of whatever arrives is the answer. That also absorbs a trailing
+ * newline, a copied shell prompt, or a stray bullet.
+ */
+export function tokenFrom(pasted: string): string {
+  const [first = ''] = pasted.trim().split(/\s+/)
+  return first
+}
+
 export function setToken(token: string): void {
   try {
     if (token) {

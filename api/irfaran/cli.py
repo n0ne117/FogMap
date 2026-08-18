@@ -342,8 +342,16 @@ def show_token() -> int:
     finally:
         conn.close()
 
+    # The token alone on stdout, and where it came from on stderr.
+    #
+    # Both used to go to stdout, one line after the other, and the obvious
+    # thing to do with two lines of console output is select both and paste
+    # them - which then failed as "that is not the token this server is
+    # using" while the right token sat in the clipboard, one line up. This
+    # way a pipe or a $(...) gets the token and nothing else, and a person
+    # reading the terminal still gets told where it came from.
     out(f"{value}\n")
-    out(
+    sys.stderr.write(
         f"from the environment ({tokens.ENV_NAME})\n"
         if source == "environment"
         else "generated on first start and stored in the database\n"

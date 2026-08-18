@@ -11,6 +11,16 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.12.1] - 2026-08-18
+
+### Fixed
+- Pasting the token into a new browser could be rejected as the wrong token when it was in fact the right one. `irfaran.cli token` printed the token and then a line saying where it came from, both on stdout, and the obvious thing to do with two lines of console output is to select both — after which the token really is wrong, but only because something else came with it. The token now goes to stdout alone with its provenance on stderr, so a pipe or a `$(...)` gets the token and nothing else, and both token fields take the first line of a multi-line paste.
+
+Recovering that after the fact is not possible, which is worth writing down: a text input strips CR and LF, so by the time anything reads its value the two lines have been welded together with no whitespace between them. The first attempt at this fix split on whitespace and did nothing at all. The paste event still holds the original text, which is the only place the line break survives.
+
+### Added
+- `IDEAS.md`, cataloguing what is wanted, half-answered or deliberately postponed — trail colouring by zoom, search, snapping drawn lines to real paths, routing engines, and what was ruled out along the way and why. Deliberately not a roadmap.
+
 ## [0.12.0] - 2026-08-18
 
 ### Added

@@ -12,8 +12,9 @@ import {
   formatDuration,
   getToken,
   setToken,
+  tokenFrom,
 } from './api'
-import { copyText, element } from './ui'
+import { acceptTokenPaste, copyText, element } from './ui'
 
 /** Whatever the interface theme is set to, so the check writes back a no-op. */
 function getUiThemeSetting(): string {
@@ -191,12 +192,11 @@ export class Setup {
     // The already-set-up screen: this browser has to be given the token,
     // because the server will not hand it out any more.
     element('setup-known-save').addEventListener('click', () => void this.adopt())
-    element<HTMLInputElement>('setup-known-token').addEventListener(
-      'keydown',
-      (event) => {
-        if (event.key === 'Enter') void this.adopt()
-      },
-    )
+    const known = element<HTMLInputElement>('setup-known-token')
+    acceptTokenPaste(known)
+    known.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') void this.adopt()
+    })
     element('setup-known-skip').addEventListener('click', () => {
       void this.finish()
     })
@@ -244,7 +244,7 @@ export class Setup {
   private async adopt(): Promise<void> {
     const field = element<HTMLInputElement>('setup-known-token')
     const message = element('setup-known-message')
-    const value = field.value.trim()
+    const value = tokenFrom(field.value)
 
     const say = (text: string, bad = false) => {
       message.textContent = text
@@ -534,4 +534,5 @@ export class Setup {
     }
   }
 }
+
 

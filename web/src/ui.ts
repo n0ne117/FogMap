@@ -3,7 +3,7 @@
 // Chrome that is not the map: the full-screen sheets, the settings tabs, the
 // zoom control and the API token field.
 
-import { getToken, setToken } from './api'
+import { getToken, setToken, tokenFrom } from './api'
 
 export function element<T extends HTMLElement>(id: string): T {
   const found = document.getElementById(id)
@@ -141,12 +141,40 @@ export function wireTokenField(onChange: () => void): void {
   }
 
   input.value = getToken()
+  acceptTokenPaste(input)
   input.addEventListener('input', () => {
-    setToken(input.value.trim())
+    // Same forgiveness as the setup screen: a token has no whitespace in it,
+    // so anything pasted alongside it is not part of it.
+    setToken(tokenFrom(input.value))
     paint()
     onChange()
   })
   paint()
+}
+
+/** Take only the first line of a multi-line paste into a token field.
+ *
+ * `irfaran.cli token` prints the token on one line and where it came from on
+ * the next, and the obvious thing to do with two lines of console output is to
+ * select both. That cannot be repaired after the fact: a text input runs a
+ * value sanitisation algorithm that strips CR and LF, so by the time anything
+ * reads .value the two lines have been welded together with no whitespace
+ * between them - "<token>from the environment ..." - and there is nothing left
+ * to split on.
+ *
+ * The paste event still has the original text, newline intact, so that is
+ * where the first line can be taken. Single-line pastes are left alone.
+ */
+export function acceptTokenPaste(input: HTMLInputElement): void {
+  input.addEventListener('paste', (event: ClipboardEvent) => {
+    const pasted = event.clipboardData?.getData('text') ?? ''
+    if (!/[\r\n]/.test(pasted)) return
+
+    event.preventDefault()
+    const [firstLine = ''] = pasted.trim().split(/\r?\n/)
+    input.value = firstLine.trim()
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
 }
 
 /** Copy text to the clipboard, including over plain http.
