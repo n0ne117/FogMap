@@ -427,6 +427,16 @@ def mark_render_done(conn: sqlite3.Connection, key: tuple[str, int, int]) -> Non
         pass
 
 
+def pending_render_count(conn: sqlite3.Connection) -> int:
+    """How many tiles owe a render. A count, not the set.
+
+    The set of 1,646 tiles is only needed to work out the job count; asking how
+    many there are is what a status request actually wants, and it is one row.
+    """
+    row = conn.execute("SELECT COUNT(*) AS n FROM pending_render").fetchone()
+    return int(row["n"]) if row else 0
+
+
 def render_done(conn: sqlite3.Connection) -> set[tuple[str, int, int]]:
     """Every render job already finished in the current pass."""
     return {

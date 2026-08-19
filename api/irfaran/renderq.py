@@ -115,6 +115,9 @@ class RenderQueue:
         self._stop = threading.Event()
         self._progress = Progress()
         self._tiles_root: Path | None = None
+        #: Cached answer to "how much work is owed", keyed on how many tiles owe
+        #: it. See resume_hint for why this is not computed every time.
+        self._owed: tuple[int, dict[str, object]] | None = None
 
     # -- reading ------------------------------------------------------------
 
@@ -178,23 +181,50 @@ class RenderQueue:
     def resume_hint(self, conn: sqlite3.Connection) -> dict[str, object]:
         """What is owed and how much of it is already done, for the interface.
 
-        Read straight from the two tables, so it is correct after a restart
-        when there is no in-memory progress to speak of.
-        """
-        pending = db.pending_render(conn)
-        if not pending:
-            return {"pending_tiles": 0, "jobs": 0, "done": 0, "remaining": 0, "views": []}
+        Read from the tables rather than from memory, so it is still right after
+        a restart when there is no memory to read - "523 tiles still owe a
+        render" is the whole answer somebody needs, and it has to survive the
+        process that was drawing them.
 
-        views = composite.views_touching(conn, pending)
-        scope = composite.rebuild_scope(pending)
-        total = composite.count_jobs(conn, views, scope)
+        The job count is cached against the number of tiles owing, because
+        working it out means asking every view which of those tiles it holds and
+        expanding each one to its descendants. At 1,646 tiles that took longer
+        than the status request was willing to wait - the panel polls this once
+        a second while a render runs, and the first version recomputed all of it
+        every time. The pending set does not change during a pass, so the count
+        cannot either; only `done` moves, and counting one table is cheap.
+        """
+        pending_count = db.pending_render_count(conn)
+        if not pending_count:
+            self._owed = None
+            return {
+                "pending_tiles": 0,
+                "jobs": 0,
+                "done": 0,
+                "remaining": 0,
+                "views": [],
+            }
+
+        cached = self._owed
+        if cached is None or cached[0] != pending_count:
+            pending = db.pending_render(conn)
+            views = composite.views_touching(conn, pending)
+            total = composite.count_jobs(
+                conn, views, composite.rebuild_scope(pending)
+            )
+            self._owed = (
+                pending_count,
+                {"pending_tiles": len(pending), "jobs": total, "views": views},
+            )
+            cached = self._owed
+
         done = db.render_done_count(conn)
+        fixed = cached[1]
+        total = int(fixed["jobs"])  # type: ignore[arg-type]
         return {
-            "pending_tiles": len(pending),
-            "jobs": total,
+            **fixed,
             "done": min(done, total),
             "remaining": max(0, total - done),
-            "views": views,
         }
 
     # -- the work -----------------------------------------------------------

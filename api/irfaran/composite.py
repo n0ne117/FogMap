@@ -46,6 +46,11 @@ KINDS = ("fog", "trail")
 # couple of hundred milliseconds to start, which is most of a single stroke.
 PARALLEL_FROM = 4
 
+# How many tiles to name in one query. SQLite parses `(x = ? AND y = ?) OR ...`
+# into an expression tree and refuses one deeper than a thousand, so a set of
+# tiles bigger than that has to be asked about in batches.
+TILES_PER_QUERY = 400
+
 # How far the fog fades out from explored ground. The build plan calls edge
 # softening the difference between "a map" and Fog of World, and warns that
 # tuning it is an evening on its own - hence the environment override.
@@ -310,14 +315,24 @@ def views_touching(
     if not tiles:
         return []
 
-    clause = " OR ".join(["(x = ? AND y = ?)"] * len(tiles))
-    params: list[object] = [value for tile in sorted(tiles) for value in tile]
-    rows = conn.execute(
-        f"SELECT DISTINCT layer FROM blobs WHERE kind IN ('fog', 'trail') "
-        f"AND ({clause})",
-        params,
-    ).fetchall()
-    layers = {row["layer"] for row in rows}
+    # In batches, because the query is one OR per tile and SQLite refuses an
+    # expression tree deeper than a thousand. A bulk import can easily touch
+    # more tiles than that - four long rides touched 559 and worked, marking a
+    # whole archive touched 1,646 and threw "Expression tree is too large".
+    # Nothing warns about it in between; the query simply stops working once an
+    # archive gets big enough.
+    layers: set[str] = set()
+    ordered = sorted(tiles)
+    for start in range(0, len(ordered), TILES_PER_QUERY):
+        batch = ordered[start : start + TILES_PER_QUERY]
+        clause = " OR ".join(["(x = ? AND y = ?)"] * len(batch))
+        params: list[object] = [value for tile in batch for value in tile]
+        rows = conn.execute(
+            f"SELECT DISTINCT layer FROM blobs WHERE kind IN ('fog', 'trail') "
+            f"AND ({clause})",
+            params,
+        ).fetchall()
+        layers.update(row["layer"] for row in rows)
 
     views = [VIEW_ALL]
     views += [f"{YEAR_PREFIX}{layer}" for layer in sorted(layers) if layer.isdigit()]

@@ -11,6 +11,13 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.17.3] - 2026-08-19
+
+### Fixed
+- **A render of more than about a thousand tiles failed outright.** `views_touching` asks which views hold data in a set of tiles by naming every one of them in a single `(x = ? AND y = ?) OR …`, and SQLite refuses an expression tree deeper than a thousand. 559 tiles worked; 1,646 answered `500 Expression tree is too large`. Nothing warns in between — the query simply stops working once an archive is big enough, so a large enough import would have hit it unprompted. Asked in batches of 400 now, with a test at 1,500 tiles.
+- **The status endpoint was too slow to poll.** It worked out the whole job count on every call: for each of eighteen views, which of the owed tiles it holds, then each of those expanded to its descendants. At 1,646 tiles it took longer than the request would wait. The set of owed tiles cannot change during a pass, so the count is now worked out once and cached against how many tiles owe it — a poll went from timing out to **5 ms**. Yesterday's fix covered the live half of that endpoint and left the same mistake in the owed half.
+- **`irfaran.cli render` used one core.** It looped the single-view render rather than the job queue, and measured about three times slower than the server's own path on the same archive. It now uses the same parallel path — 677% CPU across ten processes where it had been sitting at 99%.
+
 ## [0.17.2] - 2026-08-19
 
 ### Fixed

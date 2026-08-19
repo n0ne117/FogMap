@@ -224,15 +224,18 @@ def render(args: argparse.Namespace) -> int:
         composite.write_placeholders(root, conn)
 
         out(f"rendering {len(views)} views into {root}\n")
-        total = 0
+
+        # render_views, not render_view per view in a loop. The plural one fans
+        # every (view, tile) job out across processes; the loop was one core, and
+        # measured about three times slower on the same archive. Same tiles
+        # either way - this is the path the server uses.
+        started = time.monotonic()
+        written = composite.render_views(conn, root, views)
         for view in views:
-            started = time.monotonic()
-            written = composite.render_view(conn, root, view)
-            total += written
-            out(
-                f"  {view.ljust(16)} {written} tiles in "
-                f"{time.monotonic() - started:.1f}s\n"
-            )
+            out(f"  {view.ljust(16)} {written.get(view, 0)} tiles\n")
+        total = sum(written.values())
+        out(f"took {time.monotonic() - started:.1f}s on "
+            f"{composite.render_workers()} workers\n")
     finally:
         conn.close()
 

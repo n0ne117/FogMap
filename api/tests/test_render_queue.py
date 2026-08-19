@@ -463,3 +463,56 @@ class TestAResumeKeepsWhatItSkipped:
         after_resume = {path for path in root.rglob("dark/all/**/*.png")}
         lost = after_stop - after_resume
         assert not lost, f"the resume lost {len(lost)} tiles the first stretch drew"
+
+
+class TestBigSets:
+    """A bulk import can owe more tiles than SQLite will accept in one query.
+
+    views_touching asks which views hold data in a set of tiles by naming every
+    one of them in a single `(x = ? AND y = ?) OR ...`, and SQLite refuses an
+    expression tree deeper than a thousand. Four long rides touched 559 tiles and
+    worked; marking a whole archive touched 1,646 and the status endpoint started
+    answering 500 with "Expression tree is too large". Nothing warns in between -
+    the query simply stops working once an archive is big enough.
+    """
+
+    def test_it_survives_more_tiles_than_the_expression_limit(self, clean) -> None:
+        many = {(x, 5000) for x in range(1500)}
+        assert len(many) > 1000
+        # No data behind them, so the answer is just the cumulative view - what
+        # matters is that asking does not raise.
+        assert composite.views_touching(clean, many) == ["all"]
+
+    def test_it_finds_the_same_views_however_it_is_batched(self, clean) -> None:
+        from irfaran.ingest import common, gpx
+
+        points = [(BASE_LON + n * 0.0002, BASE_LAT) for n in range(40)]
+        common.ingest_tracks(
+            conn := clean, "workout", gpx.parse(synthetic.gpx_document(points))
+        )
+        real = composite.tiles_with_data(conn, composite.view_layers("all"))
+        assert real
+
+        small = composite.views_touching(conn, real)
+        padded = composite.views_touching(
+            conn, real | {(x, 6000) for x in range(1200)}
+        )
+        assert small == padded, "batching changed the answer"
+
+    def test_the_status_endpoint_answers_quickly_with_a_lot_owed(self, client) -> None:
+        """It is polled once a second while a render runs.
+
+        The job count is the expensive part and the pending set does not change
+        during a pass, so it is worked out once and cached against how many tiles
+        owe it. Without that, this request took longer than a browser will wait.
+        """
+        import time
+
+        owe_some_work(client, tracks=4)
+        client.get("/api/render")  # warm the cache, as the first poll would
+
+        began = time.monotonic()
+        for _ in range(20):
+            assert client.get("/api/render").status_code == 200
+        each = (time.monotonic() - began) / 20
+        assert each < 0.25, f"a status poll takes {each:.3f}s, which is too slow"
