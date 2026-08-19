@@ -135,8 +135,27 @@ def _stamp(
     date_to: str | None,
     radius_m: float,
 ) -> tuple[int, set[tuple[int, int]]]:
-    """Create and rasterise the event that clears fog around a place."""
+    """Create and rasterise the event that clears fog around a place.
+
+    A pin has exactly one fog event, named after it. Anything already holding
+    that name is a leftover - most likely from a restore that brought the event
+    but not the link back to the pin - and inserting alongside it fails on the
+    UNIQUE index over (source, external_id), which is how the first edit of a
+    restored pin came to answer 500. The leftover is removed and its ground
+    returned for rebuilding, so the fog it drew does not survive it.
+    """
     layers = layers_for(date_from, date_to)
+    external_id = f"place-{place_id}"
+
+    stale: set[tuple[int, int]] = set()
+    previous = conn.execute(
+        "SELECT * FROM events WHERE source = ? AND external_id = ?",
+        (SOURCE, external_id),
+    ).fetchone()
+    if previous is not None:
+        stale = raster.event_tiles(previous)
+        conn.execute("DELETE FROM events WHERE id = ?", (previous["id"],))
+
     cursor = conn.execute(
         "INSERT INTO events "
         "(source, op, geometry, radius_m, layers, external_id, created_at, meta) "
@@ -147,14 +166,14 @@ def _stamp(
             json.dumps({"type": "Point", "coordinates": [lon, lat]}),
             radius_m,
             json.dumps(layers),
-            f"place-{place_id}",
+            external_id,
             datetime.now(timezone.utc).isoformat(timespec="seconds"),
             json.dumps({"place": name, "place_id": place_id}),
         ),
     )
     event_id = int(cursor.lastrowid)
     row = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
-    return event_id, raster.stamp_event(conn, row)
+    return event_id, raster.stamp_event(conn, row) | stale
 
 
 def _drop_event(conn: sqlite3.Connection, event_id: int | None) -> set[tuple[int, int]]:

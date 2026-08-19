@@ -11,6 +11,16 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.17.8] - 2026-08-19
+
+### Fixed
+- **Editing a pin on a restored archive answered 500.** Reported from a fresh install: changing a pin's label failed there while the same edit worked on the instance the data came from. A pin's fog is an event and `places.event_id` links them, but the import inserted pins without that link — so every restored pin looked like a pin whose fog had never been stamped, which is the one condition under which editing a pin re-stamps it. That insert carries `external_id = "place-<id>"`, the archive had already brought an event with exactly that pair, and a UNIQUE index covers `(source, external_id)`: `IntegrityError: UNIQUE constraint failed: events.source, events.external_id`. A label change was simply the first edit tried — renaming, retagging or moving would all have done it, on every restored pin.
+- **The import now restores the link**, finding each pin's event by the `external_id` it was exported under and renaming it to match its new id where that name is free. Fixes future restores.
+- **Stamping now replaces a leftover event rather than colliding with it**, returning its tiles for rebuilding so the fog it drew does not outlive it. This is what heals an instance that has already been restored by an earlier version — fixing the import does nothing for a database sitting in that state today. The first edit of each such pin re-stamps its fog, correctly, at the cost of one small render per pin.
+
+### Note
+Both halves are pinned by tests that fail without them, covering different machines: removing the stamping guard reproduces the reported `IntegrityError` on an already-restored database; removing the import link leaves restored pins orphaned. The second case is built by blanking `event_id` on a restored archive, because that is the state the reporting instance was actually in and no amount of fixing the importer would have reached it.
+
 ## [0.17.7] - 2026-08-19
 
 ### Fixed

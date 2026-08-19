@@ -319,6 +319,50 @@ def _merge_folders(
     return mapping
 
 
+
+def _relink(conn: sqlite3.Connection, place_id: int, old_place_id: object) -> None:
+    """Point a restored pin at the event that clears its fog.
+
+    A pin's fog is an event, and `places.event_id` is the link between them.
+    Restoring the pins without it left every one of them looking like a pin whose
+    fog had never been stamped - which is the one condition under which editing a
+    pin re-stamps it. That insert carries `external_id = "place-<id>"`, the
+    archive had already brought an event with exactly that pair, and there is a
+    UNIQUE index across (source, external_id): so the first edit of any restored
+    pin answered 500, and a label change was enough to hit it.
+
+    The event is found by the external_id it was exported under, and renamed to
+    match its new place id where that name is free, so the pairing means here
+    what it meant there.
+    """
+    if old_place_id is None:
+        return
+
+    was = f"place-{old_place_id}"
+    event = conn.execute(
+        "SELECT id FROM events WHERE source = 'place' AND external_id = ?", (was,)
+    ).fetchone()
+    if event is None:
+        return
+
+    event_id = int(event["id"])
+    conn.execute(
+        "UPDATE places SET event_id = ? WHERE id = ?", (event_id, place_id)
+    )
+
+    now = f"place-{place_id}"
+    if now == was:
+        return
+    taken = conn.execute(
+        "SELECT 1 FROM events WHERE source = 'place' AND external_id = ?", (now,)
+    ).fetchone()
+    if taken is None:
+        # Tidiness rather than correctness: the link above is what edits rely on.
+        conn.execute(
+            "UPDATE events SET external_id = ? WHERE id = ?", (now, event_id)
+        )
+
+
 def _merge_places(
     conn: sqlite3.Connection,
     archive: zipfile.ZipFile,
@@ -338,7 +382,7 @@ def _merge_places(
         if existing:
             continue
 
-        conn.execute(
+        cursor = conn.execute(
             "INSERT INTO places "
             "(name, category, people, date_from, date_to, lat, lon, "
             " label_id, folder_id, tags, prominence) "
@@ -358,3 +402,4 @@ def _merge_places(
             ),
         )
         added["places"] += 1
+        _relink(conn, int(cursor.lastrowid), row.get("id"))
