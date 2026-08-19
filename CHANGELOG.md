@@ -11,6 +11,15 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.17.9] - 2026-08-19
+
+### Changed
+- **Country borders are dark grey instead of amber.** Amber is the trail ramp's own colour, so a border crossing a route read as part of the route. Measured against the warm end of that ramp the old line scored a contrast ratio of **1.14** — near enough the same colour — where the new one scores 6.21.
+- Two greys, because the two themes are not the same problem. On light the change is pure gain: against the fog as actually painted the old amber scored **1.78**, effectively invisible, and `#2b2b31` scores **10.84**. On dark it costs something: amber scored 3.19 there and `#101014` scores 2.58. That is the one thing given up, and it is worth giving up to stop borders reading as tracks. Darker was chosen deliberately over lighter — borders earn their keep over ground nobody has visited, which is fog, and against fog a darker line reads better.
+
+### Note
+Verified numerically and by checking the built bundle, not by eye: the browser pane would not composite frames, so no screenshot was possible. The contrast figures use the fog as it is actually drawn — 80% opacity over the basemap, so `#56555c` on dark and `#e2e2df` on light — rather than the fog colour on its own.
+
 ## [0.17.8] - 2026-08-19
 
 ### Fixed

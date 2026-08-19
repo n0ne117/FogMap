@@ -305,9 +305,23 @@ export function buildStyle(setup: MapSetup): StyleSpec {
                 visibility: getBordersVisible() ? 'visible' : 'none',
               },
               paint: {
-                'line-color': '#d8a13a',
-                'line-width': ['interpolate', ['linear'], ['zoom'], 2, 0.8, 8, 1.6],
-                'line-opacity': 0.85,
+                // Dark grey, not the amber it used to be: amber is the trail
+                // ramp's own colour, so a border crossing a route read as part
+                // of it. Borders and tracks are different kinds of thing and
+                // should not share a palette.
+                //
+                // Darker than the fog on purpose. Borders earn their keep over
+                // ground nobody has visited, which is fog, and against fog the
+                // darker the line the more it reads: measured against the fog as
+                // actually painted - 80% over the basemap, so #56555c on dark -
+                // #101014 scores 2.58 where #1f1f24 scores 2.23. Amber scored
+                // 3.19 there, which is the one thing lost by moving away from
+                // it, and it scored 1.14 against the warm end of the trail ramp,
+                // which is the clash that made it worth losing. On the light
+                // theme it is not a trade at all: 1.78 to 10.84.
+                'line-color': setup.theme === 'dark' ? '#101014' : '#2b2b31',
+                'line-width': ['interpolate', ['linear'], ['zoom'], 2, 0.9, 8, 1.7],
+                'line-opacity': 0.95,
                 'line-dasharray': [3, 2],
               },
             },
