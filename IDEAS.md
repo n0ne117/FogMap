@@ -139,6 +139,49 @@ The Places page works — pins, labels, folders, tags, 30 m fog clearing on drop
 — and was always meant to grow past that. What it grows into has not been
 decided.
 
+## Make the wide-zoom walk incremental
+
+**Wanted:** an edit that costs what the edit is worth, rather than what the
+archive is worth.
+
+**Start from the current number.** An earlier version of this argument used
+timings — 305 seconds for a six-job pass, the same two views going 142s → 324s
+over one morning — to conclude the walk was inherently expensive. Those numbers
+were a missing index on `blobs(x, y)`: every tile lookup scanned every blob of
+its kind, 226 MB of it, three times per tile. With the index (0.17.6) the same
+whole-view walk takes **8.8 s**, not 247.5. Any case made here has to start from
+that figure.
+
+**What remains true.** The walk still visits every native tile in the view,
+however small the edit, because a parent tile is the maximum of its children and
+cannot be built without them. The cost is still linear in the archive: roughly
+3 ms a tile across 2,954 tiles today, and growing as the map fills in. At this
+size it is seconds and nobody minds. Ten times the data is a minute a stroke.
+
+**The idea:** rebuild an ancestor tile from its four children directly rather
+than recomposing the whole view from the blob store, so an edit walks its own
+fifteen ancestors instead of three thousand unrelated tiles.
+
+**Why it is not done.** It makes derived tiles an input to their own
+regeneration, which is what invariant 1 exists to prevent. It would need:
+
+- A lossless way back from a rendered tile to its arrays. Fog is a boolean and
+  trail is a pass count, both pushed through a colour ramp, so they are probably
+  *not* recoverable from the PNG. Establish that before designing anything else:
+  if it holds, the feature becomes "cache the arrays beside the tiles", which is
+  a different feature with a disk cost.
+- A verification pass — a rebuild from the event log compared byte for byte
+  against the incrementally maintained pyramid.
+- A known-good way back when the two disagree, which is a full rebuild.
+
+**A warning from the attempt that was made.** The walk was also split into one
+job per z10 subtree to spread it across cores. It worked and was byte-identical
+to the single-pass walk, and it bought **1.38×** for 2.5× the total CPU — then
+1.2× once the index landed, so it was reverted. Parallelising a query problem is
+a poor trade, and the profile said so before the work began: 22 ms for a single
+`execute` is not a compositing cost, it is a question the database cannot answer
+efficiently. The patch is not kept; the measurements are the useful part.
+
 ## Statistics over the archive
 
 **Wanted:** curated numbers out of the data already held — how many tracks, how

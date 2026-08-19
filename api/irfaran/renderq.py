@@ -329,9 +329,19 @@ class RenderQueue:
         already = db.render_done(conn)
         self._progress.views = views
         self._progress.message = f"Drawing {len(views)} views."
+
+        # What earlier passes of this run already accounted for. A run takes as
+        # many passes as the work needs - anything deferred while it draws gets
+        # another one - and counting each pass from zero sent the bar to 100%,
+        # back to nothing, and up again. Two strokes in quick succession were
+        # enough to see it.
+        base_done = self._progress.done
+        base_total = self._progress.total
+        base_written = self._progress.tiles_written
+
         # Jobs already finished in an earlier pass are counted as done
         # rather than hidden, so the bar continues where it left off.
-        self._progress.done = len(already)
+        self._progress.done = base_done + len(already)
 
         written: dict[str, int] = {}
         for done, total in composite.render_views_iter(
@@ -345,9 +355,9 @@ class RenderQueue:
             on_done=lambda key: db.mark_render_done(conn, key),
             stop=self._stop.is_set,
         ):
-            self._progress.done = len(already) + done
-            self._progress.total = len(already) + total
-            self._progress.tiles_written = sum(written.values())
+            self._progress.done = base_done + len(already) + done
+            self._progress.total = base_total + len(already) + total
+            self._progress.tiles_written = base_written + sum(written.values())
 
         if self._stop.is_set():
             return sum(written.values())

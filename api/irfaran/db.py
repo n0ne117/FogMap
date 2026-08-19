@@ -61,6 +61,21 @@ CREATE TABLE IF NOT EXISTS blobs (
   PRIMARY KEY (kind, source, layer, x, y)
 ) WITHOUT ROWID;
 
+-- Find a tile's blobs by where it is.
+--
+-- Compositing asks for one tile at a time: kind, x and y. The primary key
+-- begins with kind, then source and layer, so only kind was usable as a prefix
+-- and everything else was a scan - and because this table is WITHOUT ROWID the
+-- rows being scanned carry their blobs with them. Reading one tile's fog meant
+-- walking every fog blob in the archive, 226 MB of it, three times per tile.
+--
+-- The walk up the pyramid does that for every native tile in a view, so the
+-- cost was the tile count multiplied by the table size: quadratic in the
+-- archive, which is why the same two views went from 142 to 324 seconds over a
+-- single morning of importing. Measured on a 2,954-tile view, this index took
+-- one whole-view walk from 247.5 s to 8.8 s. It is 228 KB.
+CREATE INDEX IF NOT EXISTS idx_blobs_tile ON blobs(x, y);
+
 -- A pin. name is its title; label, folder and tags are what the sidebar
 -- organises it by. The older category/people/date columns are still here
 -- because dropping a column means rebuilding the table, and they cost nothing

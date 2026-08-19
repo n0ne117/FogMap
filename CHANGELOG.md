@@ -11,6 +11,18 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.17.6] - 2026-08-19
+
+### Fixed
+- **Every render was scanning the whole blob store, once per tile.** Compositing asks for one tile at a time — kind, x, y — and the `blobs` primary key is `(kind, source, layer, x, y)`, so only `kind` was a usable prefix and the rest was a scan. Because the table is `WITHOUT ROWID` the rows being scanned carry their blobs with them, which made reading one tile's fog a walk over every fog blob in the archive: **226 MB, three times per tile**. The pyramid walk does that for every native tile in a view, so the cost was the tile count multiplied by the table size — quadratic in the archive, which is why the same two views went from 142 to 324 seconds over one morning of importing.
+- A 228 KB index on `blobs(x, y)`, built in 0.02 s, turns each lookup from a scan into a seek. Measured on a real 2,954-tile view, one whole-view walk went from **247.5 s to 8.8 s**; a stroke-sized render across the two views a hand-drawn stroke actually touches went from about **257 s to 11 s** on the same archive. That walk was the entire reason a stroke took five minutes to appear and the progress bar sat at 98% while it happened. Existing archives gain the index on the next restart.
+- **The progress bar restarted at 0% partway through a render.** A run takes as many passes as the work needs — the loop that stops mid-render arrivals being lost — but each pass counted from zero, so two strokes in quick succession sent the bar to 100%, back to nothing, and up again. Done, total and tiles written now accumulate across the whole run.
+
+### Note
+The wide-zoom walk was split into one job per z10 subtree first, on the theory that the walk was inherently expensive and needed more cores. It was built, tested byte-for-byte against the single-pass walk, and measured: **1.38×**, at 2.5× the total CPU. With the index it was worth 1.2% — 9 s against 7.7 s. It was reverted. The diagnosis had been wrong, and the evidence was in the profile the whole time: 22 ms per SQLite `execute` was read as the cost of compositing rather than as the wrong question being asked of the database.
+
+Tests pin the query plan rather than a stopwatch — a timer in CI measures the CI machine, while the plan is the thing that was actually wrong. One asserts the index is used; one asserts the old `SEARCH blobs USING PRIMARY KEY (kind=?)` never comes back.
+
 ## [0.17.5] - 2026-08-19
 
 ### Changed

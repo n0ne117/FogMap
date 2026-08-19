@@ -103,6 +103,23 @@ class TestTheEndpoint:
         assert client.get("/api/render").status_code == 200
 
 
+def settle(client, timeout: float = 60.0) -> dict:
+    """Wait for the queue to finish everything it is going to do.
+
+    A run takes as many passes as the work needs, so "not running" is the only
+    reliable end - the state after one pass may be the middle of the run.
+    """
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        state = client.get("/api/render").json()
+        if state["state"] not in ("running", "stopping"):
+            return state
+        time.sleep(0.05)
+    raise AssertionError("the render never finished")
+
+
 class TestCountingJobs:
     def test_no_views_is_no_work(self, conn) -> None:
         assert composite.count_jobs(conn, []) == 0
@@ -121,21 +138,20 @@ class TestCountingJobs:
                 "geometry": {"type": "Point", "coordinates": [10.5, 45.5]},
             },
         )
+
+        # Drawing starts the queue, so the debt has to be settled before the
+        # comparison begins. Otherwise the estimate is taken while a pass is
+        # already under way with a smaller set of tiles, and the two numbers
+        # describe different work - which is what this used to measure.
+        settle(client)
+
         with db.transaction(conn):
             db.defer_render(conn, {(8214, 8180)})
 
         predicted = client.get("/api/render").json()["jobs"]
         client.post("/api/render", headers={"X-Irfaran-Token": TOKEN})
+        final = settle(client)
 
-        deadline = time.monotonic() + 60
-        final = None
-        while time.monotonic() < deadline:
-            final = client.get("/api/render").json()
-            if final["state"] not in ("running", "stopping"):
-                break
-            time.sleep(0.05)
-
-        assert final is not None
         assert predicted == final["total"], (
             "the estimate and the queue disagree about how much work there is"
         )
