@@ -11,6 +11,19 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.17.5] - 2026-08-19
+
+### Changed
+- **Drawing on the map now renders through the server queue**, so a stroke appears in the **In progress** panel alongside imports and everything else. Drawing used to render inside the request that saved it, streaming its progress back — which meant the browser was carrying the work, and nothing outside that one notice knew a render was happening. The stroke is stored and the queue is started before the response comes back; the panel shows it, and closing the tab no longer stops it. Undo goes the same way, for the same reason: putting the fog back is the same size of render as drawing it was.
+- **A stroke says which views it belongs to.** Without that, the queue works it out from the tiles, and the answer is wider than the truth — a stroke drawn into 2024 changes 2024 and the cumulative view, while the tile underneath may hold a dozen other years it did not touch. Each extra view costs a full pass over z0–z13. On this archive 93% of tiles hold two views and the busiest holds twelve, and the busiest tile is the one you have walked most, which is exactly where you draw. Measured before it was written, because deferring blindly would have made drawing at home about six times more expensive than the inline render it replaced.
+
+### Fixed
+- **Work deferred while a render was running was marked finished without being drawn.** A pass reads the tiles owing once, at the start, and builds its job list from that — then cleared the whole table on the way out, including rows added while it worked. So a stroke drawn during a render, a phone reporting a fix, or a pin dropped mid-pass left tiles stale with nothing left to say they owed anything: the debt was settled and the ground was never drawn. A pass now clears exactly the tiles it took, and looks again before it finishes, so late arrivals get a second pass instead of a silent write-off. Reachable before this release through live tracking and pin drops; unavoidable after it, since drawing while a render runs stopped being unusual and became normal.
+- **The drawing toolbar changed height as you used it.** The hint line was a full-width item inside the bar and the controls wrapped when the "Zoom to 14" button appeared, so the box moved between one line and two — under the pointer, while drawing. The hint now sits beneath the bar as its own line and the toolbar is always exactly one: when space runs short the brush slider gives up width and the tools keep theirs.
+
+### Note
+The test written for the deferred-work bug initially asserted that late tiles were *still owing* after the pass. That was the shape of the fix in isolation, not of the behaviour anybody wants — with the second pass in place the queue draws them instead, and the test passed for the wrong reason. It now checks the tiles are on disk, and fails with "tiles deferred while a render ran were cleared without being drawn" when the fix is removed.
+
 ## [0.17.4] - 2026-08-19
 
 ### Fixed

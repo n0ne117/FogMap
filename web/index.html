@@ -21,65 +21,70 @@
     <!-- Map tools, top right. The draw bar sits to the left of the buttons so
          it opens leftwards across the map rather than off the edge. -->
     <div class="map-tools">
-      <div id="draw-bar" class="draw-bar" hidden>
-        <div id="draw-tool" class="segmented" role="group" aria-label="Drawing tool">
-          <button type="button" data-value="off" aria-pressed="true" title="Pan the map">
-            <span class="tool-icon" data-icon="move"></span> Pan
+      <!-- A stack, so the hint underneath cannot change the toolbar's height.
+           The hint used to be a full-width flex item inside the bar, which made
+           the bar one line or two depending on what it had to say. -->
+      <div id="draw-bar" class="draw-stack" hidden>
+        <div class="draw-tools">
+          <div id="draw-tool" class="segmented" role="group" aria-label="Drawing tool">
+            <button type="button" data-value="off" aria-pressed="true" title="Pan the map">
+              <span class="tool-icon" data-icon="move"></span> Pan
+            </button>
+            <button
+              type="button"
+              data-value="freehand"
+              aria-pressed="false"
+              title="Draw a route: clears fog and leaves a track"
+            >
+              Track
+            </button>
+            <button
+              type="button"
+              data-value="line"
+              aria-pressed="false"
+              title="A straight route, corner by corner"
+            >
+              Line
+            </button>
+            <button
+              type="button"
+              data-value="reveal"
+              aria-pressed="false"
+              title="Clear fog without claiming a route"
+            >
+              Reveal
+            </button>
+            <button
+              type="button"
+              data-value="area"
+              aria-pressed="false"
+              title="Draw round somewhere and clear all of it"
+            >
+              Area
+            </button>
+            <button type="button" data-value="eraser" aria-pressed="false">Eraser</button>
+          </div>
+          <button id="draw-zoom-in" type="button" class="bar-button" hidden>
+            Zoom to 14
           </button>
-          <button
-            type="button"
-            data-value="freehand"
-            aria-pressed="false"
-            title="Draw a route: clears fog and leaves a track"
-          >
-            Track
-          </button>
-          <button
-            type="button"
-            data-value="line"
-            aria-pressed="false"
-            title="A straight route, corner by corner"
-          >
-            Line
-          </button>
-          <button
-            type="button"
-            data-value="reveal"
-            aria-pressed="false"
-            title="Clear fog without claiming a route"
-          >
-            Reveal
-          </button>
-          <button
-            type="button"
-            data-value="area"
-            aria-pressed="false"
-            title="Draw round somewhere and clear all of it"
-          >
-            Area
-          </button>
-          <button type="button" data-value="eraser" aria-pressed="false">Eraser</button>
+          <!-- Brush width, where the drawing happens. Settings keeps the same
+               control for anyone who wants to type an exact number. -->
+          <div class="bar-size" title="Brush radius on the ground">
+            <button id="draw-size-down" type="button" aria-label="Smaller brush">&minus;</button>
+            <input
+              id="draw-size"
+              type="range"
+              min="1"
+              max="60"
+              step="1"
+              value="15"
+              aria-label="Brush radius in metres"
+            />
+            <button id="draw-size-up" type="button" aria-label="Bigger brush">+</button>
+            <output id="draw-size-label" for="draw-size">15 m</output>
+          </div>
+          <button id="draw-undo" type="button" class="bar-button" disabled>Undo</button>
         </div>
-        <button id="draw-zoom-in" type="button" class="bar-button" hidden>
-          Zoom to 14
-        </button>
-        <!-- Brush width, where the drawing happens. Settings keeps the same
-             control for anyone who wants to type an exact number. -->
-        <div class="bar-size" title="Brush radius on the ground">
-          <button id="draw-size-down" type="button" aria-label="Smaller brush">&minus;</button>
-          <input
-            id="draw-size"
-            type="range"
-            min="1"
-            max="60"
-            step="1"
-            value="15"
-            aria-label="Brush radius in metres"
-          />
-          <button id="draw-size-up" type="button" aria-label="Bigger brush">+</button>
-          <output id="draw-size-label" for="draw-size">15 m</output>
-        </div>
-        <button id="draw-undo" type="button" class="bar-button" disabled>Undo</button>
         <span id="draw-hint" class="bar-hint"></span>
       </div>
 

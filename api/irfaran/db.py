@@ -369,12 +369,19 @@ def path_of(conn: sqlite3.Connection) -> str:
 
 
 PENDING_KINDS_KEY = "pending_render_kinds"
+PENDING_VIEWS_KEY = "pending_render_views"
+
+#: Recorded in place of a view list by a caller that does not know which views
+#: its tiles belong to. It means "work it out from the tiles", and once written
+#: it cannot be narrowed again - see defer_render.
+ANY_VIEW = "*"
 
 
 def defer_render(
     conn: sqlite3.Connection,
     tiles: set[tuple[int, int]],
     kinds: tuple[str, ...] = ("fog", "trail"),
+    views: list[str] | None = None,
 ) -> None:
     """Record z14 tiles whose PNGs are now out of date, and which of them.
 
@@ -382,6 +389,18 @@ def defer_render(
     the fog anyway is half the work for none of the result. What is owed is
     the union of every deferral since the last render, so an import that owes
     both followed by a recolour that owes one still owes both.
+
+    `views` is the same economy applied to views. Without it the queue asks
+    which views hold data in these tiles, and that answer is wider than the
+    truth: a stroke drawn into 2024 changes the 2024 view and the cumulative
+    one, but the tile underneath may also hold 1994 and every year since, none
+    of which the stroke altered. Each extra view costs a whole shallow pass -
+    z0 to z13 over the entire view - so on a well-walked tile the difference is
+    minutes against seconds. A caller that knows says so.
+
+    Not saying is recorded too, as ANY_VIEW, and it wins: a pass that mixes a
+    deferral which named its views with one that could not must fall back to
+    working it out, or the second one's tiles come out stale.
     """
     if not tiles:
         return
@@ -391,11 +410,43 @@ def defer_render(
     )
 
     owed = _recorded_kinds(conn) | set(kinds)
+    _remember(conn, PENDING_KINDS_KEY, owed)
+
+    known = _recorded_views(conn)
+    if views is None or ANY_VIEW in known:
+        _remember(conn, PENDING_VIEWS_KEY, {ANY_VIEW})
+    else:
+        _remember(conn, PENDING_VIEWS_KEY, known | set(views))
+
+
+def _remember(conn: sqlite3.Connection, key: str, values: set[str]) -> None:
     conn.execute(
         "INSERT INTO settings (key, value) VALUES (?, ?) "
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        (PENDING_KINDS_KEY, ",".join(sorted(owed))),
+        (key, ",".join(sorted(values))),
     )
+
+
+def _recorded_views(conn: sqlite3.Connection) -> set[str]:
+    row = conn.execute(
+        "SELECT value FROM settings WHERE key = ?", (PENDING_VIEWS_KEY,)
+    ).fetchone()
+    if not row or not str(row["value"]).strip():
+        return set()
+    return {part for part in str(row["value"]).split(",") if part}
+
+
+def pending_views(conn: sqlite3.Connection) -> list[str] | None:
+    """Which views are owed a render, or None when that has to be worked out.
+
+    None is the honest answer for a debt nobody scoped, and for any debt from
+    before this was recorded. The queue treats it as "every view holding data
+    in the pending tiles", which is what it always did.
+    """
+    recorded = _recorded_views(conn)
+    if not recorded or ANY_VIEW in recorded:
+        return None
+    return sorted(recorded)
 
 
 def _recorded_kinds(conn: sqlite3.Connection) -> set[str]:
@@ -473,9 +524,34 @@ def pending_render(conn: sqlite3.Connection) -> set[tuple[int, int]]:
     }
 
 
-def clear_pending_render(conn: sqlite3.Connection) -> None:
-    conn.execute("DELETE FROM pending_render")
-    conn.execute("DELETE FROM settings WHERE key = ?", (PENDING_KINDS_KEY,))
+def clear_pending_render(
+    conn: sqlite3.Connection, tiles: set[tuple[int, int]] | None = None
+) -> None:
+    """Settle the debt - all of it, or only the tiles named.
+
+    A render pass reads what is owing once, at the start, and builds its job
+    list from that. Anything deferred while it works is not in that list, so a
+    pass that cleared the whole table on the way out marked those tiles paid
+    without having drawn them: a stroke drawn during a render, or a phone
+    reporting a fix, left tiles stale with nothing left to say they owed
+    anything. A pass now clears exactly the tiles it took, and whatever arrived
+    meanwhile is still owing when it looks again.
+    """
+    if tiles is None:
+        conn.execute("DELETE FROM pending_render")
+    elif tiles:
+        conn.executemany(
+            "DELETE FROM pending_render WHERE x = ? AND y = ?", sorted(tiles)
+        )
+
+    # The kinds and views owed describe whatever is left. While something is
+    # still owing they stay as they are - a superset draws more than needed,
+    # where a narrower set would leave tiles wrong.
+    if not conn.execute("SELECT 1 FROM pending_render LIMIT 1").fetchone():
+        conn.execute(
+            "DELETE FROM settings WHERE key IN (?, ?)",
+            (PENDING_KINDS_KEY, PENDING_VIEWS_KEY),
+        )
 
 
 def counts(conn: sqlite3.Connection) -> dict[str, int]:

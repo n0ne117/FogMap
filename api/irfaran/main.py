@@ -825,23 +825,6 @@ def serve_basemap(request: Request, name: str) -> Response:
     )
 
 
-def _render_views_iter(
-    conn: sqlite3.Connection,
-    views: list[str],
-    touched: set[tuple[int, int]] | None = None,
-) -> Iterator[tuple[int, int]]:
-    """Re-render views, yielding (jobs done, jobs total) as it goes.
-
-    A stroke on a full archive is several seconds of rasterising into every
-    view, and the only sign of it used to be the preview refusing to vanish.
-    """
-    root = tiles_root()
-    root.mkdir(parents=True, exist_ok=True)
-    composite.write_placeholders(root, conn)
-    scope = None if touched is None else composite.rebuild_scope(touched)
-    yield from composite.render_views_iter(conn, root, views, scope=scope)
-
-
 def _render_views(
     conn: sqlite3.Connection,
     views: list[str],
@@ -1222,16 +1205,14 @@ def _views_for_layers(layers: list[str]) -> list[str]:
 @app.post("/api/events", status_code=201)
 def create_event(
     payload: dict,
-    progress: bool = False,
     conn: sqlite3.Connection = Depends(get_conn),
-):
-    """Record one drawn stroke.
+) -> dict[str, object]:
+    """Record one drawn stroke, and hand the drawing of it to the queue.
 
-    With `?progress=1` the response is newline-delimited JSON - a line per
-    finished unit of rendering, then a final line carrying what the plain
-    response would have returned. The browser asks for that so a stroke on a
-    large archive shows a bar rather than five silent seconds; everything else
-    gets the single JSON object it always got.
+    Answers as soon as the stroke is stored. The tiles it made stale are marked
+    as owing a render and the queue is started, so what the browser watches is
+    the same render everything else watches - and closing the browser does not
+    stop it.
 
     A brush stroke is not a special case. It becomes a LineString event and
     goes down exactly the path a GPX import takes, which is why an erase drawn
@@ -1352,28 +1333,23 @@ def create_event(
             {"radius_m": radius_m, "tiles": len(touched), "geometry": geometry.get("type")},
         )
 
-    if not progress:
-        _render_views(conn, views, touched)
-        return result
+    # The stroke is saved; drawing it is the queue's work. This used to render
+    # inline and stream its progress back, which meant a stroke on a full
+    # archive held the request open for seconds and closing the tab halfway
+    # left the pyramid half written. Deferring is not a weaker promise now that
+    # the queue lives in this process: it starts below, the browser is not part
+    # of it, and the In progress panel shows it like any other render.
+    #
+    # The views are recorded rather than worked out later. A stroke drawn into
+    # 2024 changes 2024 and the cumulative view; the tile underneath may hold a
+    # dozen other years it did not touch, and each of those would cost a whole
+    # shallow pass.
+    with db.transaction(conn):
+        db.defer_render(conn, touched, views=views)
+    renderq.queue.start(tiles_root())
 
-    def report() -> Iterator[str]:
-        # Its own connection: a dependency's is closed when the handler
-        # returns, and a streaming handler returns before doing the work. The
-        # event is already committed by this point, so nothing is lost if the
-        # client hangs up part way - the tiles are simply rendered without
-        # anybody watching.
-        own = db.connect()
-        try:
-            done = total = 0
-            for done, total in _render_views_iter(own, views, touched):
-                yield json.dumps({"done": done, "total": total}) + "\n"
-            yield json.dumps({**result, "done": done, "total": total, "finished": True}) + "\n"
-        finally:
-            own.close()
-
-    return StreamingResponse(
-        report(), media_type="application/x-ndjson", status_code=201
-    )
+    result["render_pending"] = len(db.pending_render(conn))
+    return result
 
 
 @app.delete("/api/events/{event_id}")
@@ -1401,13 +1377,18 @@ def delete_event(
 
     # An erase was subtracted from every view, so removing it puts fog back
     # into every view. Anything else only ever touched its own layers.
-    _render_views(
-        conn,
+    #
+    # Deferred, like the drawing it undoes. Undo used to hold the request open
+    # for the whole re-render, which on a long stroke is the same several
+    # seconds - and the button could only say "Undoing..." into the void.
+    undone_views = (
         composite.views_touching(conn, tiles)
         if was_erase
-        else _views_for_layers(layers),
-        tiles,
+        else _views_for_layers(layers)
     )
+    with db.transaction(conn):
+        db.defer_render(conn, tiles, views=undone_views)
+    renderq.queue.start(tiles_root())
 
     # Deleting the last event of a year retires that year as a view. Its
     # directory goes with it, or the tile endpoint keeps serving a year that

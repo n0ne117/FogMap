@@ -4,8 +4,8 @@
 // /api/events, which puts it through exactly the path a GPX import takes.
 // Drawing is not a special case anywhere below this file.
 
-import { ApiError, apiGet, apiSend, getToken } from './api'
-import { readNdjson } from './render'
+import { ApiError, apiGet, apiSend } from './api'
+import { watchRender } from './render'
 
 /** Below this the brush is meaningless: one screen pixel exceeds its diameter. */
 export const MIN_DRAW_ZOOM = 14
@@ -356,24 +356,24 @@ export class Draw {
 
     const op = this.op
     try {
-      // Streamed rather than a plain POST: rasterising into every view takes
-      // seconds on a full archive, and the bar is the only thing that says so.
+      // A plain POST. The stroke is stored by the time this returns and the
+      // server has started drawing it - the render is no longer carried by this
+      // request, so it survives the tab being closed. What follows is watching,
+      // and watching is optional.
       this.onProgress(0, 0)
-      const saved = await saveStreaming(
-        {
-          source: 'manual',
-          op,
-          geometry,
-          radius_m: this.radiusM,
-          layers: op === 'erase' ? undefined : this.layerList(),
-        },
-        (done, total) => this.onProgress(done, total),
-      )
+      const saved = await apiSend<DrawResult>('POST', '/api/events', {
+        source: 'manual',
+        op,
+        geometry,
+        radius_m: this.radiusM,
+        layers: op === 'erase' ? undefined : this.layerList(),
+      })
       this.undoStack.push(saved.id)
       this.onStatus(
         `${VERB[op]} ${thinned.length} ${closes ? 'corners' : 'points'} ` +
           `into ${saved.layers.join(', ')}`,
       )
+      await this.followTheRender()
       this.onSaved()
     } catch (error) {
       const message = error instanceof ApiError ? error.message : String(error)
@@ -381,6 +381,23 @@ export class Draw {
     } finally {
       this.onPreview([])
     }
+  }
+
+  /**
+   * Wait for the queue to draw what was just saved, reporting as it goes.
+   *
+   * The preview is still on screen while this runs, which is the reason to wait
+   * at all: it holds the stroke in place until real tiles exist to replace it,
+   * so the line does not blink out and back. Giving up early - a lost
+   * connection, a closed tab - costs the preview and nothing else. The render
+   * belongs to the server and the In progress panel can pick it up from here.
+   */
+  private async followTheRender(): Promise<void> {
+    await watchRender((state) => {
+      if (state.state === 'running' || state.state === 'stopping') {
+        this.onProgress(state.done, state.total)
+      }
+    })
   }
 
   private layerList(): string[] | undefined {
@@ -412,6 +429,11 @@ export class Draw {
 
       await apiSend('DELETE', `/api/events/${id}`)
       this.onStatus(`Undid stroke ${id}`)
+      // Removing the event is instant; putting the fog back is a render, and
+      // it is deferred to the queue exactly like the drawing was. Without
+      // waiting, the map is refreshed against tiles that still show the stroke
+      // and undo looks as though it did nothing.
+      await this.followTheRender()
     } catch (error) {
       const message = error instanceof ApiError ? error.message : String(error)
       this.onStatus(message, true)
@@ -431,46 +453,4 @@ interface EventList {
 async function lastManualEvent(): Promise<number | undefined> {
   const list = await apiGet<EventList>('/api/events?source=manual&limit=1')
   return list.events[0]?.id
-}
-
-/**
- * Save a stroke, following the rendering that follows it.
- *
- * The endpoint answers newline-delimited JSON when asked, one line per finished
- * unit of work and a last line carrying what a plain POST would have returned.
- * That last line is the result; the ones before it are the progress bar.
- */
-async function saveStreaming(
-  body: Record<string, unknown>,
-  onProgress: (done: number, total: number) => void,
-): Promise<DrawResult> {
-  const response = await fetch('/api/events?progress=1', {
-    method: 'POST',
-    headers: { 'X-Irfaran-Token': getToken(), 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-
-  if (!response.ok) {
-    let detail = `${response.status} ${response.statusText}`
-    try {
-      detail = ((await response.json()) as { detail?: string }).detail ?? detail
-    } catch {
-      /* not JSON, keep the status line */
-    }
-    throw new ApiError(response.status, detail)
-  }
-
-  let saved: DrawResult | null = null
-  await readNdjson(response, (line) => {
-    if (line.finished) {
-      saved = line as unknown as DrawResult
-      return
-    }
-    onProgress(Number(line.done ?? 0), Number(line.total ?? 0))
-  })
-
-  if (!saved) {
-    throw new ApiError(502, 'The server did not say what it saved.')
-  }
-  return saved
 }

@@ -113,7 +113,7 @@ PMTiles is read over HTTP range requests, so the archive doesn't have to sit on 
 
 ## Rendering
 
-Anything that changes what the tiles look like — an import, the fog colour, a tracker sync — marks the ground it affects as owing a render. A queue inside the API process pays that debt.
+Anything that changes what the tiles look like — an import, a stroke drawn by hand, an undo, the fog colour, a tracker sync — marks the ground it affects as owing a render. A queue inside the API process pays that debt, one pass at a time, and looks again before it stops so work that arrived mid-render is not left owing.
 
 It is entirely server-side. Start a render and close the browser: it carries on. Settings → In progress shows what is being drawn, how much is left, and offers Resume and Stop. Renders are resumable to the job, so an interruption of any kind — a stop, a closed tab, a restart, a power cut — costs the tile in flight and nothing else.
 

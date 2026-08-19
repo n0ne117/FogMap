@@ -139,6 +139,44 @@ The Places page works — pins, labels, folders, tags, 30 m fog clearing on drop
 — and was always meant to grow past that. What it grows into has not been
 decided.
 
+## Statistics over the archive
+
+**Wanted:** curated numbers out of the data already held — how many tracks, how
+many pins, how many points.
+
+Cheap, and cheaper than it first looked. The event log is complete and never
+rewritten, so almost all of this is arithmetic over two tables:
+
+- **Tracks** — one `events` row per imported track or drawn route, so counts
+  split by `source` (Overland, GPX, intervals.icu, hand-drawn), by `op`, by
+  `layers`, and by month of `created_at`. First and last recorded day come
+  from the same column.
+- **Pins** — `places`, already broken down by folder, by prominence, by tag or
+  label, and by person through the people join.
+- **Points** — `events.geometry` is GeoJSON **text**, not a packed blob, so
+  `json_array_length(json_extract(geometry, '$.coordinates'))` counts a
+  LineString's points in SQL with no decode pass. Point counts are a single
+  query, not a background job.
+- **Coverage** — distinct z14 tiles with data, per view and in total, which is
+  the honest answer to "how much of the world have I been to". Already computed
+  by `tiles_with_data()` for rendering.
+- **Activity** — `history` gives imports, edits and renders over time;
+  `trackers` gives per-device counts.
+
+Distance is the one that needs real code: a haversine over consecutive
+coordinate pairs, which is not a SQLite one-liner. Still a Python pass over
+text measured in seconds, not minutes.
+
+**The trap to get right:** `op` is `add | reveal | erase`, and an erase is a
+composite-time subtract rather than a deletion. So raw sums over events answer
+"what was recorded", not "what is on the map" — a statistic that says
+"1,204 km walked" while the map shows less would be worse than no statistic.
+Decide which question each number answers before writing the query.
+
+The interesting figures are the derived ones — total distance, distinct tiles
+visited, days with any data, longest gap, most-visited pin — and they are cheap
+here precisely because the log is append-only.
+
 ## Colouring visited countries
 
 Asked for, then skipped, and worth recording why: the basemap's `boundaries`

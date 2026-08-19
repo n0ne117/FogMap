@@ -5,13 +5,14 @@ from __future__ import annotations
 
 import io
 import json
+import time
 
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from irfaran import composite, db, geo
+from irfaran import composite, db, geo, renderq
 from irfaran.ingest import common
 from irfaran.main import app, tiles_root
 
@@ -25,10 +26,20 @@ LAT = 0.30
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setenv("IRFARAN_TOKEN", TOKEN)
+
+    # Let any render still going finish before the tables are emptied under it.
+    # Drawing hands its rendering to the queue, so a test that draws can leave a
+    # worker running past its own end - and a worker writing tiles from events
+    # the next test has just deleted is not a failure worth debugging twice.
+    deadline = time.monotonic() + 120
+    while renderq.queue.running and time.monotonic() < deadline:
+        time.sleep(0.02)
+
     conn = db.open_initialised()
     conn.execute("DELETE FROM blobs")
     conn.execute("DELETE FROM events")
     conn.execute("DELETE FROM pending_render")
+    conn.execute("DELETE FROM render_done")
     conn.close()
 
     with TestClient(app) as test_client:
@@ -49,7 +60,32 @@ def line(start: float, end: float, lat: float = LAT) -> dict:
     }
 
 
+def settle(client, timeout: float = 120.0) -> dict:
+    """Wait for the server to finish drawing whatever it was given.
+
+    Drawing and undo defer: the endpoint stores the change, marks the ground it
+    made stale and starts the queue, then answers. So looking at a tile means
+    waiting for the same render the interface waits for. The queue is normally
+    already going by now - starting it here covers the case where a previous
+    pass had just finished and the debt was recorded a moment after.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        state = client.get("/api/render").json()
+        if state["state"] in ("running", "stopping"):
+            time.sleep(0.02)
+            continue
+        if state["pending_tiles"]:
+            client.post("/api/render", headers=auth())
+            time.sleep(0.02)
+            continue
+        return state
+    raise AssertionError("the render never finished")
+
+
 def explored(client, view: str = "all") -> int:
+    """How much of the tile is cleared, once the server has drawn it."""
+    settle(client)
     tile_x, tile_y = geo.lonlat_to_tile(LON, LAT)
     response = client.get(f"/api/tiles/dark/{view}/fog/14/{tile_x}/{tile_y}.png")
     assert response.status_code == 200
@@ -338,6 +374,8 @@ class TestStalePruning:
             json={"source": "manual", "op": "add", "geometry": line(LON, LON + 0.002)},
         ).json()
 
+        settle(client)
+
         tile_x, tile_y = geo.lonlat_to_tile(LON, LAT)
         rendered = composite.tile_path(
             tiles_root(), "dark", "prehistory", "fog", 14, tile_x, tile_y
@@ -345,6 +383,7 @@ class TestStalePruning:
         assert rendered.is_file()
 
         client.delete(f"/api/events/{created['id']}", headers=auth())
+        settle(client)
         assert not rendered.exists()
 
     def test_a_view_that_empties_completely_is_removed(self, client):
@@ -358,9 +397,11 @@ class TestStalePruning:
                 "layers": ["1994"],
             },
         ).json()
+        settle(client)
         assert (tiles_root() / "dark" / "year-1994").is_dir()
 
         client.delete(f"/api/events/{created['id']}", headers=auth())
+        settle(client)
         assert not (tiles_root() / "dark" / "year-1994").exists()
 
 
@@ -490,6 +531,12 @@ class TestDeferredRender:
 
     def test_a_deferred_import_matches_an_immediate_one(self, client, tmp_path):
         """Deferring must change when tiles are written, not what they are."""
+        import shutil
+
+        # Both halves start from an empty directory. Otherwise tiles left by
+        # earlier tests are counted into the first half and swept away before
+        # the second, and the comparison fails over files neither half wrote.
+        shutil.rmtree(tiles_root(), ignore_errors=True)
         assert self.upload(client, 0.0, defer=False).status_code == 200
         immediate = sorted(
             (path.relative_to(tiles_root()), path.read_bytes())
@@ -502,8 +549,6 @@ class TestDeferredRender:
         conn.execute("DELETE FROM pending_render")
         conn.execute("DELETE FROM render_done")
         conn.close()
-        import shutil
-
         shutil.rmtree(tiles_root(), ignore_errors=True)
 
         assert self.upload(client, 0.0, defer=True).status_code == 200

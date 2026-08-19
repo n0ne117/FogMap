@@ -112,6 +112,10 @@ class RenderQueue:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
+        #: Whether a worker is still willing to take another pass. Held under
+        #: the lock, and the thing start() and the pass loop agree on - see
+        #: _claim for why thread liveness is not enough.
+        self._looping = False
         self._stop = threading.Event()
         self._progress = Progress()
         self._tiles_root: Path | None = None
@@ -134,7 +138,10 @@ class RenderQueue:
     def start(self, tiles_root: Path) -> dict[str, object]:
         """Begin, or say why not. Returns immediately either way."""
         with self._lock:
-            if self.running:
+            if self._looping:
+                # A worker is going and will take this on. It has not yet
+                # decided to stop - deciding needs this lock - so the work
+                # recorded before this call cannot be missed.
                 return {"started": False, "reason": "already running", **self.snapshot()}
 
             conn = db.connect()
@@ -149,6 +156,7 @@ class RenderQueue:
                 conn.close()
 
             self._tiles_root = tiles_root
+            self._looping = True
             self._stop.clear()
             self._progress = Progress(
                 state=RUNNING,
@@ -208,7 +216,12 @@ class RenderQueue:
         cached = self._owed
         if cached is None or cached[0] != pending_count:
             pending = db.pending_render(conn)
-            views = composite.views_touching(conn, pending)
+            scoped = db.pending_views(conn)
+            if scoped is None:
+                views = composite.views_touching(conn, pending)
+            else:
+                live = set(composite.available_views(conn))
+                views = [view for view in scoped if view in live]
             total = composite.count_jobs(
                 conn, views, composite.rebuild_scope(pending)
             )
@@ -230,46 +243,28 @@ class RenderQueue:
     # -- the work -----------------------------------------------------------
 
     def _run(self) -> None:
-        conn = db.connect()
-        started = time.monotonic()
-        try:
-            pending = db.pending_render(conn)
-            if not pending:
-                self._settle(IDLE, "Nothing was pending.")
-                return
+        """Pay the debt, and look again before finishing.
 
-            views = composite.views_touching(conn, pending)
-            kinds = db.pending_kinds(conn)
+        A pass takes what is owing when it starts. Work deferred while it runs -
+        a stroke drawn during a render is now the ordinary case rather than an
+        odd one - is not in that pass, so this loops until the table is empty
+        instead of settling on a snapshot that has gone stale.
+        """
+        conn = db.connect()
+        try:
             root = self._tiles_root
             if root is None:
                 self._settle(FAILED, "", error="No tiles directory was given.")
                 return
 
-            root.mkdir(parents=True, exist_ok=True)
-            composite.write_placeholders(root, conn)
-
-            already = db.render_done(conn)
-            self._progress.views = views
-            self._progress.message = f"Drawing {len(views)} views."
-            # Jobs already finished in an earlier pass are counted as done
-            # rather than hidden, so the bar continues where it left off.
-            self._progress.done = len(already)
-
-            written: dict[str, int] = {}
-            for done, total in composite.render_views_iter(
-                conn,
-                root,
-                views,
-                scope=composite.rebuild_scope(pending),
-                written=written,
-                kinds=kinds,
-                skip=already,
-                on_done=lambda key: db.mark_render_done(conn, key),
-                stop=self._stop.is_set,
-            ):
-                self._progress.done = len(already) + done
-                self._progress.total = len(already) + total
-                self._progress.tiles_written = sum(written.values())
+            drawn = 0
+            passes = 0
+            while not self._stop.is_set():
+                pending = self._claim(conn)
+                if pending is None:
+                    break
+                drawn += self._one_pass(conn, root, pending)
+                passes += 1
 
             if self._stop.is_set():
                 self._settle(
@@ -279,35 +274,109 @@ class RenderQueue:
                 )
                 return
 
-            # A complete pass. Both tables are cleared together: the debt is
-            # paid and the note of what was done with it is no longer needed.
-            with db.transaction(conn):
-                db.clear_pending_render(conn)
-                db.clear_render_done(conn)
-
-            elapsed = round(time.monotonic() - started, 1)
-            tiles = sum(written.values())
-            history.record(
-                conn,
-                "system",
-                "render",
-                f"Redrew {tiles} tiles across {len(views)} "
-                f"{'view' if len(views) == 1 else 'views'} in {_duration(elapsed)}",
-                {
-                    "tiles": tiles,
-                    "kinds": list(kinds),
-                    "jobs": self._progress.total,
-                    "seconds": elapsed,
-                },
-            )
-            self._settle(IDLE, f"Drew {tiles} tiles in {_duration(elapsed)}.")
+            if not passes:
+                self._settle(IDLE, "Nothing was pending.")
+                return
+            self._settle(IDLE, f"Drew {drawn} tiles in {_duration(self._progress.elapsed())}.")
         except Exception as exc:  # noqa: BLE001 - the worker must not die silently
             history.record(
                 conn, "error", "render", f"The render stopped: {exc}", {}
             )
             self._settle(FAILED, "", error=str(exc))
         finally:
+            with self._lock:
+                self._looping = False
             conn.close()
+
+    def _claim(self, conn: sqlite3.Connection) -> set[tuple[int, int]] | None:
+        """The tiles owing, or None when there is nothing left to do.
+
+        Reading the debt and giving up on it happen together, under the lock
+        that start() takes. Otherwise there is a gap: a worker reads an empty
+        table and begins to die, a stroke is recorded, start() sees a thread
+        that is still technically alive and declines to begin another - and the
+        stroke sits owing a render with nothing running to draw it. Deciding to
+        stop while holding the lock means an arriving start() either hands the
+        work to this worker or is free to begin its own, never neither.
+        """
+        with self._lock:
+            pending = db.pending_render(conn)
+            if pending:
+                return pending
+            self._looping = False
+            return None
+
+    def _one_pass(
+        self, conn: sqlite3.Connection, root: Path, pending: set[tuple[int, int]]
+    ) -> int:
+        """One sweep over the tiles owing. Returns how many tiles it wrote."""
+        started = time.monotonic()
+
+        # Which views were owed, if whoever deferred the work knew. Otherwise
+        # every view holding data in these tiles, which is wider than the truth
+        # and costs a shallow pass per extra view.
+        scoped = db.pending_views(conn)
+        if scoped is None:
+            views = composite.views_touching(conn, pending)
+        else:
+            live = set(composite.available_views(conn))
+            views = [view for view in scoped if view in live]
+        kinds = db.pending_kinds(conn)
+
+        root.mkdir(parents=True, exist_ok=True)
+        composite.write_placeholders(root, conn)
+
+        already = db.render_done(conn)
+        self._progress.views = views
+        self._progress.message = f"Drawing {len(views)} views."
+        # Jobs already finished in an earlier pass are counted as done
+        # rather than hidden, so the bar continues where it left off.
+        self._progress.done = len(already)
+
+        written: dict[str, int] = {}
+        for done, total in composite.render_views_iter(
+            conn,
+            root,
+            views,
+            scope=composite.rebuild_scope(pending),
+            written=written,
+            kinds=kinds,
+            skip=already,
+            on_done=lambda key: db.mark_render_done(conn, key),
+            stop=self._stop.is_set,
+        ):
+            self._progress.done = len(already) + done
+            self._progress.total = len(already) + total
+            self._progress.tiles_written = sum(written.values())
+
+        if self._stop.is_set():
+            return sum(written.values())
+
+        # A complete pass. Both tables are cleared together: the debt is paid
+        # and the note of what was done with it is no longer needed. Only the
+        # tiles this pass took are cleared - anything deferred while it ran is
+        # still owing, and the loop above comes back for it.
+        with db.transaction(conn):
+            db.clear_pending_render(conn, pending)
+            db.clear_render_done(conn)
+        self._owed = None
+
+        elapsed = round(time.monotonic() - started, 1)
+        tiles = sum(written.values())
+        history.record(
+            conn,
+            "system",
+            "render",
+            f"Redrew {tiles} tiles across {len(views)} "
+            f"{'view' if len(views) == 1 else 'views'} in {_duration(elapsed)}",
+            {
+                "tiles": tiles,
+                "kinds": list(kinds),
+                "jobs": self._progress.total,
+                "seconds": elapsed,
+            },
+        )
+        return tiles
 
     def _settle(self, state: str, message: str, error: str = "") -> None:
         self._progress.state = state
