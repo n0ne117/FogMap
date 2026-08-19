@@ -11,6 +11,17 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.17.2] - 2026-08-19
+
+### Fixed
+- **A resumed render deleted the work it had skipped.** Pruning removes tiles inside the scope that a pass did not write — that is how ground whose data has gone stops being drawn. On a resumed pass the jobs finished before the interruption are handed in as work to skip, so their tiles were absent from that accounting and pruning deleted them: the resume destroyed exactly what it existed to preserve. Measured on a real archive: about 1,300 deep tiles gone from the cumulative view, which is rendered first and so was almost entirely skipped. The symptom was tracks vanishing when zoomed in, and the giveaway was `all` holding fewer tiles than a single year view — impossible, since it is the union of all of them.
+- A resumed pass now leaves stale tiles alone, and they are removed by the next pass that runs start to finish. That is the cheaper mistake by a wide margin: a lingering tile shows ground you no longer have data for, a deleted one shows nothing where you do.
+
+Introduced yesterday in 0.17.0 along with resumable renders, so it only ever affected a render that was interrupted and resumed.
+
+### Note
+The first test written for this passed whether the bug was present or not: it skipped *every* job, which leaves the accounting empty, and pruning is skipped when the accounting is empty. The bug needs one job to run. The test now skips all but one and fails with "a resume deleted 38 tiles belonging to jobs it skipped" when the guard is removed.
+
 ## [0.17.1] - 2026-08-19
 
 ### Fixed

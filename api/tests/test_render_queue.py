@@ -336,3 +336,130 @@ class TestOneShape:
             for key in counted:
                 assert isinstance(reply.get(key), int), f"{key} is {reply.get(key)!r}"
         wait_until_idle(client)
+
+
+class TestAResumeKeepsWhatItSkipped:
+    """A resume must not delete the work it is resuming from.
+
+    Pruning removes tiles inside the scope that a pass did not write, which is
+    how ground whose data has gone stops being drawn. On a resumed pass the
+    skipped jobs' tiles are absent from that accounting - so pruning deleted
+    them, and the resume destroyed the very work it existed to preserve.
+
+    Found on a real archive: a resume removed about 1,300 deep tiles from the
+    cumulative view, which is rendered first and so was almost entirely skipped.
+    The symptom was tracks vanishing when zoomed in, and the giveaway was `all`
+    holding fewer tiles than a single year view - impossible, since it is the
+    union of all of them.
+    """
+
+    def a_track(self, conn) -> None:
+        from irfaran.ingest import common, gpx
+
+        points = [(BASE_LON + n * 0.0002, BASE_LAT) for n in range(60)]
+        common.ingest_tracks(
+            conn, "workout", gpx.parse(synthetic.gpx_document(points))
+        )
+
+    def test_skipped_tiles_survive(self, clean) -> None:
+        """Some jobs run and some are skipped, which is what a resume is.
+
+        Skipping every job leaves nothing in the accounting and pruning is
+        skipped along with it - so a test that skips everything passes whether
+        the bug is present or not. The bug needs one job to run: that fills the
+        accounting, pruning goes ahead, and everything the run did not touch is
+        deleted.
+        """
+        self.a_track(clean)
+        root = tiles_root()
+        composite.write_placeholders(root, clean)
+
+        native = composite.tiles_with_data(clean, composite.view_layers("all"))
+        assert native, "the track produced no native tiles"
+        scope = composite.rebuild_scope(native)
+
+        keys: list[tuple[str, int, int]] = []
+        list(
+            composite.render_views_iter(
+                clean, root, ["all"], workers=1, scope=scope, on_done=keys.append
+            )
+        )
+        before = {path for path in root.rglob("dark/all/**/*.png")}
+        assert len(before) > 4, "the first pass drew too little to be a fair test"
+        assert len(keys) >= 2, "need more than one job to skip some and run some"
+
+        # A resume: everything but the last job is already done.
+        list(
+            composite.render_views_iter(
+                clean,
+                root,
+                ["all"],
+                workers=1,
+                scope=scope,
+                skip=set(keys[:-1]),
+            )
+        )
+        after = {path for path in root.rglob("dark/all/**/*.png")}
+
+        deleted = before - after
+        assert not deleted, (
+            f"a resume deleted {len(deleted)} tiles belonging to jobs it "
+            "skipped, which is the work it existed to preserve"
+        )
+
+    def test_a_full_pass_still_prunes(self, clean) -> None:
+        """The safety must not have been bought by never pruning again."""
+        self.a_track(clean)
+        root = tiles_root()
+        composite.write_placeholders(root, clean)
+
+        list(composite.render_views_iter(clean, root, ["all"], workers=1))
+
+        # A tile inside the scope that no data accounts for.
+        from irfaran import geo
+
+        x, y = geo.lonlat_to_tile(BASE_LON, BASE_LAT)
+        stray = composite.tile_path(root, "dark", "all", "fog", 16, x * 4, y * 4)
+        stray.parent.mkdir(parents=True, exist_ok=True)
+        stray.write_bytes(b"not a real tile")
+        assert stray.is_file()
+
+        scope = composite.rebuild_scope({(x, y)})
+        list(
+            composite.render_views_iter(
+                clean, root, ["all"], workers=1, scope=scope
+            )
+        )
+        assert not stray.is_file(), "a complete pass no longer prunes stale tiles"
+
+    def test_a_resume_through_the_queue_keeps_its_tiles(self, client, clean) -> None:
+        """The same guarantee, end to end through the queue rather than the loop.
+
+        The invariant that exposed this on a real archive was that the
+        cumulative view held fewer tiles than a single year view, which cannot
+        be true - it is the union of all of them. That comparison is not worth
+        asserting here, because the suite shares one tiles directory and every
+        earlier test leaves its own tiles in it. What is worth asserting is that
+        a stop and a resume through the queue lose nothing.
+        """
+        import time
+
+        owe_some_work(client, tracks=5)
+        client.post("/api/render", headers=auth())
+
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline and db.render_done_count(clean) < 2:
+            time.sleep(0.01)
+        client.post("/api/render/stop", headers=auth())
+        wait_until_idle(client)
+
+        root = tiles_root()
+        after_stop = {path for path in root.rglob("dark/all/**/*.png")}
+        assert after_stop, "the first stretch drew nothing"
+
+        client.post("/api/render", headers=auth())
+        wait_until_idle(client)
+
+        after_resume = {path for path in root.rglob("dark/all/**/*.png")}
+        lost = after_stop - after_resume
+        assert not lost, f"the resume lost {len(lost)} tiles the first stretch drew"

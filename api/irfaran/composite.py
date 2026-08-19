@@ -1209,6 +1209,24 @@ def render_views_iter(
             if stop is not None and stop():
                 return
 
+    # Pruning deletes tiles inside the scope that this pass did not write, which
+    # is how ground whose data has gone stops being drawn. It is only safe when
+    # this pass wrote everything it was responsible for.
+    #
+    # On a resumed pass it is not. Jobs finished before the interruption are
+    # handed in as `skip`, so their tiles are absent from `kept` - and pruning
+    # would delete them, throwing away exactly the work the resume existed to
+    # preserve. That is not a theory: a resume here deleted about 1,300 deep
+    # tiles from the cumulative view, which had been rendered first and so was
+    # almost entirely skipped.
+    #
+    # So a resumed pass leaves stale tiles alone. They are removed by the next
+    # pass that runs start to finish, which is the cheaper mistake by a wide
+    # margin: a lingering tile shows ground you no longer have data for, and a
+    # deleted one shows nothing where you do.
+    if skip:
+        return
+
     for view in views:
         if kept[view]:
             prune_view(root, view, kept[view], themes, scope, kinds)
