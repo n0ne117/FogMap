@@ -11,6 +11,17 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.17.7] - 2026-08-19
+
+### Fixed
+- **An import could sit at 100% and never say it had finished.** Reported on a fresh install restoring a full archive: the render completed — 276,752 tiles across 10 views, recorded in the history — while the screen watching it stayed on "Drawing the map — 100%" indefinitely. Two independent faults, which is why it took a large restore to show. Nothing in the browser set a request timeout, so one unanswered status poll stalled the watcher for good; and a *failed* poll made the watcher hand back the last state it had seen, which would have reported an unfinished render as done. It could lie in either direction.
+- Status polls now have a 15-second deadline, and five consecutive misses are ridden out before the watcher admits it lost track — at which point the import screen says the render is still going on the server and points at Settings, In progress, rather than claiming to be finished.
+- **The status endpoint could take seconds to answer while a render was running.** It worked out the whole job count whenever the number of owed tiles changed, which is every time a pass completes: on a large archive that means asking every view which of thousands of owed tiles it holds, and on the reported machine a basemap download was competing for the same disk. While a render is going it now answers from what it already knows — the panel is reading the worker's own counters at that point anyway, and a stale figure costs nothing next to a poll that never returns.
+- The remaining-time line no longer reads "100%" in the brief window between passes where the counters agree while the next pass is being worked out. A bar at 100% beside the word "drawing" is what a hang looks like even when nothing is wrong.
+
+### Note
+The first two tests written for the endpoint half passed with the fix removed: they never created a pass boundary, and the boundary is the only moment the expensive recompute happens. Rewritten to defer work mid-render, they fail with "the poll worked out the job count 2 times during a render" — one by counting the calls, one by making the count deliberately slow and timing the poll.
+
 ## [0.17.6] - 2026-08-19
 
 ### Fixed

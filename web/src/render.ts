@@ -73,10 +73,22 @@ export interface RenderState {
   can_stop: boolean
 }
 
-/** What the queue is doing, and what is still owed. Cheap enough to poll. */
+/** How long a status poll may take before it is treated as broken. */
+const POLL_TIMEOUT_MS = 15000
+
+/** Consecutive failed polls tolerated before the watcher admits it lost track. */
+const MAX_MISSED_POLLS = 5
+
+/**
+ * What the queue is doing, and what is still owed. Cheap enough to poll.
+ *
+ * With a deadline, because this is meant to be a few milliseconds and a poll
+ * that hangs takes its caller with it - which is how an import that had finished
+ * rendering sat at 100% forever, still waiting on one request.
+ */
 export async function renderState(): Promise<RenderState | null> {
   try {
-    return await apiGet<RenderState>('/api/render')
+    return await apiGet<RenderState>('/api/render', { timeoutMs: POLL_TIMEOUT_MS })
   } catch {
     return null
   }
@@ -124,6 +136,11 @@ export function describeCost(state: RenderState | null): string {
 
 /** How long is left, in words, from whatever the queue last said. */
 export function describeRemaining(state: RenderState): string {
+  // Between passes the counters briefly agree while the next pass is being
+  // worked out, and a bar reading 100% next to the word "drawing" is what a
+  // hang looks like even when nothing is wrong.
+  if (state.total && state.done >= state.total) return 'working out what is left'
+
   const seconds = state.seconds_remaining ?? state.estimated_seconds
   if (!seconds) return `${state.percent}%`
   if (seconds < 45) return `${state.percent}%, under a minute left`
@@ -143,13 +160,23 @@ export async function watchRender(
   report: (state: RenderState) => void,
   everyMs = 700,
 ): Promise<RenderState | null> {
-  let last: RenderState | null = null
+  let misses = 0
 
   for (;;) {
     const state = await renderState()
-    if (!state) return last
 
-    last = state
+    if (!state) {
+      // A failed poll used to end the watch and hand back the last state seen,
+      // so a single blip during a long render reported it as finished. A few
+      // are worth riding out; past that, say nothing rather than something
+      // untrue - null means "lost track", not "done".
+      misses += 1
+      if (misses > MAX_MISSED_POLLS) return null
+      await new Promise((wake) => window.setTimeout(wake, everyMs * 2))
+      continue
+    }
+
+    misses = 0
     report(state)
 
     if (state.state !== 'running' && state.state !== 'stopping') return state

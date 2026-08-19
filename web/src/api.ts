@@ -99,8 +99,33 @@ async function parse(response: Response): Promise<unknown> {
   return parsed
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
-  return (await parse(await fetch(path, { headers: { accept: 'application/json' } }))) as T
+/**
+ * A GET, optionally with a deadline.
+ *
+ * `timeoutMs` exists because nothing here had one. A status poll that never
+ * answers left the caller awaiting it forever: the import screen sat at 100%
+ * with the render long finished, because the loop watching it was still waiting
+ * on a request that was never going to come back. Requests that are legitimately
+ * slow - an upload, an export - pass no timeout and keep the old behaviour.
+ */
+export async function apiGet<T>(
+  path: string,
+  options: { timeoutMs?: number } = {},
+): Promise<T> {
+  const controller = options.timeoutMs ? new AbortController() : undefined
+  const timer = controller
+    ? window.setTimeout(() => controller.abort(), options.timeoutMs)
+    : undefined
+
+  try {
+    const response = await fetch(path, {
+      headers: { accept: 'application/json' },
+      signal: controller?.signal,
+    })
+    return (await parse(response)) as T
+  } finally {
+    if (timer !== undefined) window.clearTimeout(timer)
+  }
 }
 
 export async function apiSend<T>(

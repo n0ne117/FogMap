@@ -120,8 +120,12 @@ export class Imports {
     // that the bar is worth reusing for it - the files are all in by now, and
     // what is left to wait for is the drawing.
     try {
-      await this.render(imported)
-      element('import-progress-text').textContent = `Done. ${imported}`
+      const drawn = await this.render(imported)
+      element('import-progress-text').textContent = drawn
+        ? `Done. ${imported}`
+        : `${imported}. The map is still being drawn on the server — ` +
+          'this screen lost track of it, not the render. ' +
+          'Settings, In progress shows where it got to.'
     } catch (error) {
       element('import-progress-text').textContent =
         `${imported}, but the map could not be redrawn: ` +
@@ -135,11 +139,11 @@ export class Imports {
   /**
    * Run the deferred render, driving the progress bar from its own report.
    *
-   * The response is newline-delimited JSON, a line per finished unit of work,
-   * so the bar starts again from zero and means something the whole way
-   * rather than sitting full while the server is still busy.
+   * Returns whether the render was watched to its end. False means this screen
+   * stopped being able to see it - the render carries on regardless, and the
+   * In progress panel is where to look.
    */
-  private async render(imported: string): Promise<void> {
+  private async render(imported: string): Promise<boolean> {
     const bar = element<HTMLProgressElement>('import-progress')
     const text = element('import-progress-text')
 
@@ -166,6 +170,12 @@ export class Imports {
     if (finished?.state === 'failed') {
       throw new ApiError(500, finished.error || 'The render stopped.')
     }
+
+    // Null means the watcher gave up, not that the render did. Saying "Done"
+    // there is how an import that had actually finished came to sit at 100%
+    // with nothing ever confirming it - and the opposite mistake, claiming
+    // finished while the server works on, is the same lie in reverse.
+    return finished !== null
   }
 
   private report(outcomes: ImportOutcome[], message = ''): void {

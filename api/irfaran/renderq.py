@@ -214,6 +214,34 @@ class RenderQueue:
             }
 
         cached = self._owed
+        if (cached is None or cached[0] != pending_count) and self.running:
+            # Not while a render is going. Working this out means asking every
+            # view which of the owed tiles it holds and expanding each to its
+            # descendants, and the cache key changes at every pass boundary - so
+            # on a large archive a poll landing there took seconds, and on a busy
+            # disk longer than anything sensible. The panel reads the worker's own
+            # counters while it is running anyway.
+            #
+            # A stale figure costs nothing. A poll that does not come back hangs
+            # whatever was waiting on it, which is how an import screen sat at
+            # 100% with the render long since finished.
+            done = db.render_done_count(conn)
+            if cached is None:
+                return {
+                    "pending_tiles": pending_count,
+                    "jobs": 0,
+                    "done": done,
+                    "remaining": 0,
+                    "views": list(self._progress.views),
+                }
+            total = int(cached[1]["jobs"])  # type: ignore[arg-type]
+            return {
+                **cached[1],
+                "pending_tiles": pending_count,
+                "done": min(done, total),
+                "remaining": max(0, total - done),
+            }
+
         if cached is None or cached[0] != pending_count:
             pending = db.pending_render(conn)
             scoped = db.pending_views(conn)
