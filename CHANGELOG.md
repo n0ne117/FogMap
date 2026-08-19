@@ -11,6 +11,16 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.17.1] - 2026-08-19
+
+### Fixed
+- Pressing Resume or Stop put a `TypeError: can't access property "toLocaleString"` on the page. Those two endpoints replied with the worker's snapshot alone — which knows what is being drawn but nothing about what is owed — so the panel painted a reply where `pending_tiles`, `jobs` and their neighbours were simply absent, and formatting an absent number threw. All three render endpoints answer with one shape now, built in one place, and the panel reads every number through a default so a missing field can never take the page down again.
+
+There is a test asserting each of the five possible replies — status, a start, a refused start, a stop and a refused stop — carries every field the interface reads, and that no number it formats is ever null.
+
+### Note
+Also removed a duplicate `/api/render/stop` route left behind while rebuilding these endpoints. The new one was registered first so it was the one being served, but two definitions of the same route is a trap waiting for whoever edits it next.
+
 ## [0.17.0] - 2026-08-18
 
 ### Changed

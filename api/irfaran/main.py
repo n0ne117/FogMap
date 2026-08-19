@@ -936,18 +936,18 @@ def _highest_event_id(conn: sqlite3.Connection) -> int:
     return int(row["top"])
 
 
-@app.get("/api/render")
-def render_status(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, object]:
-    """What the render queue is doing, and what is owed.
+def render_status_of(conn: sqlite3.Connection) -> dict[str, object]:
+    """The one shape every render endpoint answers with.
 
-    The live part comes from the worker's own memory and touches no table: this
-    is polled while a render is running, and the previous version recomputed the
-    job count from the database on every call - competing with the render for the
-    same locks and timing out under exactly the load it was meant to describe.
+    Start and stop used to return the worker's snapshot alone, which lacks
+    everything about what is owed - so a client that painted their reply read
+    `undefined` for pending_tiles and threw. One builder, one shape: whatever a
+    caller does to the queue, the answer describes all of it.
 
-    The owed part does read the tables, because after a restart there is no
-    memory to read and "523 tiles still owe a render" is the whole answer
-    somebody needs.
+    The live half comes from the worker's own memory and touches no table, so
+    polling during a render does not compete with it for locks. The owed half
+    does read, because after a restart there is no memory to read and "523 tiles
+    still owe a render" is the whole answer somebody needs.
     """
     live = renderq.queue.snapshot()
     owed = renderq.queue.resume_hint(conn)
@@ -977,8 +977,14 @@ def render_status(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, obj
     }
 
 
+@app.get("/api/render")
+def render_status(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, object]:
+    """What the render queue is doing, and what is owed."""
+    return render_status_of(conn)
+
+
 @app.post("/api/render")
-def render_start() -> dict[str, object]:
+def render_start(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, object]:
     """Start the queue, and return at once.
 
     The work belongs to the server. This used to stream its progress, which made
@@ -986,7 +992,27 @@ def render_start() -> dict[str, object]:
     stopped it. Poll GET /api/render instead; the render carries on regardless of
     who is watching.
     """
-    return renderq.queue.start(tiles_root())
+    outcome = renderq.queue.start(tiles_root())
+    return {
+        "started": outcome.get("started", False),
+        **({"reason": outcome["reason"]} if "reason" in outcome else {}),
+        **render_status_of(conn),
+    }
+
+
+@app.post("/api/render/stop")
+def render_stop(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, object]:
+    """Ask the queue to stop once the tiles in hand are finished.
+
+    Nothing is thrown away. The finished jobs stay written down and the tiles
+    still owing stay owing, so starting again continues rather than repeats.
+    """
+    outcome = renderq.queue.stop()
+    return {
+        "stopping": outcome.get("stopping", False),
+        **({"reason": outcome["reason"]} if "reason" in outcome else {}),
+        **render_status_of(conn),
+    }
 
 
 def _seconds_per_job(conn: sqlite3.Connection) -> float | None:
@@ -1017,15 +1043,6 @@ def _seconds_per_job(conn: sqlite3.Connection) -> float | None:
 
     return round(seconds / jobs, 4) if jobs else None
 
-
-@app.post("/api/render/stop")
-def render_stop() -> dict[str, object]:
-    """Ask the queue to stop after the tile it is drawing.
-
-    Nothing is thrown away. The finished jobs stay written down and the tiles
-    still owing stay owing, so starting again continues rather than repeats.
-    """
-    return renderq.queue.stop()
 
 
 @app.get("/api/history")

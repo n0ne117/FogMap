@@ -91,7 +91,24 @@ export class Progress {
     void this.tick()
   }
 
-  private paint(state: RenderState): void {
+  private paint(raw: RenderState): void {
+    // Every number is read through a default. The server answers one shape from
+    // all three render endpoints now, but a panel that throws on a missing
+    // field takes the whole page down with it - and that is exactly what
+    // happened: start and stop used to reply with the worker's snapshot alone,
+    // paint read `undefined.toLocaleString()`, and the error landed on screen.
+    const state: RenderState = {
+      ...raw,
+      done: raw.done ?? 0,
+      total: raw.total ?? 0,
+      tiles_written: raw.tiles_written ?? 0,
+      pending_tiles: raw.pending_tiles ?? 0,
+      jobs: raw.jobs ?? 0,
+      jobs_done: raw.jobs_done ?? 0,
+      jobs_remaining: raw.jobs_remaining ?? 0,
+      pending_views: raw.pending_views ?? [],
+    }
+
     const busy = state.state === 'running' || state.state === 'stopping'
 
     // One source for "how far along", used by the bar, the caption and the

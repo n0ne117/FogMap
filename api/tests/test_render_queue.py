@@ -248,3 +248,91 @@ class TestSkippingFinishedJobs:
         )
         # One job runs before the first check, and then it gives up.
         assert steps[-1][0] < steps[-1][1] or steps[-1][1] <= 1
+
+
+class TestOneShape:
+    """Start, stop and status all answer with the same fields.
+
+    Start and stop used to reply with the worker's snapshot alone, which knows
+    nothing about what is owed. The panel painted that reply, read `undefined`
+    for pending_tiles, called toLocaleString on it, and put a TypeError on the
+    page. One builder now serves all three.
+    """
+
+    #: Everything the interface reads. A reply missing any of these is a bug.
+    REQUIRED = (
+        "state",
+        "done",
+        "total",
+        "percent",
+        "tiles_written",
+        "pending_tiles",
+        "jobs",
+        "jobs_done",
+        "jobs_remaining",
+        "pending_views",
+        "rendering_views",
+        "workers",
+        "can_start",
+        "can_stop",
+        "message",
+        "error",
+        "seconds_per_job",
+        "estimated_seconds",
+    )
+
+    def test_status_carries_every_field(self, client) -> None:
+        body = client.get("/api/render").json()
+        assert not [key for key in self.REQUIRED if key not in body]
+
+    def test_starting_carries_every_field(self, client) -> None:
+        owe_some_work(client)
+        body = client.post("/api/render", headers=auth()).json()
+        missing = [key for key in self.REQUIRED if key not in body]
+        assert not missing, f"start's reply is missing {missing}"
+        assert body["started"] is True
+        wait_until_idle(client)
+
+    def test_a_refused_start_carries_every_field(self, client) -> None:
+        body = client.post("/api/render", headers=auth()).json()
+        missing = [key for key in self.REQUIRED if key not in body]
+        assert not missing, f"a refused start is missing {missing}"
+        assert body["started"] is False
+        assert body["reason"] == "nothing pending"
+
+    def test_stopping_carries_every_field(self, client) -> None:
+        owe_some_work(client)
+        client.post("/api/render", headers=auth())
+        body = client.post("/api/render/stop", headers=auth()).json()
+        missing = [key for key in self.REQUIRED if key not in body]
+        assert not missing, f"stop's reply is missing {missing}"
+        wait_until_idle(client)
+
+    def test_a_refused_stop_carries_every_field(self, client) -> None:
+        body = client.post("/api/render/stop", headers=auth()).json()
+        missing = [key for key in self.REQUIRED if key not in body]
+        assert not missing, f"a refused stop is missing {missing}"
+        assert body["stopping"] is False
+
+    def test_no_number_the_interface_formats_is_ever_null(self, client) -> None:
+        """toLocaleString on null is the exact crash this replaces."""
+        counted = (
+            "done",
+            "total",
+            "percent",
+            "tiles_written",
+            "pending_tiles",
+            "jobs",
+            "jobs_done",
+            "jobs_remaining",
+            "workers",
+        )
+        owe_some_work(client)
+        for reply in (
+            client.get("/api/render").json(),
+            client.post("/api/render", headers=auth()).json(),
+            client.post("/api/render/stop", headers=auth()).json(),
+        ):
+            for key in counted:
+                assert isinstance(reply.get(key), int), f"{key} is {reply.get(key)!r}"
+        wait_until_idle(client)
