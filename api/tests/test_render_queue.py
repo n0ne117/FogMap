@@ -516,3 +516,52 @@ class TestBigSets:
             assert client.get("/api/render").status_code == 200
         each = (time.monotonic() - began) / 20
         assert each < 0.25, f"a status poll takes {each:.3f}s, which is too slow"
+
+
+class TestTheStateIsSelfConsistent:
+    """Whatever a reply says it is doing, the buttons must agree with it.
+
+    `state` came from a string in memory and `can_stop` from whether the worker
+    thread was alive, and those disagree at the edges: start sets the state
+    before the thread begins, and the thread exits before the state settles. A
+    reply could say "running" and "you cannot stop this" together, which is not
+    something a panel can render. It surfaced on a two-core runner, where those
+    windows are wide enough to land in - and it is why 0.17.2 and 0.17.3 never
+    published.
+    """
+
+    def test_every_reply_agrees_with_itself(self, client) -> None:
+        import time
+
+        owe_some_work(client, tracks=4)
+
+        def check(reply: dict, where: str) -> None:
+            busy = reply["state"] in ("running", "stopping")
+            assert reply["can_stop"] is busy, (
+                f"{where}: state={reply['state']!r} but can_stop={reply['can_stop']}"
+            )
+            if busy:
+                assert reply["can_start"] is False, (
+                    f"{where}: it is {reply['state']} and yet offers a start"
+                )
+
+        check(client.get("/api/render").json(), "before starting")
+        check(client.post("/api/render", headers=auth()).json(), "the start reply")
+
+        deadline = time.monotonic() + 120
+        while time.monotonic() < deadline:
+            reply = client.get("/api/render").json()
+            check(reply, f"while {reply['state']}")
+            if reply["state"] not in ("running", "stopping"):
+                break
+            time.sleep(0.01)
+
+        check(client.get("/api/render").json(), "after finishing")
+
+    def test_a_stop_reply_agrees_with_itself(self, client) -> None:
+        owe_some_work(client, tracks=3)
+        client.post("/api/render", headers=auth())
+        reply = client.post("/api/render/stop", headers=auth()).json()
+        busy = reply["state"] in ("running", "stopping")
+        assert reply["can_stop"] is busy
+        wait_until_idle(client)

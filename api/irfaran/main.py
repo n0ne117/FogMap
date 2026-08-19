@@ -958,6 +958,7 @@ def render_status_of(conn: sqlite3.Connection) -> dict[str, object]:
     # drawn right now and the other is what is owed, and nothing about the
     # names says which.
     live["rendering_views"] = live.pop("views", [])
+    busy = live["state"] in (renderq.RUNNING, renderq.STOPPING)
 
     return {
         **live,
@@ -972,8 +973,15 @@ def render_status_of(conn: sqlite3.Connection) -> dict[str, object]:
         "estimated_seconds": (
             round(owed["remaining"] * rate) if rate and owed["remaining"] else None
         ),
-        "can_start": owed["pending_tiles"] > 0 and not renderq.queue.running,
-        "can_stop": renderq.queue.running,
+        # Both derived from the state the caller is being shown, not from
+        # whether the worker thread happens to be alive at this instant. Those
+        # two disagree at the edges - start() sets the state before the thread
+        # begins, and the thread exits before the state settles - so a reply
+        # could say "running" and "you cannot stop it" at the same time, which
+        # is not a thing a panel can render sensibly. It failed on a two-core
+        # runner where those windows are wide enough to land in.
+        "can_start": owed["pending_tiles"] > 0 and not busy,
+        "can_stop": busy,
     }
 
 

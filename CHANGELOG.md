@@ -11,6 +11,13 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.17.4] - 2026-08-19
+
+### Fixed
+- **A render reply could contradict itself**, saying `state: running` and `can_stop: false` at the same time — which is not something a panel can render sensibly, and which stopped 0.17.2 and 0.17.3 from ever publishing. `state` came from a string in memory while `can_stop` came from whether the worker thread was alive, and those disagree at the edges: starting sets the state before the thread begins, and the thread exits before the state settles. Both are now derived from the state being reported, so a reply always agrees with itself.
+
+Only reproducible on a machine with few cores, where those windows are wide enough to land in — found by running the suite under `--cpus=2` to match the CI runner, having watched two releases fail on a suite that was green on eight cores.
+
 ## [0.17.3] - 2026-08-19
 
 ### Fixed
