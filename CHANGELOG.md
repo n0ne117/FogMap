@@ -11,6 +11,17 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.17.15] - 2026-08-20
+
+### Added
+- **The search bar suggests as you type.** Matches appear after a short pause rather than on pressing Go, with arrow keys to walk them and Enter to take one. Measured in the browser: a six-letter word costs **one request, not six**, and anything shorter than two letters is not sent at all — one letter matches half an archive and the answer arrives too late to be about what is on screen.
+- **Pins are searchable by who was there.** The column was being read and then ignored, so the one field somebody fills in by hand was the one field that could not find anything. `andrea` now answers with eight pins here.
+
+### Note
+Two decisions that could have gone the wrong way. **Typing suggests, it does not travel:** typing toward `27.74367, -15.58338` passes through `27.74367, -1`, which is a real place off the coast of Africa, so flying on each keystroke would drag the map through the wrong continent on the way to the right one. And **late answers are dropped**: replies can arrive out of order, so a slow response for `cao` must not overwrite the results for `caorle`. Each request carries a sequence number, and the guard covers the failure path as well as the success one.
+
+Both are pinned by tests that read the source, since the TypeScript has no test runner: one asserts `suggest` contains no `flyTo` or `fitBounds`, another that the stale-answer check appears on both paths.
+
 ## [0.17.14] - 2026-08-20
 
 ### Changed

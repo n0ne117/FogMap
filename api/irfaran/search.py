@@ -205,13 +205,24 @@ def _pins(conn: sqlite3.Connection, text: str) -> list[dict[str, object]]:
     found = []
     for row in rows:
         tags = _tag_words(row["tags"])
+        people = _tag_words(row["people"])
         if not _matches(
-            text, row["name"], row["category"], row["label"], row["folder"], " ".join(tags)
+            text,
+            row["name"],
+            row["category"],
+            row["label"],
+            row["folder"],
+            " ".join(tags),
+            # Who was there is a thing somebody deliberately recorded, so it is
+            # a thing worth finding a pin by.
+            " ".join(people),
         ):
             continue
 
         # Why it matched, said in the row rather than left to be guessed at.
-        because = [part for part in (row["label"], row["folder"], *tags) if part]
+        because = [
+            part for part in (row["label"], row["folder"], *tags, *people) if part
+        ]
         found.append(
             {
                 "kind": "pin",

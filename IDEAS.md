@@ -65,11 +65,17 @@ it is fine at breakfast and the problem is only at the end of a long day.
 
 ## Search: the rest of it
 
-Built: coordinates (0.17.10) and your own pins and tracks (0.17.12). The
-magnifying glass beside the settings button opens a bar, `GET /api/search`
-answers, and results are a list of things with somewhere to go. Searching is
-read-only and needs no token; keeping a searched coordinate as a pin is the
-write, so that offer appears only when there is a token to make it with.
+Built: coordinates (0.17.10), your own pins and tracks (0.17.12), and
+suggestions as you type (0.17.15). The magnifying glass beside the settings
+button opens a bar, `GET /api/search` answers, and results are a list of things
+with somewhere to go. Pins match on title, tag, label, folder, category and who
+was there; tracks on name and year. Searching is read-only and needs no token;
+keeping a searched coordinate as a pin is the write, so that offer appears only
+when there is a token to make it with.
+
+Typing suggests rather than travels - an intermediate coordinate parses, so
+flying on each keystroke would pass through places nobody asked for - and late
+answers are dropped so a slow reply cannot overwrite a newer query's results.
 
 The 137 GB basemap still cannot be searched: PMTiles holds rendered vector
 tiles, so a place name exists as geometry to draw at a zoom rather than as an

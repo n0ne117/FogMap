@@ -342,3 +342,37 @@ class TestTheInterfaceGate:
 
         body = body_of(self.client_source(), "private async run(")
         assert "getToken" not in body
+
+
+class TestPeopleOnAPin:
+    """Who you were with is a thing somebody deliberately recorded.
+
+    Added when type-ahead went in and the question came up of what is actually
+    searchable. Pins carried people and the search ignored them, which meant the
+    one field somebody had filled in by hand was the one field that could not
+    find anything.
+    """
+
+    def with_people(self, conn, name, people, lat=0.3, lon=0.5):
+        conn.execute(
+            "INSERT INTO places (name, lat, lon, tags, people) VALUES (?, ?, ?, '[]', ?)",
+            (name, lat, lon, json.dumps(people)),
+        )
+        conn.commit()
+
+    def test_a_pin_is_found_by_who_was_there(self, conn) -> None:
+        self.with_people(conn, "Eislaufplatz", ["Alex", "Andrea", "Simon"])
+        assert labels_of(search.search(conn, "andrea")) == ["Eislaufplatz"]
+
+    def test_the_row_says_who(self, conn) -> None:
+        self.with_people(conn, "Eislaufplatz", ["Alex", "Andrea"])
+        detail = str(search.search(conn, "andrea")["results"][0]["detail"])
+        assert "Andrea" in detail or "Alex" in detail
+
+    def test_case_folds_for_people_too(self, conn) -> None:
+        self.with_people(conn, "Somewhere", ["Jürgen"])
+        assert labels_of(search.search(conn, "jürgen")) == ["Somewhere"]
+
+    def test_a_pin_with_nobody_on_it_is_not_matched(self, conn) -> None:
+        self.with_people(conn, "Empty", [])
+        assert labels_of(search.search(conn, "andrea")) == []

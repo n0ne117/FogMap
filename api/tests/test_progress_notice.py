@@ -194,3 +194,53 @@ class TestTheImportLog:
         css = source("style.css")
         block = css[css.index(".tab-panel[data-tab='import'] > section") :]
         assert "min-height" in block[:400]
+
+
+class TestTypeAhead:
+    """Suggestions as you type, without travelling and without racing itself.
+
+    Two properties matter more than the feature. Typing must not move the map: an
+    intermediate coordinate parses perfectly well - "27.74367, -1" is a real
+    place off the coast of Africa - so flying there on the way to somewhere else
+    is worse than not moving at all. And answers can come back out of order, so a
+    slow reply to "cao" must not overwrite the results for "caorle".
+
+    Measured in the browser: typing a six-letter word costs one request, the map
+    stayed at z2.0 throughout, and Enter afterwards dropped the marker that
+    typing had not.
+    """
+
+    def source_of(self) -> str:
+        return source("search.ts")
+
+    def test_typing_is_debounced(self) -> None:
+        text = self.source_of()
+        assert "'input'" in text, "nothing listens for typing"
+        body = text[text.index("addEventListener('input'") :][:600]
+        assert "clearTimeout" in body and "setTimeout" in body, (
+            "typing is not debounced, so a six-letter word is six requests"
+        )
+
+    def test_short_queries_are_not_sent(self) -> None:
+        assert "MIN_QUERY" in self.source_of()
+
+    def test_suggesting_does_not_move_the_map(self) -> None:
+        """The whole distinction: suggest looks, go travels."""
+        body = body_of(self.source_of(), "private async suggest(")
+        assert "flyTo" not in body and "fitBounds" not in body, (
+            "suggesting moves the map, so typing towards a coordinate flies "
+            "through the wrong places on the way"
+        )
+        assert "this.go(" not in body
+
+    def test_going_is_what_enter_does(self) -> None:
+        body = body_of(self.source_of(), "private async run(")
+        assert "this.go(" in body
+
+    def test_stale_answers_are_dropped(self) -> None:
+        """Out-of-order replies would otherwise show the wrong query's results."""
+        body = body_of(self.source_of(), "private async suggest(")
+        assert "this.asked" in body, "no guard against an answer arriving late"
+        assert body.count("!== this.asked") >= 2, (
+            "the late-answer guard has to cover the failure path as well"
+        )

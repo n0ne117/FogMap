@@ -25,6 +25,20 @@ import { element } from './ui'
 const ARRIVAL_ZOOM = 15
 
 /**
+ * How long to wait after the last keystroke before asking.
+ *
+ * Short enough to feel like it is keeping up, long enough that typing a word
+ * is one request rather than one per letter.
+ */
+const TYPING_PAUSE_MS = 180
+
+/**
+ * Below this, suggestions are noise: one letter matches most of an archive, and
+ * the answer arrives too late to be about what is on screen anyway.
+ */
+const MIN_QUERY = 2
+
+/**
  * How long the flight takes.
  *
  * Capped because the default is derived from the distance, and a search from a
@@ -57,6 +71,10 @@ export class Search {
   private matches: Found[] = []
   private active = 0
   private searched = ''
+  private typing: number | undefined
+  //: Which request is the current one. Answers can come back out of order, and
+  //: a slow reply to "cao" must not overwrite the results for "caorle".
+  private asked = 0
 
   constructor(map: MapLibreMap, onSaved: () => void) {
     this.map = map
@@ -89,6 +107,18 @@ export class Search {
       void this.run(input.value)
     })
 
+    // Suggest as it is typed. Suggest, not travel: an intermediate coordinate
+    // parses perfectly well - "27.74367, -1" is a real place - and flying there
+    // on the way to somewhere else is worse than not moving at all.
+    input.addEventListener('input', () => {
+      if (this.typing !== undefined) window.clearTimeout(this.typing)
+      const text = input.value
+      this.typing = window.setTimeout(() => {
+        this.typing = undefined
+        void this.suggest(text)
+      }, TYPING_PAUSE_MS)
+    })
+
     input.addEventListener('keydown', (event) => {
       // Escape closes it, which is what every search box on every machine does.
       if (event.key === 'Escape') {
@@ -110,12 +140,18 @@ export class Search {
     })
   }
 
-  private async run(query: string): Promise<void> {
-    if (!query.trim()) {
+  /** Look, and show what there is. Does not move the map. */
+  private async suggest(query: string): Promise<Answer | null> {
+    const text = query.trim()
+    if (text.length < MIN_QUERY) {
+      this.matches = []
+      this.searched = ''
+      this.paintResults()
       this.say('')
-      return
+      return null
     }
 
+    const mine = ++this.asked
     let answer: Answer
     try {
       answer = await apiGet<Answer>(
@@ -123,32 +159,53 @@ export class Search {
         { timeoutMs: 15000 },
       )
     } catch (error) {
+      if (mine !== this.asked) return null
       this.say(error instanceof ApiError ? error.message : String(error), true)
-      return
+      return null
     }
+
+    // A newer keystroke has already asked, so this answer is about a query
+    // nobody is looking at any more.
+    if (mine !== this.asked) return null
 
     this.matches = answer.results
     this.active = 0
     this.searched = query
     this.paintResults()
 
-    const found = answer.results[0]
-    if (!found) {
+    if (!answer.results.length) {
       this.say(answer.hint || 'Nothing found.', true)
+      return answer
+    }
+
+    this.say(
+      answer.hint ||
+        (answer.results.length === 1
+          ? `${answer.results[0].detail}: ${answer.results[0].label}`
+          : `${answer.results.length} matches — Enter to take the first.`),
+    )
+    return answer
+  }
+
+  /** Look, and go to the best answer. What pressing Go or Enter means. */
+  private async run(query: string): Promise<void> {
+    if (!query.trim()) {
+      this.say('')
       return
     }
 
-    // One answer needs no list to choose from; several do, and the first is
-    // taken so that Enter alone still gets somewhere.
-    this.say(answer.hint || `${found.detail}: ${found.label}`)
-    this.go(found)
+    const answer = await this.suggest(query)
+    const found = answer?.results[0]
+    if (found) this.go(found)
   }
 
   /** The matches, when there is more than one to choose between. */
   private paintResults(): void {
     const list = element('search-results')
     list.replaceChildren()
-    list.hidden = this.matches.length < 2
+    // Shown for a single match as well, now that finding something no longer
+    // moves the map by itself: the list is the thing that says what was found.
+    list.hidden = this.matches.length === 0
     if (list.hidden) return
 
     this.matches.forEach((found, index) => {
@@ -302,6 +359,8 @@ export class Search {
   }
 
   private reset(): void {
+    if (this.typing !== undefined) window.clearTimeout(this.typing)
+    this.typing = undefined
     this.clearPin()
     this.matches = []
     this.active = 0
