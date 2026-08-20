@@ -14,9 +14,38 @@
     <!-- The brush footprint, at ground scale, following the cursor. -->
     <div id="draw-cursor" class="draw-cursor" hidden></div>
 
-    <button id="panel-toggle" class="icon-button top-left" title="Settings" aria-label="Settings">
-      <span data-icon="gear" data-icon-size="17"></span>
-    </button>
+    <!-- Settings and search, top left. Stacked so the search bar's own hint
+         line cannot change the height of the row the buttons sit in - the
+         drawing toolbar learned that the hard way. -->
+    <div class="top-left corner-tools">
+      <div class="corner-row">
+        <button id="panel-toggle" class="icon-button" title="Settings" aria-label="Settings">
+          <span data-icon="gear" data-icon-size="17"></span>
+        </button>
+        <button
+          id="search-toggle"
+          class="icon-button"
+          title="Search"
+          aria-label="Search"
+          aria-pressed="false"
+        >
+          <span data-icon="search" data-icon-size="17"></span>
+        </button>
+
+        <form id="search-bar" class="search-bar" hidden>
+          <input
+            id="search-input"
+            type="search"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="27.74367, -15.58338"
+            aria-label="Search for a coordinate"
+          />
+          <button id="search-go" type="submit" class="bar-button">Go</button>
+        </form>
+      </div>
+      <span id="search-hint" class="bar-hint"></span>
+    </div>
 
     <!-- Map tools, top right. The draw bar sits to the left of the buttons so
          it opens leftwards across the map rather than off the edge. -->

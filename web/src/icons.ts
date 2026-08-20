@@ -78,6 +78,12 @@ const SHAPES: Record<string, Shape[]> = {
     { line: [5, 5, 19, 19] },
     { line: [19, 5, 5, 19] },
   ],
+
+  // A lens and its handle.
+  search: [
+    { circle: [10.5, 10.5, 6.5] },
+    { line: [15.2, 15.2, 20.5, 20.5] },
+  ],
 }
 
 /**

@@ -46,6 +46,7 @@ Delete both caches, run a rebuild, get byte-identical output. That means the who
 - Freehand and point-to-point route drawing for pre-digital history
 - Pins with titles, colour-coded labels, tags, who you were with, and nested folders, each clearing the fog around it
 - Major and minor pins: minor ones are drawn smaller and drop out when zoomed further out than z7, so a busy area stays legible
+- Coordinate search: paste `27.74367, -15.58338` — or the degrees-minutes-seconds a map site gives you — and fly there, with the option to keep the spot as a pin
 - Independent light/dark themes for the interface and the map
 
 ## Quick start

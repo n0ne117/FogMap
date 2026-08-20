@@ -38,6 +38,7 @@ import {
 } from './map'
 import { Labels } from './labels'
 import { Places } from './places'
+import { Search } from './search'
 import { describeRemaining, runRender } from './render'
 import { Setup } from './setup'
 import { hydrateIcons } from './icons'
@@ -553,6 +554,15 @@ async function start(): Promise<void> {
   })
   places.wire()
   void places.load()
+
+  // Search drops a pin nobody has saved yet, so keeping one has to reach the
+  // sidebar and the map the same way dropping one by hand does.
+  const search = new Search(map, () => {
+    void places.load()
+    bustTileCache()
+    applyView(map, options)
+  })
+  search.wire()
 
   // Labels are a setting, but the pins wear them, so changing one has to
   // reach the map.

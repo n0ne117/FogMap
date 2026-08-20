@@ -63,27 +63,38 @@ Two ways out, neither started:
 Worth measuring how long a whole-day render actually takes before choosing -
 it is fine at breakfast and the problem is only at the end of a long day.
 
-## Search
+## Search: the rest of it
 
-Deferred, not dropped. A magnifying glass beside the settings button, expanding
-into a search bar.
+Coordinates are built (0.17.10). The magnifying glass beside the settings button
+opens a bar, `GET /api/search` parses what was pasted, and a found coordinate
+drops a temporary pin that can be kept or discarded. Decimal degrees, hemisphere
+letters, and degrees-minutes-seconds all land on the same point; a pair written
+longitude-first is named rather than silently swapped.
 
-The 137 GB basemap cannot be searched as it stands: PMTiles holds rendered
-vector tiles, so a place name exists as geometry to draw at a zoom rather than
-as an index. Answering "where is X" would mean scanning the archive.
+The 137 GB basemap still cannot be searched: PMTiles holds rendered vector
+tiles, so a place name exists as geometry to draw at a zoom rather than as an
+index, and answering "where is Vienna" would mean scanning the archive.
 
-Four routes, in the order they were recommended:
+What is left, in the order recommended:
 
-1. **Search your own data.** Pins by title, tag, label and folder; tracks by
-   name and date. Already in SQLite, no network, no new dependency.
-2. **Coordinates and Plus Codes.** Trivial, and useful for a location someone
-   sends you.
-3. **A local gazetteer.** A one-off extraction of place names out of the
-   PMTiles into SQLite FTS5. Hours of processing, names only, but offline.
-4. **An external geocoder** such as Nominatim. Argued against: every query
+1. **Your own data.** Pins by title, tag, label and folder; tracks by name and
+   date. Already in SQLite, no network, no new dependency. The endpoint and the
+   result shape were built for this - `results` is a list of things with a place
+   to go, and pins and tracks are more of those. The one decision deferred with
+   it: coordinates need no token, but somebody's pins and tracks are their
+   history, so that request has to be authenticated.
+2. **Plus Codes.** The other half of "a location someone sent you". Small and
+   self-contained; the parser has a seam for it.
+3. **A local gazetteer.** A one-off extraction of place names out of the PMTiles
+   into SQLite FTS5. Hours of processing, names only, but offline.
+4. **An external geocoder** such as Nominatim. Still argued against: every query
    would leave the machine, which contradicts the premise of the project.
 
-1 + 2 together is the recommendation. Nothing has been chosen.
+**Worth adding whenever it next comes up:** a pasted map URL. The use case is
+paste, and what people paste is often `https://.../maps/@27.74367,-15.58338,15z`
+rather than the bare pair. Deliberately not done yet - pulling the first
+coordinate-looking pair out of arbitrary text invites false positives, and it
+wants its own tests rather than being smuggled in.
 
 ## Snap drawing to real paths
 

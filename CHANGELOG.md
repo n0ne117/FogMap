@@ -11,6 +11,18 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.17.10] - 2026-08-20
+
+### Added
+- **Search, starting with coordinates.** The magnifying glass beside the settings button opens a bar across the map. Paste `27.74367, -15.58338` and the map flies there. It takes what a paste actually looks like: comma or space, degree signs, hemisphere letters on either side of either number, and degrees-minutes-seconds — `27°44'37.2"N 15°35'00.2"W`, typographic quote marks included. All the forms of one point land on that point.
+- **A found coordinate drops a temporary pin**, dashed and hollow so it never looks like a pin that has been saved, offering a name and a choice: keep it or discard it. Until it is kept it costs nothing — no event, no render, no row. Keeping it goes through the same path as dropping a pin by hand, so it clears fog and reaches the sidebar identically.
+- **A pair written the other way round is named, not swapped.** `120.5, 45.2` answers "out of range as latitude, longitude. Written the other way round it is 45.2, 120.5." Being taken confidently to the wrong continent is worse than being told the input was not understood — so nothing is guessed at, and `Vienna` says plainly that searching your own pins and tracks is not built yet.
+
+### Note
+Parsing lives on the server rather than in the browser: one implementation, tested beside everything else, and `GET /api/search` already has the shape the rest of search needs — a list of results, each with somewhere to go. Nothing about a search leaves the machine, which is the whole reason an external geocoder was argued against.
+
+The flight itself is the one part that could not be verified here: the browser pane produces no animation frames, so the camera cannot move and the zoom readout stays where it was. The marker's coordinates were checked instead. The flight is capped at 1.4 s because the default duration scales with distance, and a world view to a street is the longest journey the map can make.
+
 ## [0.17.9] - 2026-08-19
 
 ### Changed

@@ -33,6 +33,7 @@ from irfaran import (  # noqa: I001
     raster,
     history,
     renderq,
+    search,
     settings_env,
     tokens,
     trackers,
@@ -1604,6 +1605,25 @@ def _enters(
             continue
         return True
     return False
+
+
+@app.get("/api/search")
+def search_everything(
+    q: str = "", conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    """Answer a search. Coordinates for now.
+
+    No token: it reads nothing that a map already on screen does not show, and
+    a search box that refuses to work until credentials are pasted is a search
+    box nobody uses. Adding pins and tracks to this will change that - those are
+    somebody's history - and the token check belongs in that change rather than
+    guessed at now.
+
+    Nothing leaves the machine. That is the whole reason the alternative - an
+    external geocoder answering "where is Vienna" - was argued against: every
+    query would tell somebody else where you are looking.
+    """
+    return search.search(conn, q)
 
 
 @app.get("/api/places")
