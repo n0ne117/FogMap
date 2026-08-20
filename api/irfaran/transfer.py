@@ -46,6 +46,8 @@ PORTABLE_SETTINGS = frozenset(
         "search_pins",
         "search_tracks",
         "search_coordinates",
+        "search_plus_codes",
+        "search_plus_codes_short",
     }
 )
 

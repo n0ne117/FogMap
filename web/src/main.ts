@@ -381,6 +381,8 @@ function wireSearchSettings(): void {
     search_pins: element<HTMLInputElement>('search-pins'),
     search_tracks: element<HTMLInputElement>('search-tracks'),
     search_coordinates: element<HTMLInputElement>('search-coordinates'),
+    search_plus_codes: element<HTMLInputElement>('search-plus-codes'),
+    search_plus_codes_short: element<HTMLInputElement>('search-plus-codes-short'),
   }
 
   for (const [key, box] of Object.entries(boxes)) {
@@ -406,6 +408,8 @@ function wireSearchSettings(): void {
         search_pins: 'true',
         search_tracks: 'false',
         search_coordinates: 'true',
+        search_plus_codes: 'false',
+        search_plus_codes_short: 'false',
       }
       for (const [key, box] of Object.entries(boxes)) {
         box.checked = (stored[key] ?? fallback[key]) === 'true'

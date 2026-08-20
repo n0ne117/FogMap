@@ -154,8 +154,14 @@ export class Search {
     const mine = ++this.asked
     let answer: Answer
     try {
+      // Where the map is looking goes with every search. Only a short Plus Code
+      // uses it - those are missing their leading digits and can only be
+      // resolved against somewhere nearby - and the server has no way of
+      // knowing what is on screen.
+      const at = this.map.getCenter()
       answer = await apiGet<Answer>(
-        `/api/search?q=${encodeURIComponent(query)}`,
+        `/api/search?q=${encodeURIComponent(query)}` +
+          `&lat=${at.lat.toFixed(6)}&lon=${at.lng.toFixed(6)}`,
         { timeoutMs: 15000 },
       )
     } catch (error) {

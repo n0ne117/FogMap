@@ -1609,7 +1609,10 @@ def _enters(
 
 @app.get("/api/search")
 def search_everything(
-    q: str = "", conn: sqlite3.Connection = Depends(get_conn)
+    q: str = "",
+    lat: float | None = None,
+    lon: float | None = None,
+    conn: sqlite3.Connection = Depends(get_conn),
 ) -> dict[str, object]:
     """Answer a search. Coordinates for now.
 
@@ -1622,8 +1625,14 @@ def search_everything(
     Nothing leaves the machine. That is the whole reason the alternative - an
     external geocoder answering "where is Vienna" - was argued against: every
     query would tell somebody else where you are looking.
+
+    `lat` and `lon` are where the map is looking, and only a short Plus Code
+    uses them: those are missing their leading digits and can only be resolved
+    against somewhere nearby. Sent by the browser rather than guessed at here,
+    because the server has no idea what is on screen.
     """
-    return search.search(conn, q)
+    reference = None if lat is None or lon is None else (lat, lon)
+    return search.search(conn, q, reference)
 
 
 @app.get("/api/places")

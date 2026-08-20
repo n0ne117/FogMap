@@ -65,8 +65,8 @@ it is fine at breakfast and the problem is only at the end of a long day.
 
 ## Search: the rest of it
 
-Built: coordinates (0.17.10), your own pins and tracks (0.17.12), and
-suggestions as you type (0.17.15). The magnifying glass beside the settings
+Built: coordinates (0.17.10), your own pins and tracks (0.17.12), suggestions as
+you type (0.17.15), per-kind toggles (0.17.16) and Plus Codes (0.17.17). The magnifying glass beside the settings
 button opens a bar, `GET /api/search` answers, and results are a list of things
 with somewhere to go. Pins match on title, tag, label, folder, category and who
 was there; tracks on name and year. Searching is read-only and needs no token;
@@ -84,18 +84,60 @@ constraint is what the two remaining routes exist to work around.
 
 What is left:
 
-1. **Plus Codes.** The other half of "a location someone sent you". Small and
-   self-contained; `parse_coordinates` is the seam.
-2. **A pasted map URL.** What people paste is often
+1. **A pasted map URL.** What people paste is often
    `https://.../maps/@27.74367,-15.58338,15z` rather than the bare pair.
    Deliberately not done: pulling the first coordinate-looking pair out of
    arbitrary text invites false positives, and it wants its own tests rather
    than being smuggled into the parser.
-3. **A local gazetteer.** A one-off extraction of place names out of the PMTiles
-   into SQLite FTS5. Hours of processing, names only, but offline. The only route
-   to "where is Vienna" that keeps the premise.
-4. **An external geocoder** such as Nominatim. Still argued against: every query
-   would leave the machine.
+2. **A local gazetteer.** A one-off extraction of place names out of the PMTiles
+   into SQLite FTS5. The only route to "where is Vienna" that keeps the premise.
+   Costed below.
+
+### What a gazetteer would actually cost
+
+Read off the installed archive's own header rather than guessed at. The rest is
+an estimate, and marked as one.
+
+**What is in there.** 137.3 GB, z0 to z15, addressing all **1,431,655,765**
+tiles, of which **135,371,839** are distinct blobs - the other 90% are repeats,
+mostly empty ocean. Mean blob 1.0 KB. The `places` layer runs z1-z15 and carries
+`name`, `kind`, `kind_detail`, `population`, `population_rank`, `wikidata`, a
+`min_zoom` per feature, and around forty localised `name:xx` variants.
+
+**`min_zoom` is the field that makes this affordable.** Every label says the
+lowest zoom it appears at, and it then appears at every zoom above that. So a
+scan does not have to reach z15 to find cities - it has to reach the depth of the
+smallest thing worth finding:
+
+| scan | tiles | what it catches |
+|---|---|---|
+| z0-z8 | 87,381 | countries, regions, cities |
+| z0-z10 | 1,398,101 | most towns and villages |
+| z0-z12 | 22,369,621 | hamlets, suburbs, localities |
+| z0-z15 | 1,431,655,765 | everything, and not viable here |
+
+**Processing, estimated.** Reading is not the problem: 1.4M tiles at a few KB is
+single-digit GB, minutes of I/O. Decoding is - each tile is gzipped protobuf, and
+in Python that is perhaps 0.5-2 ms a tile. So z0-z10 is roughly **20-45 minutes
+on one core**, or **4-8 minutes across seven**, and z0-z12 is sixteen times that:
+an overnight job. The T490 can do the first comfortably.
+
+**Storage, estimated.** OSM has roughly 4-5 million named place nodes worldwide
+and the `places` layer is a filtered subset, so call it 2-4 million rows. A row
+is a name, a position, a kind and a population - about 70 bytes with SQLite
+overhead - and an FTS5 index over the names adds roughly its own size again.
+**250-400 MB**, against a 137 GB basemap: about a quarter of one per cent.
+
+**The thing that would blow that up** is keeping the localised names. There are
+forty-odd `name:xx` fields per feature, and taking them all multiplies both the
+table and the index by an order of magnitude. One name plus the English one is
+the version to build.
+
+**And a new dependency.** Nothing here can currently read a vector tile - no
+protobuf, no MVT parser, in either image. That is a real cost in a project that
+has kept its dependency list short on purpose, and it would be needed only for
+the one-off build, not at runtime. A build script that runs outside the images
+would keep the images clean.
 
 **A limit worth knowing before extending this.** A track can only be searched by
 year, because the year is the only date stored: `created_at` on an event is
@@ -252,6 +294,20 @@ The tracker plumbing is behind a registry (`TRACKERS` in
 `api/irfaran/trackers.py`) with intervals.icu as the only entry, precisely so
 a second one is a client and a settings block rather than a redesign. Nothing
 specific is planned.
+
+## Not doing: an external geocoder
+
+Nominatim, or any hosted geocoding API, for answering "where is Vienna".
+
+It would work, it is easy, and it is the one thing this project exists not to do.
+Every query would leave the machine, and a list of the places somebody looks up
+is a better description of their life than the map itself - where they are going,
+what they are planning, who they are visiting. Self-hosted Nominatim avoids the
+leak and brings a planet-scale import and a second database to keep current,
+which is a different project.
+
+The offline gazetteer above is the same feature without the leak, and is the
+route to take if "where is Vienna" is ever wanted.
 
 ## Not doing: per-vendor workout API sync
 

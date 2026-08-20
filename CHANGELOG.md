@@ -11,6 +11,18 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.17.17] - 2026-08-20
+
+### Added
+- **Plus Codes, full and short, each with its own toggle and both off by default.** `8FVC9G8F+6W` decodes to a position with arithmetic — no table, no lookup, nothing leaving the machine, which is why this belongs here where a postal code would not. The decoder is checked against three independently verifiable points: Zurich, Google's own documented example at 1600 Amphitheatre Parkway (`37.4220625, -122.0840625`), and a vector from the specification. Every code round-trips through encoding exactly.
+- **A short code is resolved from where the map is looking**, since it is missing its leading digits. That makes it right only within about half a degree of the map centre, and a wrong recovery cannot be detected — with the map on Sydney, a Zurich code resolves near Sydney, confidently and silently. So the result is labelled with the **recovered full code** rather than what was typed: `4RRH9G8F+6W` is visibly not Zurich to somebody who meant Zurich. The same principle as refusing to silently swap a reversed latitude and longitude.
+- Two toggles rather than one, because a full code is arithmetic and a short code is a guess against context. A short code with no map position says so instead of guessing.
+
+### Note
+The two settings tests that broke on this were both pinned to snapshots rather than properties — one listed the three kinds of search by hand, the other asserted the exact wording of a hint. Both now assert what they are actually about, with anchors so they still record what shipped. A test pinned to a snapshot fails whenever the snapshot improves, which teaches you to edit tests rather than read them.
+
+The external geocoder moved to its own **Not doing** section in `IDEAS.md`, and the offline gazetteer is now costed from the installed archive's own header rather than guessed at: 137.3 GB addressing 1,431,655,765 tiles, of which 135,371,839 are distinct, with a `min_zoom` on every place label — which is what makes a z0–z10 scan (1.4M tiles, minutes across seven cores) enough for towns and villages, against 250–400 MB of SQLite for the result.
+
 ## [0.17.16] - 2026-08-20
 
 ### Added

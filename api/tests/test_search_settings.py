@@ -144,14 +144,22 @@ class TestThroughTheApi:
             assert body["settings"]["search_tracks"] == "true"
 
     def test_a_database_from_before_these_existed_behaves_like_a_new_one(self, conn) -> None:
-        """Absent settings must not read as everything switched off."""
+        """Absent settings must not read as everything switched off.
+
+        Compared against the declared defaults rather than a copy of them: this
+        listed the three kinds by hand and went stale the moment Plus Codes were
+        added, failing for having nothing to do with what it checks. The property
+        is that a missing row falls back to the default, whatever the kinds are.
+        """
         with db.transaction(conn):
             conn.execute("DELETE FROM settings WHERE key LIKE 'search_%'")
-        assert search.included(conn) == {
-            "pins": True,
-            "tracks": False,
-            "coordinates": True,
-        }
+        assert search.included(conn) == search.DEFAULTS
+
+        # And an anchor, so this still says what shipped rather than only that
+        # two constants agree.
+        assert search.DEFAULTS["pins"] is True
+        assert search.DEFAULTS["tracks"] is False
+        assert search.DEFAULTS["plus_codes"] is False
 
     def test_they_travel_with_an_export(self) -> None:
         from irfaran import transfer

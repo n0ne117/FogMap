@@ -209,6 +209,12 @@ DEFAULT_SETTINGS = {
     "search_pins": "true",
     "search_tracks": "false",
     "search_coordinates": "true",
+    # Plus Codes, both off until asked for. A full code stands on its own; a
+    # short one is resolved against wherever the map is looking, and is only
+    # right within about half a degree of it - which is a thing to opt into
+    # rather than have happen.
+    "search_plus_codes": "false",
+    "search_plus_codes_short": "false",
 }
 
 

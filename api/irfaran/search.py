@@ -20,6 +20,8 @@ import json
 import re
 import sqlite3
 
+from irfaran import pluscode
+
 #: A signed decimal number. Allows a leading + and a bare `.5`.
 _NUMBER = r"[-+]?(?:\d+(?:\.\d+)?|\.\d+)"
 
@@ -61,6 +63,25 @@ KINDS = {
     "pins": "search_pins",
     "tracks": "search_tracks",
     "coordinates": "search_coordinates",
+    "plus_codes": "search_plus_codes",
+    "plus_codes_short": "search_plus_codes_short",
+}
+
+#: How each reads in a sentence, since "Plus_codes are switched off" does not.
+NAMES = {
+    "pins": "Pins",
+    "tracks": "Tracks",
+    "coordinates": "Coordinates",
+    "plus_codes": "Plus Codes",
+    "plus_codes_short": "Short Plus Codes",
+}
+
+DEFAULTS = {
+    "pins": True,
+    "tracks": False,
+    "coordinates": True,
+    "plus_codes": False,
+    "plus_codes_short": False,
 }
 
 
@@ -77,9 +98,8 @@ def included(conn: sqlite3.Connection) -> dict[str, bool]:
             "SELECT key, value FROM settings WHERE key LIKE 'search\\_%' ESCAPE '\\'"
         )
     }
-    fallback = {"pins": True, "tracks": False, "coordinates": True}
     return {
-        kind: stored.get(key, str(fallback[kind]).lower()) == "true"
+        kind: stored.get(key, str(DEFAULTS[kind]).lower()) == "true"
         for kind, key in KINDS.items()
     }
 
@@ -169,6 +189,28 @@ def _signed(number: str, before: str | None, after: str | None) -> float | None:
     if value < 0:
         return None
     return value
+
+
+def plus_code_result(
+    code: str, lat: float, lon: float, recovered: bool
+) -> dict[str, object]:
+    """One Plus Code, said back as the full code it resolved to.
+
+    A short code cannot be checked: with the map on Sydney, a Zurich code
+    resolves near Sydney, confidently. Handing back the full code is what makes
+    a wrong recovery visible to somebody who knows where they meant.
+    """
+    return {
+        "kind": "pluscode",
+        "label": code,
+        "detail": (
+            "Short Plus Code — resolved from where the map is looking"
+            if recovered
+            else "Plus Code"
+        ),
+        "lat": lat,
+        "lon": lon,
+    }
 
 
 def coordinate_result(lat: float, lon: float) -> dict[str, object]:
@@ -420,7 +462,50 @@ def _points(coordinates: object, kind: object) -> list[tuple[float, float]]:
     return out
 
 
-def search(conn: sqlite3.Connection, query: str) -> dict[str, object]:
+def _plus_code(
+    text: str, on: dict[str, bool], reference: tuple[float, float] | None
+) -> dict[str, object] | None:
+    """A Plus Code result, or a hint saying why there is not one."""
+    if pluscode.is_full(text):
+        if not on["plus_codes"]:
+            return {"hint": _switched_off("plus_codes")}
+        lat, lon = pluscode.decode(text)
+        return {"result": plus_code_result(text.strip().upper(), lat, lon, False)}
+
+    if not pluscode.is_short(text):
+        return None
+
+    if not on["plus_codes_short"]:
+        return {"hint": _switched_off("plus_codes_short")}
+    if reference is None:
+        return {
+            "hint": (
+                "A short Plus Code has to be resolved from somewhere, and the "
+                "map did not say where it is looking. Move the map near the "
+                "place, or paste the full code."
+            )
+        }
+
+    lat, lon = pluscode.recover(text, *reference)
+    return {"result": plus_code_result(pluscode.encode(lat, lon), lat, lon, True)}
+
+
+def _switched_off(kind: str) -> str:
+    return (
+        f"{NAMES[kind]} are switched off under Settings, Appearance, so "
+        f"{text_for(kind)} is not being read."
+    )
+
+
+def text_for(kind: str) -> str:
+    return "a short Plus Code" if kind == "plus_codes_short" else "that"
+
+
+def search(
+    conn: sqlite3.Connection,
+    query: str,
+    reference: tuple[float, float] | None = None,
+) -> dict[str, object]:
     """Answer a search: a coordinate, or the pins and tracks it matches.
 
     Read-only throughout, which is why it needs no token. Seeing where you have
@@ -433,6 +518,15 @@ def search(conn: sqlite3.Connection, query: str) -> dict[str, object]:
         return {"query": text, "results": [], "hint": ""}
 
     on = included(conn)
+
+    # A Plus Code cannot be mistaken for anything else - its alphabet has no
+    # vowels and it carries a separator - so it is answered before the text
+    # search rather than alongside it.
+    coded = _plus_code(text, on, reference)
+    if coded is not None:
+        if "result" in coded:
+            return {"query": text, "results": [coded["result"]], "hint": ""}
+        return {"query": text, "results": [], "hint": str(coded["hint"])}
 
     if on["coordinates"]:
         try:
@@ -451,13 +545,20 @@ def search(conn: sqlite3.Connection, query: str) -> dict[str, object]:
     # Nothing found and something switched off is not the same as nothing to
     # find. Saying which, rather than leaving somebody to wonder why a track
     # they can see on the map cannot be searched for.
-    excluded = [kind for kind, allowed in on.items() if not allowed]
+    # Plus Codes left out of this list: they are answered above, and saying
+    # "Plus Codes are switched off" to somebody searching for a pin by name
+    # would be noise about a thing they were not asking for.
+    excluded = [
+        kind
+        for kind, allowed in on.items()
+        if not allowed and not kind.startswith("plus_codes")
+    ]
 
     hint = ""
     if not results and excluded:
         hint = (
             f"Nothing here matches {text!r}. "
-            f"{' and '.join(kind.capitalize() for kind in excluded)} "
+            f"{' and '.join(NAMES[kind] for kind in excluded)} "
             # Always "are": every one of these names is a plural.
             "are switched off under Settings, Appearance."
         )
