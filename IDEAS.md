@@ -65,36 +65,38 @@ it is fine at breakfast and the problem is only at the end of a long day.
 
 ## Search: the rest of it
 
-Coordinates are built (0.17.10). The magnifying glass beside the settings button
-opens a bar, `GET /api/search` parses what was pasted, and a found coordinate
-drops a temporary pin that can be kept or discarded. Decimal degrees, hemisphere
-letters, and degrees-minutes-seconds all land on the same point; a pair written
-longitude-first is named rather than silently swapped.
+Built: coordinates (0.17.10) and your own pins and tracks (0.17.12). The
+magnifying glass beside the settings button opens a bar, `GET /api/search`
+answers, and results are a list of things with somewhere to go. Searching is
+read-only and needs no token; keeping a searched coordinate as a pin is the
+write, so that offer appears only when there is a token to make it with.
 
 The 137 GB basemap still cannot be searched: PMTiles holds rendered vector
 tiles, so a place name exists as geometry to draw at a zoom rather than as an
-index, and answering "where is Vienna" would mean scanning the archive.
+index, and answering "where is Vienna" would mean scanning the archive. That
+constraint is what the two remaining routes exist to work around.
 
-What is left, in the order recommended:
+What is left:
 
-1. **Your own data.** Pins by title, tag, label and folder; tracks by name and
-   date. Already in SQLite, no network, no new dependency. The endpoint and the
-   result shape were built for this - `results` is a list of things with a place
-   to go, and pins and tracks are more of those. The one decision deferred with
-   it: coordinates need no token, but somebody's pins and tracks are their
-   history, so that request has to be authenticated.
-2. **Plus Codes.** The other half of "a location someone sent you". Small and
-   self-contained; the parser has a seam for it.
+1. **Plus Codes.** The other half of "a location someone sent you". Small and
+   self-contained; `parse_coordinates` is the seam.
+2. **A pasted map URL.** What people paste is often
+   `https://.../maps/@27.74367,-15.58338,15z` rather than the bare pair.
+   Deliberately not done: pulling the first coordinate-looking pair out of
+   arbitrary text invites false positives, and it wants its own tests rather
+   than being smuggled into the parser.
 3. **A local gazetteer.** A one-off extraction of place names out of the PMTiles
-   into SQLite FTS5. Hours of processing, names only, but offline.
+   into SQLite FTS5. Hours of processing, names only, but offline. The only route
+   to "where is Vienna" that keeps the premise.
 4. **An external geocoder** such as Nominatim. Still argued against: every query
-   would leave the machine, which contradicts the premise of the project.
+   would leave the machine.
 
-**Worth adding whenever it next comes up:** a pasted map URL. The use case is
-paste, and what people paste is often `https://.../maps/@27.74367,-15.58338,15z`
-rather than the bare pair. Deliberately not done yet - pulling the first
-coordinate-looking pair out of arbitrary text invites false positives, and it
-wants its own tests rather than being smuggled in.
+**A limit worth knowing before extending this.** A track can only be searched by
+year, because the year is the only date stored: `created_at` on an event is
+`datetime.now()` at ingest, for every source, and the activity's own date
+survives only as the layer it was filed under. Anything finer - "what did I do
+on 11 June" - needs the per-fix timestamps kept somewhere, which is a schema
+change and a rebuild, not a search feature.
 
 ## Snap drawing to real paths
 

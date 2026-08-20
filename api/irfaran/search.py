@@ -16,6 +16,7 @@ machine either way.
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 
@@ -153,14 +154,242 @@ def coordinate_result(lat: float, lon: float) -> dict[str, object]:
     }
 
 
-def search(conn: sqlite3.Connection, query: str) -> dict[str, object]:
-    """Answer a search. Coordinates for now; pins and tracks are the next part.
+#: How many results to answer with. A search box is for finding one thing, and
+#: a list longer than this is a list nobody reads to the end of.
+LIMIT = 20
 
-    `conn` is unused until then, and taken anyway so that adding those does not
-    change the shape of this function or its callers.
+#: A bare year, which is the only date a track can be searched by.
+#:
+#: Nothing finer is recorded. `created_at` on an event is the moment it was
+#: imported - `datetime.now()` in the ingest, for every source - so matching a
+#: month against it would answer "you were there in August 2026" about a ride
+#: somebody uploaded in August 2026 and rode years earlier. The year in `layers`
+#: is derived from the fixes' own timestamps, so that one is true.
+_YEAR = re.compile(r"^\d{4}$")
+
+#: A finer date than can be answered. Only used to explain why.
+_FINER = re.compile(r"^\d{4}-\d{2}(?:-\d{2})?$")
+
+
+def _matches(needle: str, *haystacks: object) -> bool:
+    """Case-insensitive contains, done in Python rather than in SQL.
+
+    SQLite's LIKE and lower() only fold ASCII, so `dörfl` would not find
+    `Dörfl` and `wien` would not find `Wien` in any word carrying an umlaut -
+    which in this archive is most of them. casefold() is what actually works,
+    and the sets being matched here are small enough that reading them into
+    Python costs nothing worth counting.
     """
-    del conn  # not yet: see the module docstring
+    folded = needle.casefold()
+    for hay in haystacks:
+        if hay is None:
+            continue
+        if folded in str(hay).casefold():
+            return True
+    return False
 
+
+def _pins(conn: sqlite3.Connection, text: str) -> list[dict[str, object]]:
+    """Pins by title, tag, label, folder or category."""
+    rows = conn.execute(
+        """
+        SELECT p.id, p.name, p.category, p.tags, p.lat, p.lon, p.people,
+               l.name AS label, f.name AS folder
+        FROM places p
+        LEFT JOIN labels l ON l.id = p.label_id
+        LEFT JOIN folders f ON f.id = p.folder_id
+        ORDER BY p.name COLLATE NOCASE
+        """
+    ).fetchall()
+
+    found = []
+    for row in rows:
+        tags = _tag_words(row["tags"])
+        if not _matches(
+            text, row["name"], row["category"], row["label"], row["folder"], " ".join(tags)
+        ):
+            continue
+
+        # Why it matched, said in the row rather than left to be guessed at.
+        because = [part for part in (row["label"], row["folder"], *tags) if part]
+        found.append(
+            {
+                "kind": "pin",
+                "id": int(row["id"]),
+                "label": str(row["name"]),
+                "detail": "Pin" + (f" — {', '.join(because[:3])}" if because else ""),
+                "lat": float(row["lat"]),
+                "lon": float(row["lon"]),
+            }
+        )
+
+    # Whole-word or leading matches first: somebody typing "cao" wants Caorle
+    # before a pin that merely mentions it in a tag.
+    folded = text.casefold()
+    found.sort(key=lambda hit: (not str(hit["label"]).casefold().startswith(folded), str(hit["label"]).casefold()))
+    return found
+
+
+def _tag_words(raw: object) -> list[str]:
+    if not raw:
+        return []
+    try:
+        loaded = json.loads(str(raw))
+    except (TypeError, ValueError):
+        return []
+    return [str(part) for part in loaded] if isinstance(loaded, list) else []
+
+
+def _tracks(conn: sqlite3.Connection, text: str) -> tuple[list[dict[str, object]], int]:
+    """Tracks by name, or by the year they belong to.
+
+    Grouped by name, because one imported file becomes as many events as it has
+    gaps in it - a single 827 km ride is 37 of them here - and a search that
+    answered with each segment separately would bury everything else.
+
+    The year comes from `layers`, not from `created_at`: created_at is when the
+    file was imported, which for anything pre-dating GPS is the day somebody got
+    round to drawing it rather than the day they were there.
+
+    Two passes, and the reason is measured. Matching needs names, layers and
+    dates; only the results being returned need geometry, and geometry is where
+    the bytes are. Reading it for every candidate meant 27.8 MB a search on this
+    archive - cost set by how much has been walked rather than by what was asked
+    for, which is the shape of the scan that made every render slow before
+    0.17.6. Names first, geometry for the twenty that survive.
+
+    Returns the results and how many tracks matched in total, so the interface
+    can say it is showing a slice.
+    """
+    year = text if _YEAR.match(text) else None
+    rows = conn.execute(
+        """
+        SELECT id, json_extract(meta, '$.track') AS name, layers, created_at
+        FROM events
+        WHERE json_extract(meta, '$.track') IS NOT NULL
+        ORDER BY id DESC
+        """
+    ).fetchall()
+
+    groups: dict[str, dict[str, object]] = {}
+    for row in rows:
+        name = str(row["name"])
+        # A year matches what is filed under it, and a name still matches by
+        # name - live sources name their tracks after a timestamp, so "2024-12"
+        # finds those the ordinary way.
+        by_year = year is not None and year in _years(row["layers"])
+        if not by_year and not _matches(text, name):
+            continue
+
+        group = groups.setdefault(name, {"ids": [], "years": set(), "newest": ""})
+        group["ids"].append(int(row["id"]))  # type: ignore[union-attr]
+        group["years"].update(_years(row["layers"]))  # type: ignore[union-attr]
+        group["newest"] = max(str(group["newest"]), str(row["created_at"] or ""))
+
+    ordered = sorted(
+        groups.items(), key=lambda pair: str(pair[1]["newest"]), reverse=True
+    )
+
+    found = []
+    for name, group in ordered:
+        if len(found) >= LIMIT:
+            break
+
+        box = _bounds(conn, list(group["ids"]))  # type: ignore[arg-type]
+        if box is None:
+            continue  # no usable geometry, so nowhere to go
+
+        west, south, east, north = box
+        years = sorted(str(year) for year in group["years"])  # type: ignore[union-attr]
+        pieces = len(list(group["ids"]))  # type: ignore[arg-type]
+
+        detail = "Track"
+        if years:
+            detail += f" — {years[0]}" if len(years) == 1 else f" — {years[0]}–{years[-1]}"
+        if pieces > 1:
+            detail += f", {pieces} segments"
+
+        found.append(
+            {
+                "kind": "track",
+                "label": name,
+                "detail": detail,
+                "lat": (south + north) / 2,
+                "lon": (west + east) / 2,
+                "bounds": [[west, south], [east, north]],
+            }
+        )
+
+    return found, len(groups)
+
+
+#: How many ids to name in one query. SQLite refuses an expression tree deeper
+#: than a thousand, which a long track's segment list can reach on its own.
+IDS_PER_QUERY = 400
+
+
+def _bounds(
+    conn: sqlite3.Connection, ids: list[int]
+) -> tuple[float, float, float, float] | None:
+    """The box one track covers, read only for a track being returned."""
+    west, south, east, north = 180.0, 90.0, -180.0, -90.0
+    seen = False
+
+    for start in range(0, len(ids), IDS_PER_QUERY):
+        batch = ids[start : start + IDS_PER_QUERY]
+        placeholders = ",".join("?" * len(batch))
+        for row in conn.execute(
+            f"SELECT geometry FROM events WHERE id IN ({placeholders})", batch
+        ):
+            try:
+                shape = json.loads(str(row["geometry"]))
+            except (TypeError, ValueError):
+                continue
+            for lon, lat in _points(shape.get("coordinates"), shape.get("type")):
+                seen = True
+                west, east = min(west, lon), max(east, lon)
+                south, north = min(south, lat), max(north, lat)
+
+    return (west, south, east, north) if seen else None
+
+
+def _years(raw: object) -> set[str]:
+    try:
+        loaded = json.loads(str(raw or "[]"))
+    except (TypeError, ValueError):
+        return set()
+    return {str(part) for part in loaded if str(part).isdigit()} if isinstance(loaded, list) else set()
+
+
+def _points(coordinates: object, kind: object) -> list[tuple[float, float]]:
+    if kind == "Point":
+        pair = coordinates if isinstance(coordinates, list) else []
+        return [(float(pair[0]), float(pair[1]))] if len(pair) >= 2 else []
+    if kind == "LineString":
+        rings = [coordinates]
+    elif kind == "Polygon":
+        rings = coordinates if isinstance(coordinates, list) else []
+    else:
+        return []
+
+    out = []
+    for ring in rings:
+        if not isinstance(ring, list):
+            continue
+        for pair in ring:
+            if isinstance(pair, list) and len(pair) >= 2:
+                out.append((float(pair[0]), float(pair[1])))
+    return out
+
+
+def search(conn: sqlite3.Connection, query: str) -> dict[str, object]:
+    """Answer a search: a coordinate, or the pins and tracks it matches.
+
+    Read-only throughout, which is why it needs no token. Seeing where you have
+    been is what the map already shows; keeping a searched coordinate as a pin
+    is a write, and that is where credentials start to matter - so the interface
+    offers that only when it has them.
+    """
     text = (query or "").strip()
     if not text:
         return {"query": text, "results": [], "hint": ""}
@@ -170,15 +399,29 @@ def search(conn: sqlite3.Connection, query: str) -> dict[str, object]:
     except Ambiguous as exc:
         return {"query": text, "results": [], "hint": str(exc)}
 
-    if found is None:
-        return {
-            "query": text,
-            "results": [],
-            "hint": (
-                "Not a coordinate. Try 27.74367, -15.58338 - decimal degrees, "
-                "latitude first. Searching your own pins and tracks is not "
-                "built yet."
-            ),
-        }
+    if found is not None:
+        return {"query": text, "results": [coordinate_result(*found)], "hint": ""}
 
-    return {"query": text, "results": [coordinate_result(*found)], "hint": ""}
+    pins = _pins(conn, text)
+    tracks, track_total = _tracks(conn, text)
+    results = [*pins, *tracks]
+    total = len(pins) + track_total
+
+    hint = ""
+    if not results and _FINER.match(text):
+        hint = (
+            f"Nothing matches {text!r}. Only the year of a track is recorded, "
+            f"so try {text[:4]} - the rest of a date is not kept, because what "
+            "an event stores is when it was imported rather than when it "
+            "happened."
+        )
+    elif not results:
+        hint = (
+            f"Nothing here matches {text!r}. Pins and tracks are searched by "
+            "name, and tracks also by year - a coordinate like "
+            "27.74367, -15.58338 goes straight there."
+        )
+    elif total > LIMIT:
+        hint = f"Showing {LIMIT} of {total} matches."
+
+    return {"query": text, "results": results[:LIMIT], "hint": hint}

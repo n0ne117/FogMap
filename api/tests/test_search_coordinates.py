@@ -175,9 +175,15 @@ class TestTheEndpoint:
         assert client.get("/api/search", params={"q": "0, 0"}).status_code == 200
 
     def test_nonsense_answers_with_a_hint_rather_than_an_error(self, client) -> None:
+        """A word that is neither a coordinate nor anything in the archive.
+
+        The hint used to say searching pins and tracks was not built yet. It is
+        now, so it says what is searched instead - a stale hint is a small lie
+        that costs somebody a real attempt.
+        """
         body = client.get("/api/search", params={"q": "Vienna"}).json()
         assert body["results"] == []
-        assert "not built yet" in body["hint"]
+        assert "name" in body["hint"] and "year" in body["hint"]
 
     def test_a_reversed_pair_says_so(self, client) -> None:
         body = client.get("/api/search", params={"q": "120.5, 45.2"}).json()

@@ -11,6 +11,22 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.17.12] - 2026-08-20
+
+### Added
+- **Search your own pins and tracks.** Pins by title, tag, label, folder or category; tracks by name or by year. Results are a list with the reason each one matched — `Caorle` answers with the pin, then `Dörfl -> Caorle` and `Caorle -> Dörfl` — and picking one flies to a pin or frames a whole track. Arrow keys walk the list, Enter takes the highlighted one.
+- **Searching is read-only, so it needs no token.** Seeing where you have been is what the map already shows. Keeping a searched coordinate as a pin is the write, so that offer appears only when there is a token to make it with — the coordinate is still found, flown to and marked without one, with a line saying where to put the token rather than a button that fails when pressed.
+
+### Fixed
+- Tracks are grouped by name. One imported file becomes one event per gap in it — a single 827 km ride is 37 of them here — so an ungrouped answer would bury everything else. A track carries a bounding box and the map frames all of it, because the middle of a 400 km ride is a field.
+
+### Note
+Case folding is done in Python rather than in SQL. SQLite's `LIKE` and `lower()` fold ASCII only, so `dörfl` would never have found `Dörfl`, and in this archive most names carry an umlaut.
+
+**A track can only be searched by year, and the first version of this got it wrong.** It matched months against `created_at`, which is `datetime.now()` at ingest for every source — so it would have answered "you were there in August 2026" about a ride imported that month and taken years earlier. The activity's own date survives only as the year in `layers`. `2024-06` now explains that instead of guessing, while `2024-12` still matches the live tracks that are *named* after a timestamp.
+
+Geometry is read only for the results being returned. The first version computed every candidate track's bounding box while matching, which measured **27.8 MB a search** on this archive — cost set by how much has been walked rather than by what was asked for, which is the shape of the scan that made every render slow before 0.17.6. Names first, geometry for the twenty that survive: 18–61 ms.
+
 ## [0.17.11] - 2026-08-20
 
 ### Fixed

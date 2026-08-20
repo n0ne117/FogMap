@@ -18,7 +18,7 @@
 import { Marker, Popup } from 'maplibre-gl'
 import type { Map as MapLibreMap } from 'maplibre-gl'
 
-import { ApiError, apiGet, apiSend } from './api'
+import { ApiError, apiGet, apiSend, getToken } from './api'
 import { element } from './ui'
 
 /** Close enough to read a street, without throwing away a closer view. */
@@ -40,6 +40,8 @@ interface Found {
   detail: string
   lat: number
   lon: number
+  /** Present on a track: a track is a shape, so the map frames all of it. */
+  bounds?: [[number, number], [number, number]]
 }
 
 interface Answer {
@@ -52,6 +54,9 @@ export class Search {
   private readonly map: MapLibreMap
   private readonly onSaved: () => void
   private pin: Marker | undefined
+  private matches: Found[] = []
+  private active = 0
+  private searched = ''
 
   constructor(map: MapLibreMap, onSaved: () => void) {
     this.map = map
@@ -73,15 +78,35 @@ export class Search {
 
     bar.addEventListener('submit', (event) => {
       event.preventDefault()
+
+      // Enter on a list somebody has arrowed through means "that one", not
+      // "search again" - otherwise the highlight is decoration.
+      const chosen = this.matches[this.active]
+      if (chosen && input.value === this.searched) {
+        this.go(chosen)
+        return
+      }
       void this.run(input.value)
     })
 
-    // Escape closes it, which is what every search box on every machine does.
     input.addEventListener('keydown', (event) => {
-      if (event.key !== 'Escape') return
-      bar.hidden = true
-      toggle.setAttribute('aria-pressed', 'false')
-      this.reset()
+      // Escape closes it, which is what every search box on every machine does.
+      if (event.key === 'Escape') {
+        bar.hidden = true
+        toggle.setAttribute('aria-pressed', 'false')
+        this.reset()
+        return
+      }
+
+      // Arrows walk the matches. A list you can only click is a list that
+      // makes you take your hands off the keys mid-search.
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+      if (!this.matches.length) return
+      event.preventDefault()
+      const step = event.key === 'ArrowDown' ? 1 : -1
+      this.active =
+        (this.active + step + this.matches.length) % this.matches.length
+      this.paintResults()
     })
   }
 
@@ -102,18 +127,69 @@ export class Search {
       return
     }
 
+    this.matches = answer.results
+    this.active = 0
+    this.searched = query
+    this.paintResults()
+
     const found = answer.results[0]
     if (!found) {
       this.say(answer.hint || 'Nothing found.', true)
       return
     }
 
-    this.say(`${found.detail}: ${found.label}`)
+    // One answer needs no list to choose from; several do, and the first is
+    // taken so that Enter alone still gets somewhere.
+    this.say(answer.hint || `${found.detail}: ${found.label}`)
     this.go(found)
   }
 
+  /** The matches, when there is more than one to choose between. */
+  private paintResults(): void {
+    const list = element('search-results')
+    list.replaceChildren()
+    list.hidden = this.matches.length < 2
+    if (list.hidden) return
+
+    this.matches.forEach((found, index) => {
+      const row = document.createElement('li')
+      row.dataset.active = String(index === this.active)
+
+      const choose = document.createElement('button')
+      choose.type = 'button'
+
+      const name = document.createElement('span')
+      name.textContent = found.label
+      const detail = document.createElement('span')
+      detail.className = 'result-detail'
+      detail.textContent = found.detail
+
+      choose.append(name, detail)
+      choose.addEventListener('click', () => {
+        this.active = index
+        this.paintResults()
+        this.go(found)
+      })
+
+      row.append(choose)
+      list.append(row)
+    })
+  }
+
   private go(found: Found): void {
-    this.drop(found)
+    // A track gets framed rather than flown to: its middle is often nowhere
+    // near any of it, and arriving at the centre of a 400 km ride shows a field.
+    if (found.bounds) {
+      this.clearPin()
+      this.map.fitBounds(found.bounds, { padding: 60, duration: FLIGHT_MS })
+      return
+    }
+
+    // A pin is already on the map. Only a coordinate needs one dropping, and
+    // only a coordinate is worth offering to keep.
+    if (found.kind === 'coordinates') this.drop(found)
+    else this.clearPin()
+
     this.map.flyTo({
       center: [found.lon, found.lat],
       // Never zooms out. Somebody searching from street level wants that
@@ -150,6 +226,18 @@ export class Search {
     where.className = 'hint'
     where.textContent = found.label
     box.append(where)
+
+    // Saving is a write, and searching is not. Without a token the coordinate
+    // is still found, still flown to and still marked - what goes away is the
+    // offer to keep it, rather than a button that fails when pressed.
+    if (!getToken()) {
+      const locked = document.createElement('p')
+      locked.className = 'hint'
+      locked.textContent =
+        'Add the API token under Settings, Security to keep this as a pin.'
+      box.append(locked)
+      return box
+    }
 
     const name = document.createElement('input')
     name.type = 'text'
@@ -215,6 +303,10 @@ export class Search {
 
   private reset(): void {
     this.clearPin()
+    this.matches = []
+    this.active = 0
+    this.searched = ''
+    this.paintResults()
     this.say('')
   }
 
