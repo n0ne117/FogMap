@@ -11,6 +11,12 @@
   <body>
     <div id="map"></div>
 
+    <!-- Says so when a panel fails to wire itself up. One component throwing
+         used to take out every handler wired after it, silently: a stale id in
+         one place stopped the Import button reacting, with nothing on screen and
+         nothing in the interface to suggest why. -->
+    <p id="wiring-error" class="notice" data-state="bad" hidden></p>
+
     <!-- The brush footprint, at ground scale, following the cursor. -->
     <div id="draw-cursor" class="draw-cursor" hidden></div>
 

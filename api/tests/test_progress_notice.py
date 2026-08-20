@@ -101,3 +101,39 @@ class TestEverywhereElseThatPaintsProgress:
         assert "textContent" in text or "show(" in text, (
             f"{name} paints progress with nothing that ends it"
         )
+
+
+class TestWiringIsFaultIsolated:
+    """One panel failing must not take the rest of the page with it.
+
+    Reported as "a token is set, but the Import button does not react". The
+    wiring in start() ran in a straight line, so the first component to throw
+    took every handler after it - and the Import button is wired forty lines
+    below the search bar. Nothing appeared on screen; the console was the only
+    clue, and only if you thought to look.
+
+    Verified by breaking one id and reloading: the banner said "search", and the
+    Import button still worked.
+    """
+
+    def main_source(self) -> str:
+        return source("main.ts")
+
+    def test_every_component_is_wired_through_the_guard(self) -> None:
+        text = self.main_source()
+        bare = re.findall(r"\n  ([A-Za-z_]\w*)\.wire\(\)", text)
+        assert not bare, (
+            f"wired without the guard, so a throw here kills every handler "
+            f"after it: {', '.join(sorted(set(bare)))}. Use wirePart('name', "
+            "() => x.wire())."
+        )
+
+    def test_the_guard_exists_and_reports(self) -> None:
+        body = body_of(self.main_source(), "function wirePart(")
+        assert "catch" in body, "wirePart does not survive a failure"
+        assert "console.error" in body, "a silent failure is the original bug"
+        assert "wiring-error" in body, "nothing tells the person at the screen"
+
+    def test_something_is_actually_wired_through_it(self) -> None:
+        """A guard nothing uses would make the test above vacuous."""
+        assert self.main_source().count("wirePart(") > 5

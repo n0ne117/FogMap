@@ -11,6 +11,15 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.17.13] - 2026-08-20
+
+### Fixed
+- **One panel failing to start no longer takes the rest of the page with it.** The wiring in `start()` ran in a straight line, so the first component to throw took every handler after it — and the Import button is wired forty lines below the search bar. Nothing appeared on screen and nothing in the interface suggested why: a dead button, an enabled-looking dead button, with the browser console the only clue and only if you thought to look. Each component is now wired independently, and a failure names itself in a line at the top of the map: "Some of the interface could not start: search. The rest still works."
+- Verified by breaking one element id deliberately and reloading: the banner said `search`, and the Import button kept working. Guarded from Python, so a component added with a bare `.wire()` fails the suite rather than quietly restoring the cascade.
+
+### Note
+Raised as "a token is set, but the Import button does not react", on a freshly loaded page. It could not be reproduced here — handler attached and firing, button enabled and not inert, nothing overlaying it, no console errors, `index.html` served `no-cache` with immutable hashed assets and no service worker — so this release does not claim to fix that report. What it fixes is the reason the report had no diagnosis: the failure was silent, and a silent cascade is worth removing whether or not it was the cause.
+
 ## [0.17.12] - 2026-08-20
 
 ### Added

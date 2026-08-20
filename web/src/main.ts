@@ -350,6 +350,34 @@ function wireDrawing(
   return draw
 }
 
+/**
+ * Wire one part of the interface, and survive it failing.
+ *
+ * These calls used to run in a straight line, so the first one to throw took
+ * every handler after it with it - and threw nothing on screen. A stale element
+ * id in the search bar would leave the Import button inert-looking and
+ * unexplained, thirty lines further down, with the console the only clue.
+ *
+ * Reported exactly that way: "a token is set, but the Import button does not
+ * react". Whatever the cause turns out to be, one broken panel taking the rest
+ * of the page with it is a separate fault, and this is that fault.
+ */
+function wirePart(name: string, wire: () => void): void {
+  try {
+    wire()
+  } catch (error) {
+    console.error(`Irfaran: ${name} failed to wire up`, error)
+    const line = document.getElementById('wiring-error')
+    if (!line) return
+    const already = line.dataset.parts ? `${line.dataset.parts}, ` : ''
+    line.dataset.parts = `${already}${name}`
+    line.textContent =
+      `Some of the interface could not start: ${line.dataset.parts}. ` +
+      'The rest still works. The browser console has the detail.'
+    line.hidden = false
+  }
+}
+
 async function start(): Promise<void> {
   // Before anything reads a preference: the browser stored them all under the
   // old name until 0.10.0, and the API token is among them.
@@ -415,7 +443,7 @@ async function start(): Promise<void> {
     void timeline.load()
     void trails.refresh()
   })
-  progress.wire()
+  wirePart('progress', () => progress.wire())
 
   // The In progress panel polls only while it is on screen.
   wireTabs('tabs', (tab) => progress.watch(tab === 'progress'))
@@ -552,7 +580,7 @@ async function start(): Promise<void> {
     applyView(map, options)
     void timeline.load()
   })
-  places.wire()
+  wirePart('places', () => places.wire())
   void places.load()
 
   // Search drops a pin nobody has saved yet, so keeping one has to reach the
@@ -562,12 +590,12 @@ async function start(): Promise<void> {
     bustTileCache()
     applyView(map, options)
   })
-  search.wire()
+  wirePart('search', () => search.wire())
 
   // Labels are a setting, but the pins wear them, so changing one has to
   // reach the map.
   const labels = new Labels(() => void places.load())
-  labels.wire()
+  wirePart('labels', () => labels.wire())
   void labels.load()
 
   const sources = new Sources()
@@ -576,11 +604,11 @@ async function start(): Promise<void> {
   // Loaded when the tab is first opened rather than on startup: it is a page
   // nobody has looked at yet, and a query for it is a query for nothing.
   const people = new People(() => void places.load())
-  people.wire()
+  wirePart('people', () => people.wire())
   void people.load()
 
   const history = new History()
-  history.wire()
+  wirePart('history', () => history.wire())
   document
     .querySelector<HTMLButtonElement>('#tabs [data-tab="history"]')
     ?.addEventListener('click', () => void history.loadOnce())
@@ -591,7 +619,7 @@ async function start(): Promise<void> {
     void timeline.load()
     void trails.refresh()
   })
-  trackers.wire()
+  wirePart('trackers', () => trackers.wire())
   void trackers.load()
 
   wireTokenField(() => {
@@ -605,7 +633,7 @@ async function start(): Promise<void> {
     void timeline.load()
     void trails.refresh()
   })
-  imports.wire()
+  wirePart('imports', () => imports.wire())
 
   const backup = new Backup(() => {
     bustTileCache()
@@ -615,7 +643,7 @@ async function start(): Promise<void> {
     void places.load()
     void labels.load()
   })
-  backup.wire()
+  wirePart('backup', () => backup.wire())
 
   // A brand new instance is exactly where a backup is most useful, so the
   // setup screen offers it rather than making somebody find the tab first.
@@ -636,7 +664,7 @@ async function start(): Promise<void> {
     applyMapTheme(map, options)
     void timeline.load()
   })
-  setup.wire()
+  wirePart('setup', () => setup.wire())
   void setup.maybeShow()
 
   Object.assign(handle, {
