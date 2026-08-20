@@ -95,49 +95,89 @@ What is left:
 
 ### What a gazetteer would actually cost
 
-Read off the installed archive's own header rather than guessed at. The rest is
-an estimate, and marked as one.
+Read off the installed archive's own header rather than guessed at. Everything
+labelled an estimate is one.
 
-**What is in there.** 137.3 GB, z0 to z15, addressing all **1,431,655,765**
-tiles, of which **135,371,839** are distinct blobs - the other 90% are repeats,
-mostly empty ocean. Mean blob 1.0 KB. The `places` layer runs z1-z15 and carries
-`name`, `kind`, `kind_detail`, `population`, `population_rank`, `wikidata`, a
-`min_zoom` per feature, and around forty localised `name:xx` variants.
+**What is in there.** 137.3 GB, z0-z15, addressing **1,431,655,765** tiles of
+which **135,371,839 are distinct** - the rest are repeats, mostly empty ocean.
+Nine layers. Two of them carry names worth searching:
 
-**`min_zoom` is the field that makes this affordable.** Every label says the
-lowest zoom it appears at, and it then appears at every zoom above that. So a
-scan does not have to reach z15 to find cities - it has to reach the depth of the
-smallest thing worth finding:
-
-| scan | tiles | what it catches |
+| layer | zooms | holds |
 |---|---|---|
-| z0-z8 | 87,381 | countries, regions, cities |
-| z0-z10 | 1,398,101 | most towns and villages |
-| z0-z12 | 22,369,621 | hamlets, suburbs, localities |
-| z0-z15 | 1,431,655,765 | everything, and not viable here |
+| `places` | z1-z15 | countries, regions, cities, towns, villages, suburbs |
+| `pois` | z5-z15 | named things on the map: pubs, shops, stations, parks |
 
-**Processing, estimated.** Reading is not the problem: 1.4M tiles at a few KB is
-single-digit GB, minutes of I/O. Decoding is - each tile is gzipped protobuf, and
-in Python that is perhaps 0.5-2 ms a tile. So z0-z10 is roughly **20-45 minutes
-on one core**, or **4-8 minutes across seven**, and z0-z12 is sixteen times that:
-an overnight job. The T490 can do the first comfortably.
+Both carry `name`, `kind`, `kind_detail` and a **`min_zoom` per feature**, and a
+label appears at every zoom above its own minimum. That one field decides the
+whole cost, because it says how deep a scan has to go to find a given thing.
 
-**Storage, estimated.** OSM has roughly 4-5 million named place nodes worldwide
-and the `places` layer is a filtered subset, so call it 2-4 million rows. A row
-is a name, a position, a kind and a population - about 70 bytes with SQLite
-overhead - and an FTS5 index over the names adds roughly its own size again.
-**250-400 MB**, against a 137 GB basemap: about a quarter of one per cent.
+**The distinct-blob count is the real bound.** A scan reads blobs, not addresses,
+so even "every zoom" is 135 million tiles rather than 1.4 billion.
 
-**The thing that would blow that up** is keeping the localised names. There are
-forty-odd `name:xx` fields per feature, and taking them all multiplies both the
-table and the index by an order of magnitude. One name plus the English one is
-the version to build.
+**Two features, not one.** They cost different orders of magnitude and should be
+built and switched on separately:
 
-**And a new dependency.** Nothing here can currently read a vector tile - no
-protobuf, no MVT parser, in either image. That is a real cost in a project that
-has kept its dependency list short on purpose, and it would be needed only for
-the one-off build, not at runtime. A build script that runs outside the images
-would keep the images clean.
+*Settlements.* `places`, min_zoom 10 and below: **1,398,101 tiles**, minutes
+across seven cores, an estimated 250-400 MB of SQLite. This is the half that
+answers "Ferrara".
+
+*Points of interest.* `pois` down to z15, because a pub's `min_zoom` is 14 or 15:
+**135,371,839 distinct blobs, 137 GB read**. At 0.5-2 ms a tile that is
+**2.7-10.7 hours across seven cores** - an overnight job, not a coffee break, and
+dominated by decoding rather than by disk. Storage is a guess until somebody
+counts the features: tens of millions of rows, so single-digit GB. This is the
+half that answers "the Irish pub on Gumpendorferstraße", and only if OSM has it
+tagged and Protomaps kept it - the layer is a curated subset, not all of OSM.
+
+**Measure before building either.** The one number that would turn all of this
+into arithmetic is how many features those two layers actually contain, and
+getting it needs the MVT reader anyway. So the first piece of work is a throwaway
+script that samples a few thousand tiles across the zooms and counts. A day of
+guessing avoided for an hour of reading.
+
+**No dependency.** Nothing here can read a vector tile, and it should stay that
+way: only points from two layers are wanted, and MVT point geometry is command
+integers and zigzag varints over protobuf wire format - about two hundred lines,
+in the same spirit as the hand-written Plus Code decoder and the hand-drawn
+icons. Shipping protobuf into the API image permanently, for a feature most
+installs will never switch on, is the worse trade.
+
+**Localised names would blow up the size.** There are forty-odd `name:xx` fields
+per feature. Build one name plus English.
+
+### If the basemap is replaced
+
+The gazetteer is derived, so a new planet build means extracting again - the same
+cost as the first time, with no useful shortcut. PMTiles archives do not diff,
+and finding what changed would mean reading all 135 million blobs, which is the
+rebuild.
+
+That is fine if it is designed for from the start:
+
+- **Build beside the old one and swap at the end.** The existing gazetteer keeps
+  answering while the new one is built, and a build that fails or is stopped
+  leaves a working index rather than a hole.
+- **Record which archive it came from** - filename, date, size. Without it a
+  gazetteer silently goes stale and starts offering places that have moved, and
+  there is no way to tell whether a rebuild is owed.
+- Re-downloading 137 GB dwarfs the rebuild either way.
+
+### Not blocking the person using it
+
+A build runs for hours and must never be the reason an edit waits. The rule is
+the opposite of locking: **manual work wins, the build yields.** Imports,
+drawing, pin edits and the automatic sources all trigger renders, and a render
+and a scan competing for eight cores means both crawl.
+
+`renderq` already has every piece of this - a stop flag, finished work written
+down so a resume does not repeat it, and a state anyone can poll - so the
+gazetteer worker copies that pattern rather than inventing one. One background
+worker at a time, renders first, the scan pausing and resuming on its own.
+
+And its progress belongs on **In progress**, with the controls on the Search
+page. Two views of the same work drift apart: that is exactly how an import came
+to sit at 100% after it had finished, and how a drawing bar stuck at three
+quarters.
 
 **A limit worth knowing before extending this.** A track can only be searched by
 year, because the year is the only date stored: `created_at` on an event is

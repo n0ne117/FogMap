@@ -11,6 +11,16 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.17.18] - 2026-08-20
+
+### Changed
+- **Search has its own settings page**, between Places and Backup. The five toggles moved out of Appearance, where they never belonged, and the page has room for what searching grows into. It also says plainly that searching the basemap for a place name is not built, and why.
+
+### Note
+Costed the offline gazetteer against the installed archive rather than guessing, and found the thing that changes its shape: the basemap has a **`pois` layer** as well as `places`, so a pub is reachable in principle and not only a town. They sit at different depths, which makes them two features rather than one — settlements at `min_zoom` 10 and below are **1,398,101 tiles**, minutes of work; points of interest reach to z15 and mean reading all **135,371,839 distinct blobs**, 137 GB, an estimated 2.7–10.7 hours across seven cores. Better than it sounds, because a scan reads distinct blobs and there are 135 million of those against 1.43 billion addresses — the rest is repeated empty ocean.
+
+Also written down, before any of it is built: a replaced basemap means a full re-extraction with no useful shortcut, so a build has to happen beside the running index and swap at the end, and record which archive it came from or it silently goes stale. And the priority rule is the opposite of locking — manual work wins and the scan yields, reusing the stop-and-resume machinery the render queue already has. Progress on In progress, controls on the Search page: two views of the same work drift, which is how an import came to sit at 100% after finishing.
+
 ## [0.17.17] - 2026-08-20
 
 ### Added

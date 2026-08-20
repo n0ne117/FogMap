@@ -194,6 +194,7 @@
         <button type="button" role="tab" data-tab="appearance" aria-selected="true">Appearance</button>
         <button type="button" role="tab" data-tab="draw" aria-selected="false">Draw</button>
         <button type="button" role="tab" data-tab="places" aria-selected="false">Places</button>
+        <button type="button" role="tab" data-tab="search" aria-selected="false">Search</button>
         <button type="button" role="tab" data-tab="backup" aria-selected="false">Backup</button>
         <button type="button" role="tab" data-tab="import" aria-selected="false">Import</button>
         <button type="button" role="tab" data-tab="sources" aria-selected="false">Data sources</button>
@@ -333,38 +334,6 @@
           </section>
 
           <section>
-            <h2>Search</h2>
-            <p class="hint">
-              What the magnifying glass looks through. Unticking something
-              removes it from the results rather than hiding it on the map.
-            </p>
-            <label class="check">
-              <input id="search-pins" type="checkbox" checked />
-              <span>Pins — by title, tag, label, folder or who was there</span>
-            </label>
-            <label class="check">
-              <input id="search-tracks" type="checkbox" />
-              <span>Tracks — by name, or by the year they belong to</span>
-            </label>
-            <label class="check">
-              <input id="search-coordinates" type="checkbox" checked />
-              <span>Coordinates — pasted, in decimal degrees or DMS</span>
-            </label>
-            <label class="check">
-              <input id="search-plus-codes" type="checkbox" />
-              <span>Plus Codes — a full one, like <code>8FVC9G8F+6W</code></span>
-            </label>
-            <label class="check">
-              <input id="search-plus-codes-short" type="checkbox" />
-              <span>
-                Short Plus Codes — like <code>9G8F+6W</code>, resolved from
-                where the map is looking, so only right within about 50 km of it
-              </span>
-            </label>
-            <p id="search-settings-status" class="notice" hidden></p>
-          </section>
-
-          <section>
             <h2>Borders</h2>
             <label class="check">
               <input id="show-borders" type="checkbox" checked />
@@ -457,6 +426,53 @@
               <button id="person-add" type="button" class="primary">Add</button>
             </div>
             <p id="person-message" class="status-line" hidden></p>
+          </section>
+        </div>
+
+        <div class="tab-panel" data-tab="search" hidden>
+          <section>
+            <h2>What is searched</h2>
+            <p class="hint">
+              What the magnifying glass beside the settings button looks through.
+              Unticking something removes it from the results rather than hiding
+              it on the map. Searching reads and never writes, so none of it
+              needs the API token — keeping a found coordinate as a pin does.
+            </p>
+            <label class="check">
+              <input id="search-pins" type="checkbox" checked />
+              <span>Pins — by title, tag, label, folder or who was there</span>
+            </label>
+            <label class="check">
+              <input id="search-tracks" type="checkbox" />
+              <span>Tracks — by name, or by the year they belong to</span>
+            </label>
+            <label class="check">
+              <input id="search-coordinates" type="checkbox" checked />
+              <span>Coordinates — pasted, in decimal degrees or DMS</span>
+            </label>
+            <label class="check">
+              <input id="search-plus-codes" type="checkbox" />
+              <span>Plus Codes — a full one, like <code>8FVC9G8F+6W</code></span>
+            </label>
+            <label class="check">
+              <input id="search-plus-codes-short" type="checkbox" />
+              <span>
+                Short Plus Codes — like <code>9G8F+6W</code>, resolved from
+                where the map is looking, so only right within about 50 km of it
+              </span>
+            </label>
+            <p id="search-settings-status" class="notice" hidden></p>
+          </section>
+
+          <section>
+            <h2>Place names</h2>
+            <p class="hint">
+              Searching the basemap for a place name is not built. The archive
+              holds rendered tiles rather than an index, so a name exists in it
+              as something to draw at a zoom — answering "where is Vienna" means
+              extracting those names into a list first. What that would cost is
+              written down in <code>IDEAS.md</code>; nothing here does it yet.
+            </p>
           </section>
         </div>
 
