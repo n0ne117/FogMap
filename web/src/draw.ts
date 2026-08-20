@@ -369,11 +369,11 @@ export class Draw {
         layers: op === 'erase' ? undefined : this.layerList(),
       })
       this.undoStack.push(saved.id)
-      this.onStatus(
+      const summary =
         `${VERB[op]} ${thinned.length} ${closes ? 'corners' : 'points'} ` +
-          `into ${saved.layers.join(', ')}`,
-      )
-      await this.followTheRender()
+        `into ${saved.layers.join(', ')}`
+      this.onStatus(summary)
+      await this.followTheRender(summary)
       this.onSaved()
     } catch (error) {
       const message = error instanceof ApiError ? error.message : String(error)
@@ -392,12 +392,25 @@ export class Draw {
    * connection, a closed tab - costs the preview and nothing else. The render
    * belongs to the server and the In progress panel can pick it up from here.
    */
-  private async followTheRender(): Promise<void> {
-    await watchRender((state) => {
+  private async followTheRender(summary: string): Promise<void> {
+    const finished = await watchRender((state) => {
       if (state.state === 'running' || state.state === 'stopping') {
         this.onProgress(state.done, state.total)
       }
     })
+
+    // Put the notice back into a state that ends, which is the whole reason
+    // `summary` is passed in. Painting a progress bar cancels the timer that
+    // hides a message, and the callback above deliberately ignores the final
+    // poll - so without this the bar was left sitting wherever the last running
+    // poll happened to find it. Reported after a run of reveal strokes: fog
+    // cleared, points drawn, and a bar stuck at three quarters for good.
+    this.onStatus(
+      finished === null
+        ? `${summary}. Still drawing on the server — Settings, In progress ` +
+          'shows where it got to.'
+        : summary,
+    )
   }
 
   private layerList(): string[] | undefined {
@@ -428,12 +441,13 @@ export class Draw {
       }
 
       await apiSend('DELETE', `/api/events/${id}`)
-      this.onStatus(`Undid stroke ${id}`)
+      const summary = `Undid stroke ${id}`
+      this.onStatus(summary)
       // Removing the event is instant; putting the fog back is a render, and
       // it is deferred to the queue exactly like the drawing was. Without
       // waiting, the map is refreshed against tiles that still show the stroke
       // and undo looks as though it did nothing.
-      await this.followTheRender()
+      await this.followTheRender(summary)
     } catch (error) {
       const message = error instanceof ApiError ? error.message : String(error)
       this.onStatus(message, true)

@@ -11,6 +11,17 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.17.11] - 2026-08-20
+
+### Fixed
+- **The progress bar above the time bar could be left stuck part way.** Reported after a run of reveal strokes: the fog was cleared, every point was drawn, and the bar sat at about three quarters indefinitely. Only the readout was wrong — the strokes, the fog and the render had all finished.
+- `show()` sets a timer that hides a good-news message after four seconds; `progress()` cancels that timer, deliberately, because a bar that vanishes mid-render is worse than one that sits there. So whoever paints progress owns putting the notice back — and the watcher callback ignores the final poll on purpose, since there is no progress to report once a render is done. Nothing was left to clear the bar, so it stayed wherever the last running poll had found it. Drawing and undo now both end on their summary line, which clears itself; if the watcher loses track instead, it says so and points at Settings, In progress, rather than leaving a stuck bar by another route.
+
+### Note
+Guarded from Python, the way `test_markup.py` guards element ids, because there is no test runner for the TypeScript: removing the fix fails two tests in `test_progress_notice.py`. It also pins the two `notice()` behaviours the fix depends on, so if `progress()` ever stops cancelling that timer the reason this code exists stays visible.
+
+The mechanism was reproduced rather than assumed, by running `notice()`'s own timer logic on a scratch element: without the fix the notice was still visible long after the timer should have hidden it, reading `74/100` and "Drawing…"; with it, hidden.
+
 ## [0.17.10] - 2026-08-20
 
 ### Added
