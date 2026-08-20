@@ -191,9 +191,11 @@ export class Imports {
       return
     }
 
-    // Newest first, and only the last handful - a thousand-file import should
-    // not grow a thousand-row list.
-    for (const outcome of outcomes.slice(-6).reverse()) {
+    // Newest first, and all of them. This used to keep the last six, which on a
+    // seventy-file drop hid most of what happened - and the reason for the cap,
+    // that a long list would grow past the panel, is now handled by the panel
+    // scrolling instead.
+    for (const outcome of [...outcomes].reverse()) {
       const row = document.createElement('div')
       row.className = 'import-row'
       row.dataset.state = outcome.ok ? 'good' : 'bad'

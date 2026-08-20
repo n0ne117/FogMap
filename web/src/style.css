@@ -1197,11 +1197,44 @@ button:disabled {
 
 /* ------------------------------------------------------------------ imports */
 
+/* The log of what was imported. It used to show the last six and stop, which
+   on a seventy-file drop meant most of the answer was thrown away. It now takes
+   whatever room is left down to the bottom of the sheet and scrolls past that.
+
+   `min-height: 0` is what lets it shrink rather than pushing the section out of
+   the panel, and the floor keeps a few rows visible on a short window instead of
+   collapsing to nothing. */
 .import-log {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 0.2rem;
+  min-height: 0;
   margin-top: 0.6rem;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+/* Before the first import there is nothing to show, so the section stays the
+   size of its controls rather than reserving a screen of blank space. */
+.import-log:empty {
+  flex: 0 0 auto;
+  margin-top: 0;
+}
+
+/* Only this tab stretches: the others are cards that end where their content
+   does, and making them full height would strand their headings at the top of
+   an empty box. */
+.tab-panel[data-tab='import'] {
+  height: 100%;
+  align-items: stretch;
+}
+
+.tab-panel[data-tab='import'] > section {
+  display: flex;
+  flex-direction: column;
+  min-height: 12rem;
+  max-height: 100%;
 }
 
 .import-row {

@@ -1,5 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""A progress bar has to be put away by whoever painted it.
+"""Guards for client behaviour that has no test runner of its own.
+
+The TypeScript has no test runner here, and the failures it has produced are the
+invisible kind: a progress bar left painted, a panel silently taking the rest of
+the page down with it, a list quietly showing six of seventy. These read the
+source, the way test_markup.py reads it for element ids - worth more than no
+guard at all for faults nobody sees until they are using the thing.
+
+A progress bar has to be put away by whoever painted it.
 
 Reported after a run of reveal strokes: the fog was cleared, every point was
 drawn, and the bar above the time bar stayed at about three quarters for good.
@@ -137,3 +145,52 @@ class TestWiringIsFaultIsolated:
     def test_something_is_actually_wired_through_it(self) -> None:
         """A guard nothing uses would make the test above vacuous."""
         assert self.main_source().count("wirePart(") > 5
+
+
+class TestTheImportLog:
+    """It shows what fitted, and scrolls for the rest.
+
+    It used to keep the last six outcomes, which on a seventy-file drop threw
+    away most of the answer. The cap existed so a long list would not grow past
+    the panel; the panel scrolling is the better answer to that, and it took
+    measuring at three window heights - 4 rows at 560px, 13 at 800, 24 at 1100 -
+    to know the layout actually yields.
+    """
+
+    def test_no_fixed_number_of_rows_is_kept(self) -> None:
+        text = source("imports.ts")
+        body = body_of(text, "private report(")
+        capped = re.search(r"slice\(\s*-\s*\d+\s*\)", body)
+        assert capped is None, (
+            f"the import log is capped again at {capped.group(0)}, so most of a "
+            "large import is thrown away rather than scrolled"
+        )
+
+    def test_the_log_scrolls_and_can_shrink(self) -> None:
+        """Without min-height: 0 it pushes the section out instead of scrolling."""
+        css = source("style.css")
+        block = css[css.index(".import-log {") : css.index(".import-log:empty")]
+        assert "overflow-y: auto" in block
+        assert "min-height: 0" in block
+        assert "flex: 1 1 auto" in block
+
+    def test_an_empty_log_takes_no_room(self) -> None:
+        """Before the first import, the section should not reserve a screenful."""
+        assert ".import-log:empty" in source("style.css")
+
+    def test_only_the_import_tab_is_stretched(self) -> None:
+        """The other tabs are cards that end where their content does."""
+        css = source("style.css")
+        assert ".tab-panel[data-tab='import']" in css
+        # `\n  height` rather than `height`, or max-height on the section
+        # inside the same block counts as a second stretched tab.
+        stretched = sorted(
+            set(re.findall(r"\.tab-panel\[data-tab='(\w+)'\][^{]*\{[^}]*\n  height: 100%", css))
+        )
+        assert stretched == ["import"], f"stretched tabs: {stretched}"
+
+    def test_the_section_keeps_a_floor(self) -> None:
+        """On a short window the log must not collapse to nothing."""
+        css = source("style.css")
+        block = css[css.index(".tab-panel[data-tab='import'] > section") :]
+        assert "min-height" in block[:400]

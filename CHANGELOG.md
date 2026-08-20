@@ -11,6 +11,13 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.17.14] - 2026-08-20
+
+### Changed
+- **The import log lists every file, and fills the panel.** It kept the last six outcomes, which on a seventy-file drop threw away most of the answer. It now takes whatever room is left down to the bottom of the settings sheet and scrolls past that: measured at **4 rows on a 560 px window, 13 at 800, 24 at 1100**, where it was six regardless.
+- The cap existed so a long list would not grow past the panel. The panel scrolling is the better answer to that, and the log can shrink rather than pushing its own controls off screen — checked at 560 px, where "Choose files" stays visible.
+- Before the first import the section stays the size of its controls rather than reserving a screenful of blank space, and only the import tab is stretched: the other tabs are cards that end where their content does.
+
 ## [0.17.13] - 2026-08-20
 
 ### Fixed
