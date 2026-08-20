@@ -43,6 +43,9 @@ PORTABLE_SETTINGS = frozenset(
         "trail_ramp",
         "fog_colour_dark",
         "fog_colour_light",
+        "search_pins",
+        "search_tracks",
+        "search_coordinates",
     }
 )
 

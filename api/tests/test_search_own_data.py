@@ -32,6 +32,20 @@ def conn(monkeypatch, tmp_path):
     monkeypatch.setenv("IRFARAN_TOKEN", TOKEN)
     monkeypatch.setenv("IRFARAN_DATA_DIR", str(tmp_path / "search"))
     connection = db.open_initialised()
+
+    # Everything switched on, because these are about what searching finds
+    # rather than about what is switched on by default. Tracks ship off - a name
+    # search otherwise answers mostly with track segments - and that default has
+    # its own tests in test_search_settings.py. Leaving it to apply here made
+    # five track tests fail for a reason that had nothing to do with them.
+    with db.transaction(connection):
+        for key in ("search_pins", "search_tracks", "search_coordinates"):
+            connection.execute(
+                "INSERT INTO settings (key, value) VALUES (?, 'true') "
+                "ON CONFLICT(key) DO UPDATE SET value = 'true'",
+                (key,),
+            )
+
     yield connection
     connection.close()
 

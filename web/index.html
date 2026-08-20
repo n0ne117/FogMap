@@ -333,6 +333,27 @@
           </section>
 
           <section>
+            <h2>Search</h2>
+            <p class="hint">
+              What the magnifying glass looks through. Unticking something
+              removes it from the results rather than hiding it on the map.
+            </p>
+            <label class="check">
+              <input id="search-pins" type="checkbox" checked />
+              <span>Pins — by title, tag, label, folder or who was there</span>
+            </label>
+            <label class="check">
+              <input id="search-tracks" type="checkbox" />
+              <span>Tracks — by name, or by the year they belong to</span>
+            </label>
+            <label class="check">
+              <input id="search-coordinates" type="checkbox" checked />
+              <span>Coordinates — pasted, in decimal degrees or DMS</span>
+            </label>
+            <p id="search-settings-status" class="notice" hidden></p>
+          </section>
+
+          <section>
             <h2>Borders</h2>
             <label class="check">
               <input id="show-borders" type="checkbox" checked />

@@ -362,6 +362,58 @@ function wireDrawing(
  * react". Whatever the cause turns out to be, one broken panel taking the rest
  * of the page with it is a separate fault, and this is that fault.
  */
+/**
+ * Which kinds of thing the search bar looks through.
+ *
+ * Server settings rather than browser ones, because the filtering happens where
+ * the searching happens - and because a preference about your own archive
+ * belongs to the archive rather than to whichever browser you last used.
+ *
+ * Tracks are off to begin with: a name search otherwise answers mostly with
+ * track segments. Coordinates are on, which is a deliberate exception to "pins
+ * only" - pasting a coordinate reads what was typed rather than searching
+ * anything stored, so defaulting it off would remove a working feature instead
+ * of quietening a noisy one.
+ */
+function wireSearchSettings(): void {
+  const status = notice('search-settings-status')
+  const boxes: Record<string, HTMLInputElement> = {
+    search_pins: element<HTMLInputElement>('search-pins'),
+    search_tracks: element<HTMLInputElement>('search-tracks'),
+    search_coordinates: element<HTMLInputElement>('search-coordinates'),
+  }
+
+  for (const [key, box] of Object.entries(boxes)) {
+    box.addEventListener('change', () => {
+      void apiSend('PATCH', '/api/settings', { [key]: String(box.checked) })
+        .then(() => status.show(''))
+        .catch((error: unknown) => {
+          // Put it back: nothing changed on the server, so nothing should look
+          // as though it did.
+          box.checked = !box.checked
+          status.show(
+            error instanceof ApiError ? error.message : String(error),
+            true,
+          )
+        })
+    })
+  }
+
+  void apiGet<{ settings: Record<string, string> }>('/api/settings')
+    .then((body) => {
+      const stored = body.settings ?? {}
+      const fallback: Record<string, string> = {
+        search_pins: 'true',
+        search_tracks: 'false',
+        search_coordinates: 'true',
+      }
+      for (const [key, box] of Object.entries(boxes)) {
+        box.checked = (stored[key] ?? fallback[key]) === 'true'
+      }
+    })
+    .catch(() => {})
+}
+
 function wirePart(name: string, wire: () => void): void {
   try {
     wire()
@@ -513,6 +565,8 @@ async function start(): Promise<void> {
   const trailPopups = element<HTMLInputElement>('trail-popups')
   trailPopups.checked = getTrailPopups()
   trailPopups.addEventListener('change', () => setTrailPopups(trailPopups.checked))
+
+  wireSearchSettings()
 
   const borders = element<HTMLInputElement>('show-borders')
   borders.checked = getBordersVisible()

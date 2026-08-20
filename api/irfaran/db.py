@@ -197,6 +197,18 @@ DEFAULT_SETTINGS = {
     "intervals_enabled": "false",
     "ui_theme": "system",
     "map_theme": "dark",
+    # What the search bar looks through. Pins on, tracks off: a name search
+    # otherwise answers mostly with track segments, which is what asking for
+    # these settings was about.
+    #
+    # Coordinates on, deliberately against "pins only". Pasting a coordinate is
+    # not a search of anything stored - it is reading what was typed - so
+    # switching it off by default would silently remove a working feature rather
+    # than narrow a noisy one. It is a toggle like the others for anyone who
+    # disagrees.
+    "search_pins": "true",
+    "search_tracks": "false",
+    "search_coordinates": "true",
 }
 
 

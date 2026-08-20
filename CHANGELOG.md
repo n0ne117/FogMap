@@ -11,6 +11,20 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.17.16] - 2026-08-20
+
+### Added
+- **Search settings, under Settings, Appearance.** A toggle for each kind of thing the bar looks through — pins, tracks, coordinates — where unticking one removes it from the results rather than hiding it on the map. **Tracks start off**: a name search otherwise answers mostly with track segments, which is what asking for these settings was about.
+- Server settings rather than browser ones, because the filtering happens where the searching happens, and a preference about your own archive belongs to the archive rather than to whichever browser you last used. They travel with an export, like the theme and the fog colour.
+- **An excluded kind says so.** Searching a track name with tracks switched off answers "Nothing here matches 'miramare'. Tracks are switched off under Settings, Appearance." Otherwise something plainly visible on the map is unfindable for no stated reason.
+
+### Note
+**Coordinates default to on, which is a deliberate exception to "pins only".** Pasting a coordinate is not a search of anything stored — it reads what was typed — so defaulting it off would silently remove a working feature rather than quieten a noisy one. It is a toggle like the others for anyone who disagrees.
+
+Absent settings read as those defaults rather than as everything switched off, so a database from before they existed behaves like a fresh one. Pinned by a test, because the alternative is an upgrade that quietly disables search.
+
+Six tests broke on the new default, and the two fixes were different problems. Five test what searching *finds*, so their fixture now switches every kind on and the default is tested in one place. The sixth asserted the exact wording of the "nothing found" hint — wording that has now changed three times as the feature grew, each version true when written. It asserts the property instead: an empty answer explains itself. A test pinned to a sentence breaks whenever the sentence improves, which teaches you to edit tests rather than read them.
+
 ## [0.17.15] - 2026-08-20
 
 ### Added

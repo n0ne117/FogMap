@@ -177,13 +177,16 @@ class TestTheEndpoint:
     def test_nonsense_answers_with_a_hint_rather_than_an_error(self, client) -> None:
         """A word that is neither a coordinate nor anything in the archive.
 
-        The hint used to say searching pins and tracks was not built yet. It is
-        now, so it says what is searched instead - a stale hint is a small lie
-        that costs somebody a real attempt.
+        The hint has changed twice as the feature grew - it once said searching
+        pins and tracks was not built yet, then said what is searched, and on a
+        fresh database now says that tracks are switched off. All three were
+        true when written, so this asserts the property rather than the wording:
+        an empty answer explains itself.
         """
         body = client.get("/api/search", params={"q": "Vienna"}).json()
         assert body["results"] == []
-        assert "name" in body["hint"] and "year" in body["hint"]
+        assert body["hint"], "an empty answer with no explanation is a dead end"
+        assert "Settings" in body["hint"] or "searched by" in body["hint"]
 
     def test_a_reversed_pair_says_so(self, client) -> None:
         body = client.get("/api/search", params={"q": "120.5, 45.2"}).json()

@@ -56,6 +56,33 @@ _DMS = re.compile(
 LAT_LIMIT = 90.0
 LON_LIMIT = 180.0
 
+#: What the bar is allowed to look through, and what each is called on screen.
+KINDS = {
+    "pins": "search_pins",
+    "tracks": "search_tracks",
+    "coordinates": "search_coordinates",
+}
+
+
+def included(conn: sqlite3.Connection) -> dict[str, bool]:
+    """Which kinds of result are switched on.
+
+    Absent means on for pins and coordinates and off for tracks, matching the
+    seeded defaults - a database from before these settings existed should
+    behave like a fresh one rather than like everything switched off.
+    """
+    stored = {
+        str(row["key"]): str(row["value"]).strip().lower()
+        for row in conn.execute(
+            "SELECT key, value FROM settings WHERE key LIKE 'search\\_%' ESCAPE '\\'"
+        )
+    }
+    fallback = {"pins": True, "tracks": False, "coordinates": True}
+    return {
+        kind: stored.get(key, str(fallback[kind]).lower()) == "true"
+        for kind, key in KINDS.items()
+    }
+
 
 class Ambiguous(ValueError):
     """A pair that reads as a coordinate but not in the order it was written."""
@@ -405,21 +432,36 @@ def search(conn: sqlite3.Connection, query: str) -> dict[str, object]:
     if not text:
         return {"query": text, "results": [], "hint": ""}
 
-    try:
-        found = parse_coordinates(text)
-    except Ambiguous as exc:
-        return {"query": text, "results": [], "hint": str(exc)}
+    on = included(conn)
 
-    if found is not None:
-        return {"query": text, "results": [coordinate_result(*found)], "hint": ""}
+    if on["coordinates"]:
+        try:
+            found = parse_coordinates(text)
+        except Ambiguous as exc:
+            return {"query": text, "results": [], "hint": str(exc)}
 
-    pins = _pins(conn, text)
-    tracks, track_total = _tracks(conn, text)
+        if found is not None:
+            return {"query": text, "results": [coordinate_result(*found)], "hint": ""}
+
+    pins = _pins(conn, text) if on["pins"] else []
+    tracks, track_total = _tracks(conn, text) if on["tracks"] else ([], 0)
     results = [*pins, *tracks]
     total = len(pins) + track_total
 
+    # Nothing found and something switched off is not the same as nothing to
+    # find. Saying which, rather than leaving somebody to wonder why a track
+    # they can see on the map cannot be searched for.
+    excluded = [kind for kind, allowed in on.items() if not allowed]
+
     hint = ""
-    if not results and _FINER.match(text):
+    if not results and excluded:
+        hint = (
+            f"Nothing here matches {text!r}. "
+            f"{' and '.join(kind.capitalize() for kind in excluded)} "
+            # Always "are": every one of these names is a plural.
+            "are switched off under Settings, Appearance."
+        )
+    elif not results and _FINER.match(text):
         hint = (
             f"Nothing matches {text!r}. Only the year of a track is recorded, "
             f"so try {text[:4]} - the rest of a date is not kept, because what "
