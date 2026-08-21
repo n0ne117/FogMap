@@ -11,6 +11,20 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.17.21] - 2026-08-21
+
+### Changed
+- **The Search page says less.** The per-item descriptions are gone from "what is searched" — Pins, Tracks, Coordinates, Place names, Points of interest need no explaining, and only Plus Codes keeps an example in brackets.
+- **One switch for Plus Codes instead of two.** A short code is resolved from wherever the map is looking, and that argued for its own toggle — but "use where I am looking" is what the search bar's own switch says, and saying it in two places is one too many. Both forms now work under the single setting; the recovered full code in the answer is still what makes a wrong resolution visible.
+- **Each index reports its size on disk**: about 123 MB for a million place names, about 3.0 GB for 33 million points of interest. Approximate, and labelled so, because the two kinds share one table and the total is split by row count.
+- **A basemap search cannot be switched on before its index exists.** Both toggles ship disabled and are enabled only when something has been read out of the archive, with a tooltip saying so — rather than a switch that turns on and quietly finds nothing.
+
+### Fixed
+- **The gazetteer status endpoint stopped answering.** The first attempt at reporting size asked `dbstat`, which reports real disk usage by walking every page of every table — over two minutes on a three gigabyte index, on an endpoint the settings page polls once a second. It is now measured once when a build finishes and written down: the endpoint went from not answering at all to **0.04 s**. `POST /api/gazetteer/measure` fills the figure in for indexes built before it existed.
+
+### Note
+That was the same mistake as the render status recomputing its job count on every poll, made one file away from the comment warning about it — so it now has a test rather than a comment. Using SQLite's trace callback, the status endpoint is asserted never to issue a `dbstat` query, which fails the moment somebody reaches for a page-walking query in a polled path.
+
 ## [0.17.20] - 2026-08-21
 
 ### Added

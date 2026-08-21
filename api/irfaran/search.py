@@ -64,7 +64,6 @@ KINDS = {
     "tracks": "search_tracks",
     "coordinates": "search_coordinates",
     "plus_codes": "search_plus_codes",
-    "plus_codes_short": "search_plus_codes_short",
     "place_names": "search_place_names",
     "pois": "search_pois",
 }
@@ -75,7 +74,6 @@ NAMES = {
     "tracks": "Tracks",
     "coordinates": "Coordinates",
     "plus_codes": "Plus Codes",
-    "plus_codes_short": "Short Plus Codes",
     "place_names": "Place names",
     "pois": "Points of interest",
 }
@@ -85,7 +83,6 @@ DEFAULTS = {
     "tracks": False,
     "coordinates": True,
     "plus_codes": False,
-    "plus_codes_short": False,
     "place_names": False,
     "pois": False,
 }
@@ -481,8 +478,13 @@ def _plus_code(
     if not pluscode.is_short(text):
         return None
 
-    if not on["plus_codes_short"]:
-        return {"hint": _switched_off("plus_codes_short")}
+    # One setting for both forms. A short code was its own toggle because it is
+    # resolved from wherever the map is looking and so can be confidently wrong -
+    # but "use where I am looking" is what the search bar's own switch says, and
+    # saying it twice in two places is one place too many. The recovered full
+    # code in the answer is what makes a wrong resolution visible.
+    if not on["plus_codes"]:
+        return {"hint": _switched_off("plus_codes")}
     if reference is None:
         return {
             "hint": (
@@ -511,14 +513,7 @@ def _within(hit: dict[str, object], box: tuple[float, float, float, float]) -> b
 
 
 def _switched_off(kind: str) -> str:
-    return (
-        f"{NAMES[kind]} are switched off under Settings, Search, so "
-        f"{text_for(kind)} is not being read."
-    )
-
-
-def text_for(kind: str) -> str:
-    return "a short Plus Code" if kind == "plus_codes_short" else "that"
+    return f"{NAMES[kind]} are switched off under Settings, Search."
 
 
 def search(

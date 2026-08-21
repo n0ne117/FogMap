@@ -449,39 +449,29 @@
             </p>
             <label class="check">
               <input id="search-pins" type="checkbox" checked />
-              <span>Pins — by title, tag, label, folder or who was there</span>
+              <span>Pins</span>
             </label>
             <label class="check">
               <input id="search-tracks" type="checkbox" />
-              <span>Tracks — by name, or by the year they belong to</span>
+              <span>Tracks</span>
             </label>
             <label class="check">
               <input id="search-coordinates" type="checkbox" checked />
-              <span>Coordinates — pasted, in decimal degrees or DMS</span>
+              <span>Coordinates</span>
             </label>
             <label class="check">
               <input id="search-plus-codes" type="checkbox" />
-              <span>Plus Codes — a full one, like <code>8FVC9G8F+6W</code></span>
-            </label>
-            <label class="check">
-              <input id="search-plus-codes-short" type="checkbox" />
               <span>
-                Short Plus Codes — like <code>9G8F+6W</code>, resolved from
-                where the map is looking, so only right within about 50 km of it
+                Plus Codes (<code>8FVC9G8F+6W</code> or <code>9G8F+6W</code>)
               </span>
             </label>
             <label class="check">
-              <input id="search-place-names" type="checkbox" />
-              <span>
-                Place names from the basemap — towns and villages, once they
-                have been read out of it below
-              </span>
+              <input id="search-place-names" type="checkbox" disabled />
+              <span>Place names</span>
             </label>
             <label class="check">
-              <input id="search-pois" type="checkbox" />
-              <span>
-                Points of interest from the basemap — restaurants, hotels, shops
-              </span>
+              <input id="search-pois" type="checkbox" disabled />
+              <span>Points of interest</span>
             </label>
             <p id="search-settings-status" class="notice" hidden></p>
           </section>
@@ -493,6 +483,7 @@
             <table class="progress-table">
               <tr><th>Read out of the archive</th><td id="gaz-place-built">—</td></tr>
               <tr><th>Names</th><td id="gaz-place-names">—</td></tr>
+              <tr><th>Size on disk</th><td id="gaz-place-size">—</td></tr>
               <tr><th>Built from</th><td id="gaz-place-from">—</td></tr>
             </table>
 
@@ -516,6 +507,7 @@
             <table class="progress-table">
               <tr><th>Read out of the archive</th><td id="gaz-poi-built">—</td></tr>
               <tr><th>Names</th><td id="gaz-poi-names">—</td></tr>
+              <tr><th>Size on disk</th><td id="gaz-poi-size">—</td></tr>
               <tr><th>Built from</th><td id="gaz-poi-from">—</td></tr>
             </table>
 

@@ -26,6 +26,7 @@ interface KindState {
   zoom: number
   built: boolean
   names: number
+  bytes: number
   state: string
   tiles_done: number
   tiles_total: number
@@ -54,6 +55,13 @@ interface Status {
     error: string
   }
   busy: boolean
+}
+
+/** Bytes, in the largest unit that leaves a number worth reading. */
+function size(bytes: number): string {
+  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`
+  if (bytes >= 1e6) return `${Math.round(bytes / 1e6)} MB`
+  return `${Math.max(1, Math.round(bytes / 1e3))} kB`
 }
 
 export class Gazetteer {
@@ -183,6 +191,19 @@ export class Gazetteer {
       element(`gaz-${kind}-names`).textContent = about.built
         ? about.names.toLocaleString()
         : '—'
+      element(`gaz-${kind}-size`).textContent = about.bytes
+        ? `about ${size(about.bytes)}`
+        : '—'
+
+      // Nothing to search until it has been read, so the switch for it stays
+      // out of reach rather than quietly finding nothing.
+      const include = element<HTMLInputElement>(
+        kind === 'place' ? 'search-place-names' : 'search-pois',
+      )
+      include.disabled = !about.built
+      include.title = about.built
+        ? ''
+        : 'Read the archive first — there is nothing to search yet.'
       element(`gaz-${kind}-from`).textContent = about.built_from
         ? about.built_from.split(' ')[0] + (about.stale ? ' — the basemap has changed since' : '')
         : '—'

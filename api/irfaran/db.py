@@ -214,7 +214,6 @@ DEFAULT_SETTINGS = {
     # right within about half a degree of it - which is a thing to opt into
     # rather than have happen.
     "search_plus_codes": "false",
-    "search_plus_codes_short": "false",
     # The gazetteer, both halves off until built. Switching one on without an
     # index simply finds nothing; the Search page is where it gets built.
     "search_place_names": "false",

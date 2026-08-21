@@ -1664,6 +1664,18 @@ def gazetteer_status(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, 
     }
 
 
+@app.post("/api/gazetteer/measure")
+def gazetteer_measure(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, object]:
+    """Work out what the indexes take on disk, and remember it.
+
+    Its own request because it is slow - `dbstat` walks every page, which on a
+    three gigabyte index is minutes - and because indexes built before this
+    existed have no figure recorded. A build does this for itself at the end.
+    """
+    gazetteer.measure(conn)
+    return gazetteer.status(conn, basemap.installed_path())
+
+
 @app.post("/api/gazetteer/{kind}")
 def gazetteer_build(
     kind: str, conn: sqlite3.Connection = Depends(get_conn)

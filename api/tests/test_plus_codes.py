@@ -145,13 +145,11 @@ class TestThroughSearch:
 
 
 class TestTheToggles:
-    def test_both_are_off_on_a_fresh_database(self, monkeypatch, tmp_path) -> None:
+    def test_it_is_off_on_a_fresh_database(self, monkeypatch, tmp_path) -> None:
         monkeypatch.setenv("IRFARAN_DATA_DIR", str(tmp_path / "fresh"))
         fresh = db.open_initialised()
         try:
-            on = search.included(fresh)
-            assert on["plus_codes"] is False
-            assert on["plus_codes_short"] is False
+            assert search.included(fresh)["plus_codes"] is False
         finally:
             fresh.close()
 
@@ -165,21 +163,24 @@ class TestTheToggles:
         finally:
             fresh.close()
 
-    def test_the_short_toggle_is_separate(self, monkeypatch, tmp_path) -> None:
-        """Full on, short off: one is arithmetic, the other is a guess."""
-        monkeypatch.setenv("IRFARAN_DATA_DIR", str(tmp_path / "split"))
+    def test_one_switch_covers_both_forms(self, conn) -> None:
+        """It used to be two.
+
+        A short code is resolved from wherever the map is looking, so it can be
+        confidently wrong, and that argued for its own switch. But "use where I
+        am looking" is what the search bar's own toggle says, and saying it in
+        two places is one too many - the recovered full code in the answer is
+        what makes a wrong resolution visible. Alex's call, and the simpler one.
+        """
+        assert search.search(conn, FULL)["results"]
+        assert search.search(conn, SHORT, (47.37, 8.54))["results"]
+
+    def test_switching_it_off_stops_both(self, monkeypatch, tmp_path) -> None:
+        monkeypatch.setenv("IRFARAN_DATA_DIR", str(tmp_path / "off"))
         fresh = db.open_initialised()
         try:
-            with db.transaction(fresh):
-                fresh.execute(
-                    "INSERT INTO settings (key, value) VALUES "
-                    "('search_plus_codes', 'true') "
-                    "ON CONFLICT(key) DO UPDATE SET value = 'true'"
-                )
-            assert fresh and search.search(fresh, FULL)["results"]
-            short = search.search(fresh, SHORT, (47.37, 8.54))
-            assert short["results"] == []
-            assert "Short Plus Codes are switched off" in short["hint"]
+            assert search.search(fresh, FULL)["results"] == []
+            assert search.search(fresh, SHORT, (47.37, 8.54))["results"] == []
         finally:
             fresh.close()
 
@@ -188,9 +189,7 @@ class TestTheToggles:
         answer = search.search(conn, "definitely-not-here")
         assert "Plus Code" not in answer["hint"]
 
-    def test_they_travel_with_an_export(self) -> None:
+    def test_it_travels_with_an_export(self) -> None:
         from irfaran import transfer
 
-        assert {"search_plus_codes", "search_plus_codes_short"} <= (
-            transfer.PORTABLE_SETTINGS
-        )
+        assert "search_plus_codes" in transfer.PORTABLE_SETTINGS

@@ -449,3 +449,70 @@ class TestWhichOneComesFirst:
         gazetteer.remove(conn, "place")
         left = conn.execute("SELECT COUNT(*) AS n FROM gazetteer_weight").fetchone()["n"]
         assert left == 0
+
+
+class TestReportingWhatItCosts:
+    """The size on disk, which must never be worked out on a request.
+
+    `dbstat` reports real page usage by walking every page of every gazetteer
+    table. On a three gigabyte index that is over two minutes, and putting it in
+    the polled status endpoint stopped that endpoint answering at all - the same
+    mistake as the render status recomputing its job count on every poll, made
+    one file over from the comment warning about it.
+
+    So it is measured once when a build finishes, written down, and read back as
+    one row.
+    """
+
+    def test_the_status_reads_a_stored_figure(self, conn) -> None:
+        conn.execute(
+            "INSERT INTO gazetteer_build (kind, generation, zoom, bytes, state, "
+            " rows_written) VALUES ('place', 1, 10, 123456789, 'done', 1000)"
+        )
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('gazetteer_live_place', '1')"
+        )
+        conn.commit()
+
+        assert gazetteer.status(conn)["kinds"]["place"]["bytes"] == 123456789
+
+    def test_nothing_built_costs_nothing(self, conn) -> None:
+        assert gazetteer.status(conn)["kinds"]["poi"]["bytes"] == 0
+
+    def test_measuring_writes_it_down(self, conn) -> None:
+        """So the next status call does not have to walk the pages again."""
+        add(conn, "place", "Ferrara", 44.8, 11.6)
+        conn.execute(
+            "INSERT INTO gazetteer_build (kind, generation, zoom, state, rows_written) "
+            "VALUES ('place', 1, 10, 'done', 1)"
+        )
+        conn.commit()
+
+        gazetteer.measure(conn)
+        stored = conn.execute(
+            "SELECT bytes FROM gazetteer_build WHERE kind = 'place'"
+        ).fetchone()["bytes"]
+        assert stored > 0
+
+    def test_the_status_does_not_touch_dbstat(self, conn) -> None:
+        """Counted rather than timed, so it holds on a machine with a small index."""
+        add(conn, "place", "Ferrara", 44.8, 11.6)
+
+        # Through SQLite's own trace callback, since Connection.execute cannot
+        # be wrapped - it reports every statement the connection actually runs.
+        walked = {"n": 0}
+
+        def watch(statement: str) -> None:
+            if "dbstat" in statement.lower():
+                walked["n"] += 1
+
+        conn.set_trace_callback(watch)
+        try:
+            gazetteer.status(conn)
+        finally:
+            conn.set_trace_callback(None)
+
+        assert walked["n"] == 0, (
+            "the status endpoint asked dbstat, which walks every page of a "
+            "three gigabyte index and hung it once already"
+        )

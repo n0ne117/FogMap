@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS gazetteer_build (
   tiles_total INTEGER NOT NULL DEFAULT 0,
   rows_written INTEGER NOT NULL DEFAULT 0,
   duplicates  INTEGER NOT NULL DEFAULT 0,
+  bytes       INTEGER NOT NULL DEFAULT 0,
   archive     TEXT,
   state       TEXT NOT NULL DEFAULT 'idle',
   started_at  TEXT,
@@ -118,6 +119,14 @@ CREATE TABLE IF NOT EXISTS gazetteer_build (
 def install(conn: sqlite3.Connection) -> None:
     """Create the tables. Safe on every startup, like the rest of the schema."""
     conn.executescript(SCHEMA)
+
+    # `bytes` arrived after the first indexes were built, and a plain table can
+    # take a column without being rebuilt.
+    columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(gazetteer_build)")
+    }
+    if columns and "bytes" not in columns:
+        conn.execute("ALTER TABLE gazetteer_build ADD COLUMN bytes INTEGER NOT NULL DEFAULT 0")
 
 
 def live_generation(conn: sqlite3.Connection, kind: str) -> int:
@@ -149,6 +158,53 @@ def provenance(path: Path) -> str:
     return f"{path.name} {stat.st_size} {int(stat.st_mtime)}"
 
 
+def measure(conn: sqlite3.Connection) -> dict[str, int]:
+    """What each kind costs on disk, apportioned by row count.
+
+    Expensive on purpose and never on a request. `dbstat` reports real page
+    usage by walking every page of every gazetteer table, shadow tables and all,
+    and on a three gigabyte index that is over two minutes - so this is called
+    once when a build finishes and the answer is written down. Reading it back is
+    one row.
+
+    The two kinds share one FTS table, so there is no exact per-kind figure to
+    read; the total is split by row count, which is close enough for "how much is
+    this costing me" and is shown as approximate.
+
+    Asking this on every poll is how the render status became the slowest thing
+    in the application, and doing it again here hung this endpoint outright.
+    """
+    try:
+        total = int(
+            conn.execute(
+                "SELECT COALESCE(SUM(pgsize), 0) AS bytes FROM dbstat "
+                "WHERE name LIKE 'gazetteer%'"
+            ).fetchone()["bytes"]
+        )
+        counts = {
+            str(row["kind"]): int(row["n"])
+            for row in conn.execute(
+                "SELECT kind, COUNT(*) AS n FROM gazetteer GROUP BY kind"
+            )
+        }
+    except sqlite3.Error:
+        # dbstat is a compile-time option. Its absence costs a number on a
+        # settings page, which is not worth an error.
+        return {}
+
+    rows = sum(counts.values())
+    if not rows:
+        return {kind: 0 for kind in KINDS}
+
+    sizes = {kind: round(total * counts.get(kind, 0) / rows) for kind in KINDS}
+    with db.transaction(conn):
+        for kind, size in sizes.items():
+            conn.execute(
+                "UPDATE gazetteer_build SET bytes = ? WHERE kind = ?", (size, kind)
+            )
+    return sizes
+
+
 def status(conn: sqlite3.Connection, archive_path: Path | None = None) -> dict[str, object]:
     """What is built, what is being built, and whether it is stale."""
     rows = {
@@ -173,6 +229,7 @@ def status(conn: sqlite3.Connection, archive_path: Path | None = None) -> dict[s
             "zoom": about["zoom"],
             "built": bool(live),
             "names": counted,
+            "bytes": int(row["bytes"] or 0) if row else 0,
             "state": str(row["state"]) if row else IDLE,
             "tiles_done": int(row["tiles_done"]) if row else 0,
             "tiles_total": int(row["tiles_total"]) if row else 0,
@@ -510,6 +567,12 @@ class Builder:
                         kind,
                     ),
                 )
+            self._progress.message = f"{written:,} names from {done:,} tiles."
+
+            # Once, now that there is something to measure, so the settings page
+            # can report it without walking three gigabytes of pages per poll.
+            self._progress.message += " Measuring what it takes on disk."
+            measure(conn)
             self._progress.message = f"{written:,} names from {done:,} tiles."
 
     def _flush(

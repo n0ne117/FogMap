@@ -383,7 +383,6 @@ function wireSearchSettings(): void {
     search_tracks: element<HTMLInputElement>('search-tracks'),
     search_coordinates: element<HTMLInputElement>('search-coordinates'),
     search_plus_codes: element<HTMLInputElement>('search-plus-codes'),
-    search_plus_codes_short: element<HTMLInputElement>('search-plus-codes-short'),
     search_place_names: element<HTMLInputElement>('search-place-names'),
     search_pois: element<HTMLInputElement>('search-pois'),
   }
@@ -412,7 +411,6 @@ function wireSearchSettings(): void {
         search_tracks: 'false',
         search_coordinates: 'true',
         search_plus_codes: 'false',
-        search_plus_codes_short: 'false',
         search_place_names: 'false',
         search_pois: 'false',
       }
