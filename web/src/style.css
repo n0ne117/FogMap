@@ -323,6 +323,15 @@ a {
   border-color: var(--accent);
 }
 
+/* A toggle in the bar has to look toggled. "This view" set aria-pressed and
+   nothing else, so whether it was on was a guessing game - the same mistake
+   the segmented tool buttons avoid by filling in. */
+.bar-button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
 .bar-button:disabled {
   opacity: 0.4;
   cursor: not-allowed;

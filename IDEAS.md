@@ -86,11 +86,23 @@ guess was 1.4 million tiles and "minutes across seven cores" - it is a quarter
 of that on one core, because more than half of every zoom is empty ocean and the
 archive stores those once.
 
-**Points of interest.** Still to be built. They exist only in the deepest tiles,
-so it means reading all 135,371,839 distinct blobs - 137 GB, hours rather than
-minutes. `min_zoom` turns out to be advisory: a z15 tile carries POIs marked
-`min_zoom: 16`, which is the only reason a restaurant is reachable at all when
-the archive stops at z15.
+**Points of interest.** Built: **118,703,792 tiles in about 95 minutes on one
+core, 32,837,529 names, 2.9 GB**. The estimate was 2.7-10.7 hours across seven
+cores and 10-15 million rows - so quicker than feared and more than twice as many
+names. `min_zoom` is advisory: a z15 tile carries POIs marked `min_zoom: 16`,
+which is the only reason a restaurant is reachable at all when the archive stops
+at z15. Only 12% of what that scan read was a repeat, against 55% for places,
+because labels at the deepest zoom are not buffered outward the same way.
+
+**Two things only real use found.** A place is stored under its local name, so
+`Wien` could never answer "Vienna" - the English name is now indexed as a second
+row where it differs, which added 283,506 rows to a million. And ranking by text
+relevance alone cannot tell a city from a shop named after it: around Vienna
+there are enough businesses called Vienna-something to fill the window and push
+the city out of it. Places and points of interest are now asked for separately,
+places first, ordered by exact name and then by population - which is kept in a
+side table so that adding it did not mean recreating the FTS table and reading
+118 million tiles again.
 
 **What the sampling changed.** Labels are buffered into neighbouring tiles, so
 55% of what a scan reads is a repeat - the same pub four times around Caorle.

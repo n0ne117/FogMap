@@ -192,10 +192,15 @@ export class Gazetteer {
         line.textContent = `It stopped: ${about.error}`
         line.dataset.state = 'bad'
       } else if (building) {
+        // Before the scan starts there is no total to be a percentage of.
+        // The counting walk over the directory takes minutes at z15, and
+        // "0% of 0 tiles" is what a stuck job looks like.
         line.textContent = live.yielded
           ? 'Waiting for the map to finish drawing — it gives way rather than competing.'
-          : `Reading — ${live.percent}% of ${live.tiles_total.toLocaleString()} tiles, ` +
-            `${live.rows.toLocaleString()} names so far.`
+          : live.tiles_total
+            ? `Reading — ${live.percent}% of ${live.tiles_total.toLocaleString()} tiles, ` +
+              `${live.rows.toLocaleString()} names so far.`
+            : live.message || 'Working out how much there is to read.'
         line.dataset.state = 'good'
       } else if (about.state === 'stopping') {
         line.textContent =
@@ -210,7 +215,8 @@ export class Gazetteer {
         line.dataset.state = ''
       }
 
-      element(`gaz-${kind}-row`).hidden = !building
+      // The bar appears once there is something for it to measure.
+      element(`gaz-${kind}-row`).hidden = !building || !live.tiles_total
       if (building) {
         const bar = element<HTMLProgressElement>(`gaz-${kind}-bar`)
         bar.max = live.tiles_total || 100

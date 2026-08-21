@@ -11,6 +11,22 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.17.20] - 2026-08-21
+
+### Added
+- **Points of interest from the basemap are searchable.** 118,703,792 tiles read in about 95 minutes, **32,837,529 names**, 2.9 GB of index — restaurants, hotels, shops, stations. A pizzeria remembered by name and not by street is now findable: `Pizzeria Eleven` answers with 45.5984, 12.8835 in Caorle.
+- **Places are indexed under their English name as well as their local one.** Austria's capital is `Wien` in the archive, so "Vienna" could only ever answer with the six in America — 283,506 aliases added to a million names, stored as a second row only where the two differ.
+
+### Fixed
+- **"This view" now looks switched on.** It set `aria-pressed` and nothing else, so whether it was on was a guessing game.
+- **A city is no longer pushed out of its own search by shops named after it.** Reported as: "searching vienna worldwide finds multiples, but centred on Vienna with this view on, nothing is found." Places and points of interest were fetched in one query ordered by text relevance, and bm25 cannot tell a capital from a pet groomer — around Vienna there are enough businesses called Vienna-something to fill the window. They are now asked for separately, places first, each with the full limit.
+- **Places are ranked by population.** A hundred places share the name Vienna and nothing said which was meant. `vienna` now answers with 48.21, 16.37 first, `paris` with France, `london` with England.
+
+### Note
+Population lives in a side table keyed on the FTS row, not in another column. Adding a column to an FTS5 table means recreating it, and recreating it means re-reading 118 million tiles for the points of interest — while population is only meaningful for settlements, which rebuild in two and a half minutes. So the POI index was never touched.
+
+Neither of the two bugs would have appeared in tests written from the specification. "Vienna is missing" needed the real archive to expose the English-name gap; "nothing found in this view" needed a real city full of businesses named after itself. Both are tests now — thirty businesses called Vienna-something and a city that has to outrank them — because the failures came first.
+
 ## [0.17.19] - 2026-08-21
 
 ### Added

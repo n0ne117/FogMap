@@ -81,6 +81,17 @@ CREATE VIRTUAL TABLE IF NOT EXISTS gazetteer USING fts5(
   tokenize = "unicode61 remove_diacritics 2"
 );
 
+-- How much a place matters, keyed by the row it belongs to.
+--
+-- A side table rather than another column, because adding a column to an FTS5
+-- table means recreating it, and recreating it means reading 118 million tiles
+-- again for the points of interest. Population is only meaningful for
+-- settlements anyway, and those take two and a half minutes to rebuild.
+CREATE TABLE IF NOT EXISTS gazetteer_weight (
+  row_id     INTEGER PRIMARY KEY,
+  population INTEGER NOT NULL DEFAULT 0
+);
+
 -- One row per kind: what is being built, how far it got, and where it came from.
 --
 -- `cursor` is the last tile id finished. Entries come out of the archive in
@@ -194,6 +205,11 @@ def remove(conn: sqlite3.Connection, kind: str) -> int:
         removed = conn.execute(
             "SELECT COUNT(*) AS n FROM gazetteer WHERE kind = ?", (kind,)
         ).fetchone()["n"]
+        conn.execute(
+            "DELETE FROM gazetteer_weight WHERE row_id IN "
+            "(SELECT rowid FROM gazetteer WHERE kind = ?)",
+            (kind,),
+        )
         conn.execute("DELETE FROM gazetteer WHERE kind = ?", (kind,))
         conn.execute("DELETE FROM gazetteer_build WHERE kind = ?", (kind,))
         conn.execute(
@@ -395,7 +411,7 @@ class Builder:
 
             self._progress.message = f"Reading {total:,} tiles."
             recent: dict[tuple[str, float, float], None] = {}
-            batch: list[tuple[str, str, str, float, float, int]] = []
+            batch: list[tuple[str, str, str, float, float, int, int]] = []
             done = 0
             #: The last id actually finished, which is what a resume starts after.
             #: Tracked rather than read off the loop variable, which is unbound
@@ -423,25 +439,32 @@ class Builder:
                 for _layer, attrs, px, py, extent in mvt.points(
                     archive.blob(entry), {layer}
                 ):
-                    name = str(attrs.get("name") or "").strip()
-                    if not name:
-                        continue
-
                     lon, lat = mvt.lonlat(zoom_level, tile_x, tile_y, px, py, extent)
-                    key = (name, round(lat, 4), round(lon, 4))
-                    if key in recent:
-                        duplicates += 1
-                        continue
-                    recent[key] = None
-                    if len(recent) > RECENT_KEYS:
-                        # Oldest first: what has scrolled out of the scan's
-                        # neighbourhood cannot duplicate what is coming.
-                        for old in list(recent)[: RECENT_KEYS // 4]:
-                            del recent[old]
 
-                    batch.append(
-                        (name, kind, str(attrs.get("kind") or ""), lat, lon, generation)
-                    )
+                    weight = _population(attrs)
+                    for name in _names(attrs):
+                        key = (name, round(lat, 4), round(lon, 4))
+                        if key in recent:
+                            duplicates += 1
+                            continue
+                        recent[key] = None
+                        if len(recent) > RECENT_KEYS:
+                            # Oldest first: what has scrolled out of the scan's
+                            # neighbourhood cannot duplicate what is coming.
+                            for old in list(recent)[: RECENT_KEYS // 4]:
+                                del recent[old]
+
+                        batch.append(
+                            (
+                                name,
+                                kind,
+                                str(attrs.get("kind") or ""),
+                                lat,
+                                lon,
+                                generation,
+                                weight,
+                            )
+                        )
 
                 done += 1
                 reached = entry.tile_id
@@ -493,7 +516,7 @@ class Builder:
         self,
         conn: sqlite3.Connection,
         kind: str,
-        batch: list[tuple[str, str, str, float, float, int]],
+        batch: list[tuple[str, str, str, float, float, int, int]],
         cursor: int,
         done: int,
         written: int,
@@ -501,12 +524,18 @@ class Builder:
     ) -> int:
         """Write a batch and record how far the scan got. Returns rows written."""
         with db.transaction(conn):
-            if batch:
-                conn.executemany(
+            for name, of_kind, category, lat, lon, generation, weight in batch:
+                cursor_row = conn.execute(
                     "INSERT INTO gazetteer (name, kind, category, lat, lon, generation) "
                     "VALUES (?, ?, ?, ?, ?, ?)",
-                    batch,
+                    (name, of_kind, category, lat, lon, generation),
                 )
+                if weight:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO gazetteer_weight (row_id, population) "
+                        "VALUES (?, ?)",
+                        (int(cursor_row.lastrowid), weight),
+                    )
             conn.execute(
                 "UPDATE gazetteer_build SET cursor = ?, tiles_done = ?, "
                 "rows_written = ?, duplicates = ? WHERE kind = ?",
@@ -524,67 +553,102 @@ def look_up(
 ) -> list[dict[str, object]]:
     """Names matching `text`, in the kinds asked for.
 
-    `inside` is (west, south, east, north) and restricts the answer to what is on
-    screen. That matters more here than anywhere else: a pizzeria called Eleven is
-    one of many on earth with that name, and the one somebody means is the one
-    they are looking at.
+    Settlements first and points of interest after, asked for separately rather
+    than in one query. Text ranking cannot tell a city from a pet groomer, so a
+    single query for "vienna" near Vienna came back with Viennatour,
+    ViennaGrooming and Viennavet and pushed the city itself past the end of the
+    window - reported as "nothing is found".
 
-    Duplicates are collapsed here as well as during the build. Labels are
-    buffered into neighbouring tiles, and the scan only remembers a window of
-    recent keys, so a few repeats reach the index.
+    Within settlements, population decides. A hundred places share the name
+    Vienna; the one somebody means has two million people in it.
+
+    `inside` is (west, south, east, north) and restricts the answer to what is on
+    screen, which is the difference between finding a pizzeria and finding every
+    pizzeria on earth with that name.
     """
     query = _match_query(text)
     if not query or not kinds:
         return []
 
-    live = {kind: live_generation(conn, kind) for kind in kinds}
-    usable = [kind for kind, generation in live.items() if generation]
-    if not usable:
-        return []
+    out: list[dict[str, object]] = []
+    seen: set[tuple[str, float, float]] = set()
 
+    # Places before points of interest, each given the whole limit, so a town
+    # cannot be crowded out by however many shops are named after it.
+    for kind in ("place", "poi"):
+        if kind not in kinds or len(out) >= limit:
+            continue
+        generation = live_generation(conn, kind)
+        if not generation:
+            continue
+
+        for row in _rows(conn, query, kind, generation, inside, limit):
+            key = (
+                str(row["name"]),
+                round(float(row["lat"]), 4),
+                round(float(row["lon"]), 4),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+
+            category = str(row["category"] or "").replace("_", " ")
+            out.append(
+                {
+                    "kind": "gazetteer",
+                    "label": str(row["name"]),
+                    "detail": category.capitalize() if category else (
+                        "Place" if kind == "place" else "Point of interest"
+                    ),
+                    "lat": float(row["lat"]),
+                    "lon": float(row["lon"]),
+                }
+            )
+            if len(out) >= limit:
+                break
+
+    return out
+
+
+def _rows(
+    conn: sqlite3.Connection,
+    query: str,
+    kind: str,
+    generation: int,
+    inside: tuple[float, float, float, float] | None,
+    limit: int,
+) -> list[sqlite3.Row]:
+    """One kind's matches, best first.
+
+    Places are ordered by whether the name matches outright and then by
+    population; points of interest have no population to speak of, so they keep
+    the text index's own ranking.
+    """
     sql = (
-        "SELECT name, kind, category, lat, lon FROM gazetteer "
-        "WHERE gazetteer MATCH ? AND ("
-        + " OR ".join("(kind = ? AND generation = ?)" for _ in usable)
-        + ")"
+        "SELECT g.name, g.category, g.lat, g.lon, "
+        "COALESCE(w.population, 0) AS population "
+        "FROM gazetteer g LEFT JOIN gazetteer_weight w ON w.row_id = g.rowid "
+        "WHERE g.gazetteer MATCH ? AND g.kind = ? AND g.generation = ?"
     )
-    params: list[object] = [query]
-    for kind in usable:
-        params.extend((kind, live[kind]))
+    params: list[object] = [query, kind, generation]
 
     if inside is not None:
         west, south, east, north = inside
-        sql += " AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?"
+        sql += " AND g.lat BETWEEN ? AND ? AND g.lon BETWEEN ? AND ?"
         params.extend((south, north, west, east))
 
-    # Ranked by FTS relevance, then taken generously so collapsing repeats does
-    # not leave a short list.
-    sql += " ORDER BY rank LIMIT ?"
+    if kind == "place":
+        # An exact name beats a longer one that merely starts the same way, and
+        # then the bigger place wins.
+        sql += " ORDER BY (LOWER(g.name) = LOWER(?)) DESC, population DESC, rank"
+        params.append(query.strip('"*'))
+    else:
+        sql += " ORDER BY rank"
+
+    # Generously, because repeats are collapsed afterwards.
+    sql += " LIMIT ?"
     params.append(limit * 4)
-
-    seen: set[tuple[str, float, float]] = set()
-    out: list[dict[str, object]] = []
-    for row in conn.execute(sql, params):
-        key = (str(row["name"]), round(float(row["lat"]), 4), round(float(row["lon"]), 4))
-        if key in seen:
-            continue
-        seen.add(key)
-
-        category = str(row["category"] or "").replace("_", " ")
-        out.append(
-            {
-                "kind": "gazetteer",
-                "label": str(row["name"]),
-                "detail": category.capitalize() if category else (
-                    "Place" if row["kind"] == "place" else "Point of interest"
-                ),
-                "lat": float(row["lat"]),
-                "lon": float(row["lon"]),
-            }
-        )
-        if len(out) >= limit:
-            break
-    return out
+    return conn.execute(sql, params).fetchall()
 
 
 def _match_query(text: str) -> str:
@@ -603,6 +667,44 @@ def _match_query(text: str) -> str:
     quoted = [f'"{word}"' for word in words[:-1]]
     quoted.append(f'"{words[-1]}"*')
     return " ".join(quoted)
+
+
+def _population(attrs: dict[str, object]) -> int:
+    """How many people live there, or nothing for something that is not a place.
+
+    This is what tells Vienna from Vienna, Maine. Without it a search for a name
+    that a hundred places share answers with whichever hundred rows the text
+    index happened to rank first, which is no answer at all.
+    """
+    raw = attrs.get("population")
+    try:
+        return max(0, int(float(str(raw))))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _names(attrs: dict[str, object]) -> list[str]:
+    """Every name a place can be searched by: its own, and its English one.
+
+    Austria's capital is `Wien` in the archive, so an index of local names alone
+    can never answer "Vienna" - worldwide it finds the six in America and none of
+    the one somebody meant, and narrowed to the map it finds nothing at all. The
+    English name is a separate field and is stored as its own row rather than as
+    another column, which needs no change to the table and means the answer is
+    labelled with the name that was actually typed.
+
+    Only where it differs. Most places have the same name in both, and doubling a
+    million rows to say so twice is not worth the disk.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for field in ("name", "name:en"):
+        value = str(attrs.get(field) or "").strip()
+        folded = value.casefold()
+        if value and folded not in seen:
+            seen.add(folded)
+            out.append(value)
+    return out
 
 
 def _duration(seconds: float) -> str:

@@ -318,3 +318,134 @@ class TestThroughSearch:
         assert search.search(conn, "Ferrara")["results"]
         away = search.search(conn, "Ferrara", None, (16.0, 48.0, 16.5, 48.3))
         assert away["results"] == []
+
+
+class TestNamesInMoreThanOneLanguage:
+    """A place has to be findable by the name somebody would type.
+
+    Austria's capital is `Wien` in the archive. An index of local names alone
+    answers "Vienna" with the six in America and none of the one that was meant -
+    and narrowed to the map, with nothing at all. Reported exactly that way.
+
+    Stored as a second row rather than another column: no change to the table,
+    and the answer carries the name that was actually typed.
+    """
+
+    def test_both_names_are_indexed(self) -> None:
+        assert gazetteer._names({"name": "Wien", "name:en": "Vienna"}) == ["Wien", "Vienna"]
+
+    def test_the_same_name_is_not_stored_twice(self) -> None:
+        """Most places read the same in both, and a million repeats is disk."""
+        assert gazetteer._names({"name": "Caorle", "name:en": "Caorle"}) == ["Caorle"]
+
+    def test_case_alone_is_not_a_difference(self) -> None:
+        assert gazetteer._names({"name": "Roma", "name:en": "roma"}) == ["Roma"]
+
+    def test_a_place_with_no_english_name_is_unaffected(self) -> None:
+        assert gazetteer._names({"name": "Dörfl"}) == ["Dörfl"]
+
+    def test_something_with_no_name_at_all_is_skipped(self) -> None:
+        assert gazetteer._names({"kind": "locality"}) == []
+
+    def test_the_scan_reads_it_out_of_a_tile(self) -> None:
+        """End to end through the decoder, with the field spelled as it is."""
+        blob = a_tile("places", "Wien", 2048, 2048, **{"name:en": "Vienna"})
+        _layer, attrs, *_ = next(iter(mvt.points(blob, {"places"})))
+        assert gazetteer._names(attrs) == ["Wien", "Vienna"]
+
+    def test_either_name_finds_the_place(self, conn) -> None:
+        for name in ("Wien", "Vienna"):
+            add(conn, "place", name, 48.2082, 16.3724)
+        assert [h["label"] for h in gazetteer.look_up(conn, "vienna", ["place"], 5)] == ["Vienna"]
+        assert [h["label"] for h in gazetteer.look_up(conn, "wien", ["place"], 5)] == ["Wien"]
+
+    def test_both_land_on_the_same_place(self, conn) -> None:
+        """Different rows, one location - which is the point of doing it this way."""
+        for name in ("Wien", "Vienna"):
+            add(conn, "place", name, 48.2082, 16.3724)
+        one = gazetteer.look_up(conn, "vienna", ["place"], 5)[0]
+        other = gazetteer.look_up(conn, "wien", ["place"], 5)[0]
+        assert (one["lat"], one["lon"]) == (other["lat"], other["lon"])
+
+
+class TestWhichOneComesFirst:
+    """Two hundred places share a name; the one meant is usually the big one.
+
+    Reported as "searching vienna worldwide finds multiples, and centred on
+    Vienna with this view on, nothing is found". The data was right by then - the
+    ranking was not. Places and points of interest were fetched in one query
+    ordered by text relevance, and around Vienna there are enough businesses
+    called Vienna-something to fill the window and push the city off the end.
+    """
+
+    def weigh(self, conn, name, lat, lon, population, kind="place", category="locality"):
+        row = conn.execute(
+            "INSERT INTO gazetteer (name, kind, category, lat, lon, generation) "
+            "VALUES (?, ?, ?, ?, ?, 1)",
+            (name, kind, category, lat, lon),
+        )
+        if population:
+            conn.execute(
+                "INSERT OR REPLACE INTO gazetteer_weight (row_id, population) VALUES (?, ?)",
+                (int(row.lastrowid), population),
+            )
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, '1') "
+            "ON CONFLICT(key) DO UPDATE SET value = '1'",
+            (f"gazetteer_live_{kind}",),
+        )
+        conn.commit()
+
+    def test_the_bigger_place_comes_first(self, conn) -> None:
+        self.weigh(conn, "Vienna", 38.9014, -77.2652, 16_000)
+        self.weigh(conn, "Vienna", 48.2084, 16.3725, 2_042_036)
+        first = gazetteer.look_up(conn, "vienna", ["place"], 5)[0]
+        assert round(float(first["lat"]), 2) == 48.21
+
+    def test_a_place_beats_a_shop_named_after_it(self, conn) -> None:
+        """The reported failure: the city pushed out by businesses."""
+        for index in range(30):
+            self.weigh(
+                conn, f"Viennathing {index}", 48.20 + index / 1000, 16.37,
+                0, kind="poi", category="hairdresser",
+            )
+        self.weigh(conn, "Vienna", 48.2084, 16.3725, 2_042_036)
+
+        found = gazetteer.look_up(conn, "vienna", ["place", "poi"], 5)
+        assert found[0]["label"] == "Vienna"
+
+    def test_it_holds_inside_a_view_as_well(self, conn) -> None:
+        """Which is where it was noticed, the box being full of businesses."""
+        for index in range(30):
+            self.weigh(
+                conn, f"Viennathing {index}", 48.20 + index / 1000, 16.37,
+                0, kind="poi", category="hairdresser",
+            )
+        self.weigh(conn, "Vienna", 48.2084, 16.3725, 2_042_036)
+
+        found = gazetteer.look_up(
+            conn, "vienna", ["place", "poi"], 5, (16.2, 48.1, 16.5, 48.3)
+        )
+        assert found[0]["label"] == "Vienna"
+
+    def test_an_exact_name_beats_a_longer_one(self, conn) -> None:
+        """"Wien" should not be answered with Wienerherberg first."""
+        self.weigh(conn, "Wienerherberg", 48.059, 16.551, 2_000)
+        self.weigh(conn, "Wien", 48.2084, 16.3725, 2_042_036)
+        assert gazetteer.look_up(conn, "wien", ["place"], 5)[0]["label"] == "Wien"
+
+    def test_points_of_interest_are_still_found_on_their_own(self, conn) -> None:
+        self.weigh(conn, "Pizzeria Eleven", 45.5984, 12.8835, 0, kind="poi", category="restaurant")
+        assert gazetteer.look_up(conn, "eleven", ["poi"], 5)[0]["label"] == "Pizzeria Eleven"
+
+    def test_population_is_read_off_a_feature(self) -> None:
+        assert gazetteer._population({"population": 2042036}) == 2042036
+        assert gazetteer._population({"population": "2042036"}) == 2042036
+        assert gazetteer._population({}) == 0
+        assert gazetteer._population({"population": "lots"}) == 0
+
+    def test_removing_a_kind_takes_its_weights(self, conn) -> None:
+        self.weigh(conn, "Vienna", 48.2084, 16.3725, 2_042_036)
+        gazetteer.remove(conn, "place")
+        left = conn.execute("SELECT COUNT(*) AS n FROM gazetteer_weight").fetchone()["n"]
+        assert left == 0
