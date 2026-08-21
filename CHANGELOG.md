@@ -11,6 +11,22 @@ Entries are written for someone reading the release page, not for someone readin
 
 Nothing yet.
 
+## [0.17.19] - 2026-08-21
+
+### Added
+- **The basemap's own place names can be searched.** Settings, Search reads them out of the installed archive once and searches them offline afterwards — 478,382 tiles, **two and a half minutes, 1,069,426 names** on the 137 GB planet build. Ferrara, Gumpendorfer­straße, every town and village. Points of interest are the same feature at a different scale and have their own switch: they exist only in the deepest tiles, so reading them means going through the whole archive, and the button says so before it starts.
+- **"This view" narrows a search to what is on screen.** It earns its place the moment basemap names are searchable: a pizzeria called Eleven is one of hundreds with that name, and the one somebody means is the one they are looking at. It narrows your own pins and tracks too.
+- Reading the archive is a background job that **gives way to the render queue** rather than competing with it, so drawing and importing stay as quick as they were. It writes a new generation and only swaps at the end, so a build that fails, is stopped, or is interrupted by a restart leaves a working index rather than a hole — and resuming is a cursor, costing one batch rather than the whole scan. Each index records which archive it came from and says so when the basemap has been replaced since.
+
+### Fixed
+- **"Switched off under Settings, Appearance" had been pointing at the wrong tab since 0.17.18**, when search settings moved to a page of their own. Caught only because the message changed for an unrelated reason.
+- A failed search no longer lists the basemap's names among what is "switched off". They are usually off because they have not been read out of the archive yet, which is a different thing, and mentioning them to somebody searching for a pin is noise. And three excluded kinds now read "A, B and C" rather than "A and B and C".
+
+### Note
+No new dependency. Reading a PMTiles archive is a fixed header, varint directories and a Hilbert curve; reading points out of a vector tile is varints and zigzag pairs over protobuf wire format. Both are written here, in the same spirit as the Plus Code decoder and the icons, and both are checked against things that can be verified independently — the decoder finds Wien at 48.2082, 16.3724, and a pizzeria called Eleven at 45.59841, 12.88348 in Caorle.
+
+Two of the estimates in `IDEAS.md` were wrong, and measuring is what fixed them. Place names were guessed at 1.4 million tiles across seven cores and are a quarter of that on one, because more than half of every zoom is empty ocean stored once. And labels are buffered into neighbouring tiles, so **55% of everything a scan reads is a repeat** — dropped by remembering 400,000 recent keys, which caught 99.8% of them in the real build, with query time collapsing the remainder.
+
 ## [0.17.18] - 2026-08-20
 
 ### Changed

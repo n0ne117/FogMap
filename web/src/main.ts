@@ -37,6 +37,7 @@ import {
   type MapSetup,
 } from './map'
 import { Labels } from './labels'
+import { Gazetteer } from './gazetteer'
 import { Places } from './places'
 import { Search } from './search'
 import { describeRemaining, runRender } from './render'
@@ -383,6 +384,8 @@ function wireSearchSettings(): void {
     search_coordinates: element<HTMLInputElement>('search-coordinates'),
     search_plus_codes: element<HTMLInputElement>('search-plus-codes'),
     search_plus_codes_short: element<HTMLInputElement>('search-plus-codes-short'),
+    search_place_names: element<HTMLInputElement>('search-place-names'),
+    search_pois: element<HTMLInputElement>('search-pois'),
   }
 
   for (const [key, box] of Object.entries(boxes)) {
@@ -410,6 +413,8 @@ function wireSearchSettings(): void {
         search_coordinates: 'true',
         search_plus_codes: 'false',
         search_plus_codes_short: 'false',
+        search_place_names: 'false',
+        search_pois: 'false',
       }
       for (const [key, box] of Object.entries(boxes)) {
         box.checked = (stored[key] ?? fallback[key]) === 'true'
@@ -501,8 +506,16 @@ async function start(): Promise<void> {
   })
   wirePart('progress', () => progress.wire())
 
-  // The In progress panel polls only while it is on screen.
-  wireTabs('tabs', (tab) => progress.watch(tab === 'progress'))
+  // Panels that poll say so here, and are told which tab is showing. One
+  // dispatcher rather than a tab listener each: there is no reason to ask the
+  // server every second about a panel nobody is looking at, and two listeners
+  // on the same buttons is two chances to disagree about which tab that is.
+  const watchers: ((tab: string) => void)[] = [
+    (tab) => progress.watch(tab === 'progress'),
+  ]
+  wireTabs('tabs', (tab) => {
+    for (const watcher of watchers) watcher(tab)
+  })
   wireZoom(map as never)
   watchLifecycle(map)
   wireDiagnostics(map, hasBasemap, options.theme)
@@ -649,6 +662,16 @@ async function start(): Promise<void> {
     applyView(map, options)
   })
   wirePart('search', () => search.wire())
+
+  // Reading names out of the basemap. Its own panel on the Search page and one
+  // line on In progress, both painted from the same poll - two independent
+  // views of one job is how an import came to sit at 100% after finishing.
+  const gazetteer = new Gazetteer(() => {
+    bustTileCache()
+    applyView(map, options)
+  })
+  wirePart('gazetteer', () => gazetteer.wire())
+  watchers.push((tab) => gazetteer.watch(tab === 'search' || tab === 'progress'))
 
   // Labels are a setting, but the pins wear them, so changing one has to
   // reach the map.

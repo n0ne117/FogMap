@@ -21,6 +21,25 @@ import type { Map as MapLibreMap } from 'maplibre-gl'
 import { ApiError, apiGet, apiSend, getToken } from './api'
 import { element } from './ui'
 
+const HERE_KEY = 'irfaran.search.here'
+
+/** Whether "this view" was left switched on. A viewing preference, so local. */
+function remembered(): boolean {
+  try {
+    return window.localStorage.getItem(HERE_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function remember(on: boolean): void {
+  try {
+    window.localStorage.setItem(HERE_KEY, String(on))
+  } catch {
+    /* a preference that cannot be stored is still worth applying now */
+  }
+}
+
 /** Close enough to read a street, without throwing away a closer view. */
 const ARRIVAL_ZOOM = 15
 
@@ -72,6 +91,7 @@ export class Search {
   private active = 0
   private searched = ''
   private typing: number | undefined
+  private hereOnly = false
   //: Which request is the current one. Answers can come back out of order, and
   //: a slow reply to "cao" must not overwrite the results for "caorle".
   private asked = 0
@@ -85,6 +105,20 @@ export class Search {
     const bar = element<HTMLFormElement>('search-bar')
     const toggle = element('search-toggle')
     const input = element<HTMLInputElement>('search-input')
+
+    // "This view" narrows the answer to what is on screen. It earns its place
+    // once basemap names are searchable: a pizzeria called Eleven is one of
+    // many with that name, and the one somebody means is the one they are
+    // looking at.
+    const here = element('search-here')
+    this.hereOnly = remembered()
+    here.setAttribute('aria-pressed', String(this.hereOnly))
+    here.addEventListener('click', () => {
+      this.hereOnly = !this.hereOnly
+      here.setAttribute('aria-pressed', String(this.hereOnly))
+      remember(this.hereOnly)
+      if (input.value.trim()) void this.suggest(input.value)
+    })
 
     toggle.addEventListener('click', () => {
       const opening = bar.hidden
@@ -159,9 +193,15 @@ export class Search {
       // resolved against somewhere nearby - and the server has no way of
       // knowing what is on screen.
       const at = this.map.getCenter()
+      let where = `&lat=${at.lat.toFixed(6)}&lon=${at.lng.toFixed(6)}`
+      if (this.hereOnly) {
+        const box = this.map.getBounds()
+        where +=
+          `&west=${box.getWest().toFixed(6)}&south=${box.getSouth().toFixed(6)}` +
+          `&east=${box.getEast().toFixed(6)}&north=${box.getNorth().toFixed(6)}`
+      }
       answer = await apiGet<Answer>(
-        `/api/search?q=${encodeURIComponent(query)}` +
-          `&lat=${at.lat.toFixed(6)}&lon=${at.lng.toFixed(6)}`,
+        `/api/search?q=${encodeURIComponent(query)}${where}`,
         { timeoutMs: 15000 },
       )
     } catch (error) {

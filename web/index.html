@@ -47,6 +47,15 @@
             placeholder="27.74367, -15.58338"
             aria-label="Search for a coordinate"
           />
+          <button
+            id="search-here"
+            type="button"
+            class="bar-button"
+            aria-pressed="false"
+            title="Only answer with things inside the view on screen"
+          >
+            This view
+          </button>
           <button id="search-go" type="submit" class="bar-button">Go</button>
         </form>
       </div>
@@ -461,18 +470,66 @@
                 where the map is looking, so only right within about 50 km of it
               </span>
             </label>
+            <label class="check">
+              <input id="search-place-names" type="checkbox" />
+              <span>
+                Place names from the basemap — towns and villages, once they
+                have been read out of it below
+              </span>
+            </label>
+            <label class="check">
+              <input id="search-pois" type="checkbox" />
+              <span>
+                Points of interest from the basemap — restaurants, hotels, shops
+              </span>
+            </label>
             <p id="search-settings-status" class="notice" hidden></p>
           </section>
 
           <section>
             <h2>Place names</h2>
-            <p class="hint">
-              Searching the basemap for a place name is not built. The archive
-              holds rendered tiles rather than an index, so a name exists in it
-              as something to draw at a zoom — answering "where is Vienna" means
-              extracting those names into a list first. What that would cost is
-              written down in <code>IDEAS.md</code>; nothing here does it yet.
-            </p>
+            <p class="hint">Towns, villages and districts, read out of the basemap at zoom 10. About half a million tiles and a couple of minutes, and roughly a million names.</p>
+
+            <table class="progress-table">
+              <tr><th>Read out of the archive</th><td id="gaz-place-built">—</td></tr>
+              <tr><th>Names</th><td id="gaz-place-names">—</td></tr>
+              <tr><th>Built from</th><td id="gaz-place-from">—</td></tr>
+            </table>
+
+            <p id="gaz-place-state" class="status-line"></p>
+            <div id="gaz-place-row" class="progress-row" hidden>
+              <progress id="gaz-place-bar" max="100" value="0"></progress>
+              <p id="gaz-place-text" class="progress-text"></p>
+            </div>
+
+            <div class="button-row">
+              <button id="gaz-place-build" type="button" class="primary">Read the archive</button>
+              <button id="gaz-place-stop" type="button">Stop</button>
+              <button id="gaz-place-delete" type="button">Delete</button>
+            </div>
+          </section>
+
+          <section>
+            <h2>Points of interest</h2>
+            <p class="hint">Restaurants, hotels, shops and the like. These are only in the deepest tiles, so reading them means going through the whole archive — <strong>hours, not minutes</strong>, and several gigabytes of index. It runs in the background and gives way to any drawing or importing, so nothing else gets slower while it works.</p>
+
+            <table class="progress-table">
+              <tr><th>Read out of the archive</th><td id="gaz-poi-built">—</td></tr>
+              <tr><th>Names</th><td id="gaz-poi-names">—</td></tr>
+              <tr><th>Built from</th><td id="gaz-poi-from">—</td></tr>
+            </table>
+
+            <p id="gaz-poi-state" class="status-line"></p>
+            <div id="gaz-poi-row" class="progress-row" hidden>
+              <progress id="gaz-poi-bar" max="100" value="0"></progress>
+              <p id="gaz-poi-text" class="progress-text"></p>
+            </div>
+
+            <div class="button-row">
+              <button id="gaz-poi-build" type="button" class="primary">Read the archive</button>
+              <button id="gaz-poi-stop" type="button">Stop</button>
+              <button id="gaz-poi-delete" type="button">Delete</button>
+            </div>
           </section>
         </div>
 
@@ -661,6 +718,8 @@
               <tr><th>Views affected</th><td id="progress-views">—</td></tr>
               <tr><th>Render workers</th><td id="progress-workers">—</td></tr>
             </table>
+
+            <p id="gaz-progress" class="status-line" hidden></p>
 
             <div class="button-row">
               <button id="progress-start" type="button" class="primary">Resume rendering</button>

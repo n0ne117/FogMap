@@ -46,7 +46,7 @@ Delete both caches, run a rebuild, get byte-identical output. That means the who
 - Freehand and point-to-point route drawing for pre-digital history
 - Pins with titles, colour-coded labels, tags, who you were with, and nested folders, each clearing the fog around it
 - Major and minor pins: minor ones are drawn smaller and drop out when zoomed further out than z7, so a busy area stays legible
-- Search, as you type: your own pins by title, tag, label, folder or who was there, and your tracks by name or year — or paste `27.74367, -15.58338`, or the degrees-minutes-seconds a map site gives you, and fly there with the option to keep the spot as a pin. Plus Codes too, full or short. Each kind can be switched off under Settings, Appearance; tracks and Plus Codes start off. Read-only, so it needs no token
+- Search, as you type: your own pins by title, tag, label, folder or who was there, and your tracks by name or year — or paste `27.74367, -15.58338`, or the degrees-minutes-seconds a map site gives you, and fly there with the option to keep the spot as a pin. Plus Codes too, full or short. Optionally the basemap's own place names and points of interest, read out of the archive once and searched offline. Each kind has its own switch under Settings, Search, and only pins and coordinates start on. "This view" narrows any search to what is on screen. Read-only, so it needs no token
 - Independent light/dark themes for the interface and the map
 
 ## Quick start

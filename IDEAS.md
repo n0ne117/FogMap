@@ -66,21 +66,8 @@ it is fine at breakfast and the problem is only at the end of a long day.
 ## Search: the rest of it
 
 Built: coordinates (0.17.10), your own pins and tracks (0.17.12), suggestions as
-you type (0.17.15), per-kind toggles (0.17.16) and Plus Codes (0.17.17). The magnifying glass beside the settings
-button opens a bar, `GET /api/search` answers, and results are a list of things
-with somewhere to go. Pins match on title, tag, label, folder, category and who
-was there; tracks on name and year. Searching is read-only and needs no token;
-keeping a searched coordinate as a pin is the write, so that offer appears only
-when there is a token to make it with.
-
-Typing suggests rather than travels - an intermediate coordinate parses, so
-flying on each keystroke would pass through places nobody asked for - and late
-answers are dropped so a slow reply cannot overwrite a newer query's results.
-
-The 137 GB basemap still cannot be searched: PMTiles holds rendered vector
-tiles, so a place name exists as geometry to draw at a zoom rather than as an
-index, and answering "where is Vienna" would mean scanning the archive. That
-constraint is what the two remaining routes exist to work around.
+you type (0.17.15), per-kind toggles (0.17.16), Plus Codes (0.17.17), a settings
+page of its own (0.17.18) and the basemap's own names (0.17.19).
 
 What is left:
 
@@ -89,61 +76,27 @@ What is left:
    Deliberately not done: pulling the first coordinate-looking pair out of
    arbitrary text invites false positives, and it wants its own tests rather
    than being smuggled into the parser.
-2. **A local gazetteer.** A one-off extraction of place names out of the PMTiles
-   into SQLite FTS5. The only route to "where is Vienna" that keeps the premise.
-   Costed below.
 
-### What a gazetteer would actually cost
+### What the gazetteer actually cost
 
-Read off the installed archive's own header rather than guessed at. Everything
-labelled an estimate is one.
+Estimated first, then measured, and the estimates were wrong in both directions.
 
-**What is in there.** 137.3 GB, z0-z15, addressing **1,431,655,765** tiles of
-which **135,371,839 are distinct** - the rest are repeats, mostly empty ocean.
-Nine layers. Two of them carry names worth searching:
+**Place names.** 478,382 tiles at z10, **2.5 minutes**, 1,069,426 names. The
+guess was 1.4 million tiles and "minutes across seven cores" - it is a quarter
+of that on one core, because more than half of every zoom is empty ocean and the
+archive stores those once.
 
-| layer | zooms | holds |
-|---|---|---|
-| `places` | z1-z15 | countries, regions, cities, towns, villages, suburbs |
-| `pois` | z5-z15 | named things on the map: pubs, shops, stations, parks |
+**Points of interest.** Still to be built. They exist only in the deepest tiles,
+so it means reading all 135,371,839 distinct blobs - 137 GB, hours rather than
+minutes. `min_zoom` turns out to be advisory: a z15 tile carries POIs marked
+`min_zoom: 16`, which is the only reason a restaurant is reachable at all when
+the archive stops at z15.
 
-Both carry `name`, `kind`, `kind_detail` and a **`min_zoom` per feature**, and a
-label appears at every zoom above its own minimum. That one field decides the
-whole cost, because it says how deep a scan has to go to find a given thing.
-
-**The distinct-blob count is the real bound.** A scan reads blobs, not addresses,
-so even "every zoom" is 135 million tiles rather than 1.4 billion.
-
-**Two features, not one.** They cost different orders of magnitude and should be
-built and switched on separately:
-
-*Settlements.* `places`, min_zoom 10 and below: **1,398,101 tiles**, minutes
-across seven cores, an estimated 250-400 MB of SQLite. This is the half that
-answers "Ferrara".
-
-*Points of interest.* `pois` down to z15, because a pub's `min_zoom` is 14 or 15:
-**135,371,839 distinct blobs, 137 GB read**. At 0.5-2 ms a tile that is
-**2.7-10.7 hours across seven cores** - an overnight job, not a coffee break, and
-dominated by decoding rather than by disk. Storage is a guess until somebody
-counts the features: tens of millions of rows, so single-digit GB. This is the
-half that answers "the Irish pub on Gumpendorferstraße", and only if OSM has it
-tagged and Protomaps kept it - the layer is a curated subset, not all of OSM.
-
-**Measure before building either.** The one number that would turn all of this
-into arithmetic is how many features those two layers actually contain, and
-getting it needs the MVT reader anyway. So the first piece of work is a throwaway
-script that samples a few thousand tiles across the zooms and counts. A day of
-guessing avoided for an hour of reading.
-
-**No dependency.** Nothing here can read a vector tile, and it should stay that
-way: only points from two layers are wanted, and MVT point geometry is command
-integers and zigzag varints over protobuf wire format - about two hundred lines,
-in the same spirit as the hand-written Plus Code decoder and the hand-drawn
-icons. Shipping protobuf into the API image permanently, for a feature most
-installs will never switch on, is the worse trade.
-
-**Localised names would blow up the size.** There are forty-odd `name:xx` fields
-per feature. Build one name plus English.
+**What the sampling changed.** Labels are buffered into neighbouring tiles, so
+55% of what a scan reads is a repeat - the same pub four times around Caorle.
+Dropping them needs a memory of recent keys, and 400,000 of them caught 99.8% of
+the duplicates in the real build; query time collapses the rest. Holding every
+key of a fifteen-million-row scan was never going to fit on the T490.
 
 ### If the basemap is replaced
 

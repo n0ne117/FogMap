@@ -20,7 +20,7 @@ import json
 import re
 import sqlite3
 
-from irfaran import pluscode
+from irfaran import gazetteer, pluscode
 
 #: A signed decimal number. Allows a leading + and a bare `.5`.
 _NUMBER = r"[-+]?(?:\d+(?:\.\d+)?|\.\d+)"
@@ -65,6 +65,8 @@ KINDS = {
     "coordinates": "search_coordinates",
     "plus_codes": "search_plus_codes",
     "plus_codes_short": "search_plus_codes_short",
+    "place_names": "search_place_names",
+    "pois": "search_pois",
 }
 
 #: How each reads in a sentence, since "Plus_codes are switched off" does not.
@@ -74,6 +76,8 @@ NAMES = {
     "coordinates": "Coordinates",
     "plus_codes": "Plus Codes",
     "plus_codes_short": "Short Plus Codes",
+    "place_names": "Place names",
+    "pois": "Points of interest",
 }
 
 DEFAULTS = {
@@ -82,6 +86,8 @@ DEFAULTS = {
     "coordinates": True,
     "plus_codes": False,
     "plus_codes_short": False,
+    "place_names": False,
+    "pois": False,
 }
 
 
@@ -490,9 +496,23 @@ def _plus_code(
     return {"result": plus_code_result(pluscode.encode(lat, lon), lat, lon, True)}
 
 
+def _listed(names: list[str]) -> str:
+    """"A", "A and B", "A, B and C" - rather than "A and B and C"."""
+    if len(names) <= 2:
+        return " and ".join(names)
+    return f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def _within(hit: dict[str, object], box: tuple[float, float, float, float]) -> bool:
+    """Whether a result is inside the map's current view."""
+    west, south, east, north = box
+    lat, lon = float(hit["lat"]), float(hit["lon"])  # type: ignore[arg-type]
+    return south <= lat <= north and west <= lon <= east
+
+
 def _switched_off(kind: str) -> str:
     return (
-        f"{NAMES[kind]} are switched off under Settings, Appearance, so "
+        f"{NAMES[kind]} are switched off under Settings, Search, so "
         f"{text_for(kind)} is not being read."
     )
 
@@ -505,6 +525,7 @@ def search(
     conn: sqlite3.Connection,
     query: str,
     reference: tuple[float, float] | None = None,
+    inside: tuple[float, float, float, float] | None = None,
 ) -> dict[str, object]:
     """Answer a search: a coordinate, or the pins and tracks it matches.
 
@@ -538,29 +559,45 @@ def search(
             return {"query": text, "results": [coordinate_result(*found)], "hint": ""}
 
     pins = _pins(conn, text) if on["pins"] else []
+    if inside is not None:
+        pins = [hit for hit in pins if _within(hit, inside)]
+
     tracks, track_total = _tracks(conn, text) if on["tracks"] else ([], 0)
-    results = [*pins, *tracks]
-    total = len(pins) + track_total
+    if inside is not None:
+        tracks = [hit for hit in tracks if _within(hit, inside)]
+        track_total = len(tracks)
+
+    # The basemap's own names, if they have been extracted. Last, because a pin
+    # somebody placed themselves is a better answer than a label off a map.
+    wanted = [kind for kind in ("place_names", "pois") if on[kind]]
+    named = gazetteer.look_up(
+        conn,
+        text,
+        ["place" if kind == "place_names" else "poi" for kind in wanted],
+        LIMIT,
+        inside,
+    ) if wanted else []
+
+    results = [*pins, *tracks, *named]
+    total = len(pins) + track_total + len(named)
 
     # Nothing found and something switched off is not the same as nothing to
     # find. Saying which, rather than leaving somebody to wonder why a track
     # they can see on the map cannot be searched for.
-    # Plus Codes left out of this list: they are answered above, and saying
-    # "Plus Codes are switched off" to somebody searching for a pin by name
-    # would be noise about a thing they were not asking for.
-    excluded = [
-        kind
-        for kind, allowed in on.items()
-        if not allowed and not kind.startswith("plus_codes")
-    ]
+    # Only the two kinds a plain word could have matched. Plus Codes are
+    # answered above, and the basemap's own names are usually off because they
+    # have not been read out of the archive rather than because somebody
+    # switched them off - so listing them here would be noise about things
+    # nobody was asking for, and misleading noise at that.
+    excluded = [kind for kind in ("pins", "tracks") if not on[kind]]
 
     hint = ""
     if not results and excluded:
         hint = (
             f"Nothing here matches {text!r}. "
-            f"{' and '.join(NAMES[kind] for kind in excluded)} "
+            f"{_listed([NAMES[kind] for kind in excluded])} "
             # Always "are": every one of these names is a plural.
-            "are switched off under Settings, Appearance."
+            "are switched off under Settings, Search."
         )
     elif not results and _FINER.match(text):
         hint = (

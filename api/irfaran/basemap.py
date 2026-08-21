@@ -351,6 +351,15 @@ class Downloader:
 downloader = Downloader()
 
 
+def installed_path(filename: str = "planet.pmtiles") -> Path:
+    """Where the archive is, whether or not it has been downloaded yet.
+
+    Callers that need to read it check `is_file()` themselves - a gazetteer build
+    asked for on a machine with no basemap should say so rather than raise.
+    """
+    return db.basemap_dir() / filename
+
+
 def basemap_status(filename: str = "planet.pmtiles") -> dict[str, object]:
     """What the setup screen needs to know about the basemap."""
     target = db.basemap_dir() / filename

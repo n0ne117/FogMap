@@ -215,6 +215,10 @@ DEFAULT_SETTINGS = {
     # rather than have happen.
     "search_plus_codes": "false",
     "search_plus_codes_short": "false",
+    # The gazetteer, both halves off until built. Switching one on without an
+    # index simply finds nothing; the Search page is where it gets built.
+    "search_place_names": "false",
+    "search_pois": "false",
 }
 
 
@@ -338,6 +342,14 @@ def init(conn: sqlite3.Connection) -> None:
         "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
         sorted(DEFAULT_SETTINGS.items()),
     )
+
+    # The gazetteer's own tables. Created here rather than in SCHEMA above
+    # because they are an optional feature that most installs never build, and
+    # keeping them together with the code that fills them keeps the reason
+    # next to the shape.
+    from irfaran import gazetteer
+
+    gazetteer.install(conn)
 
 
 def open_initialised(path: Path | str | None = None) -> sqlite3.Connection:

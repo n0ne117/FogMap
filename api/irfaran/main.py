@@ -32,6 +32,7 @@ from irfaran import (  # noqa: I001
     places,
     raster,
     history,
+    gazetteer,
     renderq,
     search,
     settings_env,
@@ -1612,6 +1613,10 @@ def search_everything(
     q: str = "",
     lat: float | None = None,
     lon: float | None = None,
+    west: float | None = None,
+    south: float | None = None,
+    east: float | None = None,
+    north: float | None = None,
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> dict[str, object]:
     """Answer a search. Coordinates for now.
@@ -1632,7 +1637,78 @@ def search_everything(
     because the server has no idea what is on screen.
     """
     reference = None if lat is None or lon is None else (lat, lon)
-    return search.search(conn, q, reference)
+
+    # The four corners are sent only when somebody has asked for "this view
+    # only". A name like Eleven belongs to a hundred pizzerias, and the one
+    # meant is the one on screen.
+    inside = (
+        None
+        if None in (west, south, east, north)
+        else (float(west), float(south), float(east), float(north))  # type: ignore[arg-type]
+    )
+    return search.search(conn, q, reference, inside)
+
+
+@app.get("/api/gazetteer")
+def gazetteer_status(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, object]:
+    """What names have been extracted from the basemap, and what is being read.
+
+    No token: it says what exists, like the render status does, and a page that
+    cannot show its own state until credentials are pasted is a page nobody
+    trusts.
+    """
+    return {
+        **gazetteer.status(conn, basemap.installed_path()),
+        "live": gazetteer.builder.snapshot(),
+        "busy": gazetteer.builder.running,
+    }
+
+
+@app.post("/api/gazetteer/{kind}")
+def gazetteer_build(
+    kind: str, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    """Start reading one kind out of the archive. Returns at once.
+
+    The work belongs to the server: closing the browser does not stop it, and it
+    yields to the render queue rather than competing with it, so drawing and
+    importing stay as quick as they were.
+    """
+    outcome = gazetteer.builder.start(kind, basemap.installed_path())
+    if not outcome.get("started") and "reason" in outcome:
+        detail = str(outcome["reason"])
+        if "nothing called" in detail:
+            raise HTTPException(status_code=404, detail=detail)
+    return {**outcome, **gazetteer.status(conn, basemap.installed_path())}
+
+
+@app.delete("/api/gazetteer/{kind}")
+def gazetteer_remove(
+    kind: str, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict[str, object]:
+    """Throw an extracted index away, and switch its search off with it."""
+    if gazetteer.builder.running:
+        raise HTTPException(
+            status_code=409,
+            detail="Something is being read out of the archive. Stop it first.",
+        )
+    try:
+        removed = gazetteer.remove(conn, kind)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404, detail=f"There is nothing called {kind!r} to remove."
+        ) from exc
+
+    history.record(
+        conn, "manual", "gazetteer", f"Removed the {kind} names ({removed:,} rows)", {}
+    )
+    return {"removed": removed, **gazetteer.status(conn, basemap.installed_path())}
+
+
+@app.post("/api/gazetteer/stop")
+def gazetteer_stop(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, object]:
+    """Ask it to stop after the batch in hand. What is read stays read."""
+    return {**gazetteer.builder.stop(), **gazetteer.status(conn, basemap.installed_path())}
 
 
 @app.get("/api/places")
